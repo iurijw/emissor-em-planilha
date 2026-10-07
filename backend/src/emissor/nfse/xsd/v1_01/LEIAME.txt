@@ -1,0 +1,4 @@
+Fonte: https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/nfse-esquemas_xsd-v1-01-20260209.zip
+Arquivos oficiais sem alteracao, exceto tiposSimples_v1.01.xsd (TSSerieDPS): o padrao oficial
+'^0{0,4}\d{1,5}$' foi trocado por '0{0,4}\d{1,5}' porque ^ e $ sao literais em regex XSD e
+rejeitam qualquer serie (inclusive as notas reais do Emissor Web).

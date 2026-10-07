@@ -1,0 +1,35 @@
+# XMLs reais usados em testes locais (dados de clientes: nunca versionar)
+/temp/
+
+# Dados de runtime: banco, certificado, XML/PDF emitidos, logs
+# (só a pasta da raiz: backend/src/emissor/data/ tem a tabela IBGE e é versionada)
+/data/
+
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# Certificados e segredos nunca entram no git
+*.pfx
+*.p12
+*.pem
+*.key
+.env
+.env.*
+
+# SO / editores / ferramentas
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.tsbuildinfo
+.claude/settings.local.json
