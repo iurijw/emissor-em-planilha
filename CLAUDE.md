@@ -227,7 +227,7 @@ Feito no Firefox (instância isolada) com certificado ICP-Brasil **falso** e XML
 - Layout conferido em 1440 px e 390 px.
 
 Roteiro de teste em homologação (para quem instala):
-1. `atualizar.bat` e depois `iniciar.bat` no servidor; abrir `http://<servidor>:8000`.
+1. `iniciar.bat` (ou `docker compose up -d`) no servidor; abrir `http://<servidor>:8000`.
 2. Onboarding com o certificado real e XMLs de notas já emitidas; manter **Homologação**, série 1, próxima DPS 1.
 3. Configurações → "Testar conexão" (deve dizer que a conexão e o certificado foram aceitos).
 4. Emitir 1 ou 2 linhas; conferir PDF/XML na aba Emissões.
@@ -264,8 +264,9 @@ XMLs, o CNPJ vem do certificado; o envio de um certificado de outro CNPJ gera av
 ```
 emissor-em-planilha/
 ├─ CLAUDE.md, README.md
-├─ atualizar.bat, iniciar.bat   # Windows: build + execução
-├─ docs/                     # NT 008, imagens do README
+├─ iniciar.bat               # Windows: instala/atualiza o que faltar e executa
+├─ Dockerfile, docker-compose.yaml   # alternativa: Docker (dados em ./data)
+├─ docs/                     # NT 008; img/ e video/ do README (dados fictícios)
 ├─ backend/                  # projeto uv (Python 3.12)
 │  ├─ pyproject.toml
 │  ├─ src/emissor/
@@ -367,8 +368,15 @@ emissor-em-planilha/
   CPF `529.982.247-25`, município 4205407).
 - Código e identificadores em inglês quando genéricos; termos fiscais mantêm o nome do leiaute
   (`nDPS`, `cTribNac`, `tpRetISSQN`...). Textos da interface em português.
-- **Servidor Windows:** `atualizar.bat` (npm install + build do frontend + uv sync) e `iniciar.bat`
-  (sobe em http://<servidor>:8000). O backend serve `frontend/dist`.
+- **Execução: só `iniciar.bat` ou `docker compose up -d`** (decisão de produto: um ponto de entrada por plataforma).
+  - `iniciar.bat` (Windows): exige `uv` e Node; faz `npm ci` + `npm run build` quando `frontend/dist` não existe ou
+    algum arquivo de `frontend/src`, `public`, `index.html`, `vite.config.ts` ou `package-lock.json` é mais novo que
+    `dist/index.html` (git pull/ZIP novo); depois `uv sync --locked --no-dev` e `uv run emissor`. Arquivo com CRLF.
+  - Docker: build em 2 estágios (node:22-alpine → python:3.12-slim + `fonts-liberation` + `tzdata`, uv só montado no
+    build); `EMISSOR_DATA_DIR=/data`, `TZ=America/Sao_Paulo`; o compose monta `./data`, usa `pull_policy: build`
+    (todo `up` reconstrói com cache) e tem linhas comentadas para usar `C:/Windows/Fonts` no DANFSe. No Docker Desktop
+    o IP de origem é o do Docker, então `EMISSOR_IPS_PERMITIDOS` não serve para filtrar máquinas da rede.
+  - O backend serve `frontend/dist`.
 - **Desenvolvimento do frontend:** `cd frontend && npm run dev` (Vite em :5173 com proxy de `/api` para :8000;
   `EMISSOR_API=http://127.0.0.1:8765 npm run dev` aponta para outra instância);
   `npx tsc --noEmit -p tsconfig.json` para checar tipos; `npm run build` gera `frontend/dist`.
@@ -403,3 +411,6 @@ emissor-em-planilha/
 | 2026-09-23 | Glide Data Grid para a tabela | Seleção em faixa e colar do Excel sem licença comercial |
 | 2026-10-07 | Projeto publicado como **Emissor em Planilha**: nome e logo novos, histórico git novo, fixtures com dados fictícios | Abrir o código sem dados do escritório de origem nem de clientes |
 | 2026-10-07 | `verAplic` = `EmPlanilha_<versão>` | "EmissorEmPlanilha_0.1.0" passaria do limite de 20 caracteres do XSD |
+| 2026-10-08 | Rodar só por `iniciar.bat` (instala, atualiza e gera a página sozinho) ou `docker-compose.yaml`; `atualizar.bat` removido | Um único ponto de entrada por plataforma; atualizar = baixar o código e iniciar de novo |
+| 2026-10-08 | Imagens e vídeos do README em `docs/img` e `docs/video`, gravados com dados fictícios, certificado falso e Sefin/BrasilAPI simuladas (Chrome headless + screencast CDP + ffmpeg, scripts fora do repo) | Mostrar o fluxo real sem dados de clientes; GIF para o README (vídeo `<video>` só funciona com anexos do GitHub) e MP4 para download |
+| 2026-10-08 | Publicação no GitHub pela conta `iurijw`; autor dos commits `Iuri JW <iuriwissmann@gmail.com>` | Pedido do mantenedor |

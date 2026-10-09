@@ -3,7 +3,7 @@ name = "emissor"
 version = "0.1.0"
 description = "Emissor em Planilha: emissão de NFS-e Nacional (Sefin) em lote a partir de uma planilha"
 authors = [
-    { name = "dev", email = "dev@local" }
+    { name = "Iuri JW", email = "iuriwissmann@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [

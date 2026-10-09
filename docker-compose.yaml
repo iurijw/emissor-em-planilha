@@ -1,0 +1,30 @@
+# Emissor em Planilha com Docker (Windows, Linux ou macOS).
+#
+#   docker compose up -d       sobe o sistema em http://<este-computador>:8000
+#   docker compose logs -f     acompanha o log
+#   docker compose down        para o sistema
+#
+# Depois de atualizar o código (git pull), basta rodar "docker compose up -d" de novo:
+# a imagem é reconstruída sozinha. Banco, certificado criptografado, XML/PDF emitidos e
+# logs ficam na pasta ./data — é ela que vai no backup.
+services:
+  emissor:
+    build: .
+    image: emissor-em-planilha
+    pull_policy: build
+    container_name: emissor-em-planilha
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      # DANFSe com as fontes Arial/Microsoft Sans Serif do Windows (opcional; sem elas
+      # o PDF usa Liberation Sans, de mesmas medidas). Descomente as duas linhas:
+      # - C:/Windows/Fonts:/fontes-windows:ro
+    environment:
+      TZ: America/Sao_Paulo
+      # EMISSOR_FONT_DIR: /fontes-windows
+      # Restringe o acesso a uma faixa da rede (CIDRs separados por vírgula; vazio = todos).
+      # No Docker Desktop (Windows/macOS) todos os acessos chegam com o IP interno do Docker:
+      # nesse caso, restrinja pelo firewall do computador.
+      EMISSOR_IPS_PERMITIDOS: ""
