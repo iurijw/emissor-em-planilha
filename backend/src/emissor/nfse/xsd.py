@@ -48,3 +48,11 @@ def validar_dps(doc: etree._Element | bytes) -> list[XsdErro]:
 
 def validar_nfse(doc: etree._Element | bytes) -> list[XsdErro]:
     return _validar("NFSe_v1.01.xsd", doc)
+
+
+def validar_pedido_evento(doc: etree._Element | bytes) -> list[XsdErro]:
+    return _validar("pedRegEvento_v1.01.xsd", doc)
+
+
+def validar_evento(doc: etree._Element | bytes) -> list[XsdErro]:
+    return _validar("evento_v1.01.xsd", doc)

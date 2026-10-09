@@ -60,6 +60,18 @@ export function ErroCaixa({ erro, titulo }: { erro: unknown; titulo?: string }) 
   if (!erro) return null;
   const e = erro instanceof ApiError ? erro : null;
   const msg = e?.message ?? (erro instanceof Error ? erro.message : String(erro));
+  if (e?.sefin) {
+    // Erro da Sefin/ADN: código, mensagem original e "Como resolver".
+    return (
+      <div className="erro-caixa" role="alert">
+        <div>
+          {titulo && <strong style={{ marginBottom: 6 }}>{titulo}</strong>}
+          <MensagensSefin erro={e.sefin} />
+          {e.requestId && <span className="rid">Código para suporte: {e.requestId}</span>}
+        </div>
+      </div>
+    );
+  }
   const itens = e ? detalhesComoLista(e.detalhes) : [];
   return (
     <div className="erro-caixa" role="alert">

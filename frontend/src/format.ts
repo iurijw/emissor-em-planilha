@@ -89,7 +89,19 @@ export const STATUS_ROTULO: Record<string, string> = {
   rejeitada: "Rejeitada",
   erro: "Erro",
   nao_enviada: "Não enviada",
+  cancelada: "Cancelada",
+  substituida: "Substituída",
 };
+
+/** "há 5 min", "há 2 h" ou data/hora para períodos maiores. */
+export function haQuanto(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "agora há pouco";
+  if (min < 60) return `há ${min} min`;
+  if (min < 24 * 60) return `há ${Math.floor(min / 60)} h`;
+  return `em ${dataHora(iso)}`;
+}
 
 /** Texto copiado do Excel/Sheets (TSV; células com tab/quebra/aspas vêm entre aspas). */
 export function parseTSV(texto: string): string[][] {

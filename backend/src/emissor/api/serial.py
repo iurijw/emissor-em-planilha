@@ -6,7 +6,7 @@ from dataclasses import asdict, fields
 from datetime import datetime
 from typing import Any
 
-from emissor.db import Cliente, Emissao, LinhaTabela, Lote
+from emissor.db import Cliente, Emissao, EventoNFSe, LinhaTabela, Lote
 from emissor.nfse import codes
 from emissor.nfse.models import ConfigFiscal
 
@@ -45,6 +45,7 @@ def emissao_resumo(e: Emissao) -> dict[str, Any]:
         "dh_emissao": dt(e.dh_emissao),
         "tem_xml": bool(e.xml_path),
         "tem_pdf": bool(e.xml_path),  # PDF é gerado sob demanda a partir do XML se faltar
+        "pode_cancelar": e.status == "autorizada" and bool(e.chave_acesso),
         "erro": erro,
         "alertas": e.alertas(),
         "recuperada": e.recuperada,
@@ -52,7 +53,7 @@ def emissao_resumo(e: Emissao) -> dict[str, Any]:
     }
 
 
-def emissao_detalhe(e: Emissao) -> dict[str, Any]:
+def emissao_detalhe(e: Emissao, eventos: list[EventoNFSe] | None = None) -> dict[str, Any]:
     d = emissao_resumo(e)
     d.update(
         {
@@ -60,9 +61,23 @@ def emissao_detalhe(e: Emissao) -> dict[str, Any]:
             "dh_processamento": e.dh_processamento,
             "tentativas": e.tentativas,
             "criado_em": dt(e.criado_em),
+            "eventos": [evento_dict(ev) for ev in eventos or []],
         }
     )
     return d
+
+
+def evento_dict(ev: EventoNFSe) -> dict[str, Any]:
+    return {
+        "id": ev.id,
+        "tipo": ev.tipo,
+        "descricao": ev.descricao,
+        "motivo": ev.motivo,
+        "autor": ev.autor,
+        "dh_evento": dt(ev.dh_evento),
+        "origem": ev.origem,
+        "tem_xml": bool(ev.xml_path),
+    }
 
 
 def linha_dict(ln: LinhaTabela, ultima: Emissao | None) -> dict[str, Any]:

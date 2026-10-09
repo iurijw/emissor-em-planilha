@@ -1,8 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { api, baixar, type Emissao, type ListaEmissoes } from "../api";
-import { dataHora, formatarDocumento, moeda } from "../format";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, baixar, COM_ARQUIVOS, type Emissao, type EstadoSincronizacao, type ListaEmissoes } from "../api";
+import { CancelarNotas } from "../components/CancelarNotas";
+import { dataHora, formatarDocumento, haQuanto, moeda } from "../format";
 import { AmbChip, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
+
+const temArquivos = (e: Emissao) => COM_ARQUIVOS.includes(e.status);
 
 function hoje(offsetDias = 0) {
   const d = new Date();
@@ -21,9 +24,11 @@ export function Emissoes() {
   const toast = useToast();
   const [filtro, setFiltro] = useState({ de: inicioMes(), ate: hoje(), status: "", ambiente: "", q: "", lote: loteDoHash() });
   const [pagina, setPagina] = useState(1);
-  const [marcadas, setMarcadas] = useState<Set<number>>(new Set());
+  const [marcadas, setMarcadas] = useState<Map<number, Emissao>>(new Map());
   const [aberta, setAberta] = useState<number | null>(null);
   const [baixando, setBaixando] = useState<string | null>(null);
+  const [cancelando, setCancelando] = useState<Emissao[] | null>(null);
+  const qc = useQueryClient();
 
   useEffect(() => setPagina(1), [filtro]);
   const params = useMemo(() => {
@@ -45,13 +50,14 @@ export function Emissoes() {
     refetchInterval: (q) => (q.state.data?.itens.some((e) => ["pendente", "processando"].includes(e.status)) ? 2000 : false),
   });
   const itens = lista.data?.itens ?? [];
-  const autorizadasPagina = itens.filter((e) => e.status === "autorizada");
-  const todasMarcadas = autorizadasPagina.length > 0 && autorizadasPagina.every((e) => marcadas.has(e.id));
+  const selecionaveis = itens.filter(temArquivos);
+  const todasMarcadas = selecionaveis.length > 0 && selecionaveis.every((e) => marcadas.has(e.id));
+  const cancelaveis = [...marcadas.values()].filter((e) => e.pode_cancelar);
 
-  function alternar(id: number) {
+  function alternar(e: Emissao) {
     setMarcadas((m) => {
-      const n = new Set(m);
-      n.has(id) ? n.delete(id) : n.add(id);
+      const n = new Map(m);
+      n.has(e.id) ? n.delete(e.id) : n.set(e.id, e);
       return n;
     });
   }
@@ -59,7 +65,7 @@ export function Emissoes() {
   async function baixarZip(conteudo: "xml" | "pdf" | "ambos") {
     setBaixando(conteudo);
     try {
-      await baixar("/api/emissoes/zip", { ids: [...marcadas], conteudo });
+      await baixar("/api/emissoes/zip", { ids: [...marcadas.keys()], conteudo });
     } catch (e) {
       toast((e as Error).message, "erro");
     } finally {
@@ -83,6 +89,8 @@ export function Emissoes() {
           </div>
         )}
       </div>
+
+      <SituacaoAmbienteNacional />
 
       <div className="filtros">
         {filtro.lote ? (
@@ -109,6 +117,7 @@ export function Emissoes() {
           <select value={filtro.status} onChange={(e) => setFiltro({ ...filtro, status: e.target.value })}>
             <option value="">Todas</option>
             <option value="autorizada">Autorizadas</option>
+            <option value="cancelada,substituida">Canceladas / substituídas</option>
             <option value="rejeitada,erro">Com problema</option>
             <option value="nao_enviada">Não enviadas</option>
             <option value="pendente,processando">Em andamento</option>
@@ -134,7 +143,7 @@ export function Emissoes() {
 
       <div className="barra" style={{ paddingTop: 0 }}>
         <span style={{ color: "var(--grafite)" }}>
-          {marcadas.size ? <><b className="num" style={{ color: "var(--tinta)" }}>{marcadas.size}</b> selecionada(s)</> : "Selecione notas autorizadas para baixar em lote"}
+          {marcadas.size ? <><b className="num" style={{ color: "var(--tinta)" }}>{marcadas.size}</b> selecionada(s)</> : "Selecione notas para baixar ou cancelar em lote"}
         </span>
         <button className="btn btn--pequeno" disabled={!marcadas.size || !!baixando} onClick={() => baixarZip("ambos")}>
           {baixando === "ambos" && <Spinner />} Baixar XML + PDF
@@ -145,8 +154,17 @@ export function Emissoes() {
         <button className="btn btn--pequeno" disabled={!marcadas.size || !!baixando} onClick={() => baixarZip("pdf")}>
           {baixando === "pdf" && <Spinner />} Só PDF
         </button>
+        <span className="barra__sep" />
+        <button
+          className="btn btn--pequeno btn--perigo"
+          disabled={!cancelaveis.length}
+          title={marcadas.size && !cancelaveis.length ? "Nenhuma das selecionadas está autorizada" : undefined}
+          onClick={() => setCancelando(cancelaveis)}
+        >
+          Cancelar{cancelaveis.length ? ` (${cancelaveis.length})` : ""}…
+        </button>
         {marcadas.size > 0 && (
-          <button className="btn btn--pequeno btn--fantasma" onClick={() => setMarcadas(new Set())}>
+          <button className="btn btn--pequeno btn--fantasma" onClick={() => setMarcadas(new Map())}>
             Limpar seleção
           </button>
         )}
@@ -160,12 +178,12 @@ export function Emissoes() {
               <th style={{ width: 36 }}>
                 <input
                   type="checkbox"
-                  aria-label="Selecionar autorizadas desta página"
+                  aria-label="Selecionar as notas desta página"
                   checked={todasMarcadas}
                   onChange={() =>
                     setMarcadas((m) => {
-                      const n = new Set(m);
-                      autorizadasPagina.forEach((e) => (todasMarcadas ? n.delete(e.id) : n.add(e.id)));
+                      const n = new Map(m);
+                      selecionaveis.forEach((e) => (todasMarcadas ? n.delete(e.id) : n.set(e.id, e)));
                       return n;
                     })
                   }
@@ -200,18 +218,18 @@ export function Emissoes() {
                   <input
                     type="checkbox"
                     aria-label={`Selecionar nota de ${e.tomador_nome}`}
-                    disabled={e.status !== "autorizada"}
+                    disabled={!temArquivos(e)}
                     checked={marcadas.has(e.id)}
-                    onChange={() => alternar(e.id)}
+                    onChange={() => alternar(e)}
                   />
                 </td>
-                <td className="num clicavel" onClick={() => setAberta(e.id)}>{e.numero_nfse ?? "—"}</td>
+                <td className={`num clicavel ${temArquivos(e) && e.status !== "autorizada" ? "riscado" : ""}`} onClick={() => setAberta(e.id)}>{e.numero_nfse ?? "—"}</td>
                 <td className="clicavel" onClick={() => setAberta(e.id)}>{dataHora(e.dh_emissao || e.atualizado_em)}</td>
                 <td className="clicavel" onClick={() => setAberta(e.id)}>
                   <div style={{ fontWeight: 550 }}>{e.tomador_nome}</div>
                   <div className="num" style={{ color: "var(--grafite)" }}>{formatarDocumento(e.tomador_documento)}</div>
                 </td>
-                <td className="dir num">{moeda(e.valor)}</td>
+                <td className={`dir num ${temArquivos(e) && e.status !== "autorizada" ? "riscado" : ""}`}>{moeda(e.valor)}</td>
                 <td>
                   <button className="btn btn--fantasma btn--pequeno" style={{ padding: 0 }} onClick={() => setAberta(e.id)}>
                     <StatusChip status={e.status} />
@@ -220,7 +238,7 @@ export function Emissoes() {
                 </td>
                 <td><AmbChip ambiente={e.ambiente} /></td>
                 <td>
-                  {e.status === "autorizada" && (
+                  {temArquivos(e) && (
                     <div style={{ display: "flex", gap: 4 }}>
                       <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/xml`).catch((x) => toast(x.message, "erro"))}>XML</button>
                       <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/pdf`).catch((x) => toast(x.message, "erro"))}>PDF</button>
@@ -239,18 +257,116 @@ export function Emissoes() {
           <button className="btn btn--pequeno" disabled={pagina * lista.data.por_pagina >= lista.data.total} onClick={() => setPagina((p) => p + 1)}>Próxima</button>
         </div>
       )}
-      {aberta !== null && <DetalheEmissao id={aberta} fechar={() => setAberta(null)} />}
+      {aberta !== null && <DetalheEmissao id={aberta} fechar={() => setAberta(null)} cancelar={(e) => setCancelando([e])} />}
+      {cancelando && (
+        <CancelarNotas
+          emissoes={cancelando}
+          fechar={() => setCancelando(null)}
+          concluido={() => {
+            setMarcadas(new Map());
+            qc.invalidateQueries();
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function DetalheEmissao({ id, fechar }: { id: number; fechar: () => void }) {
+/** Confere no Ambiente Nacional (ADN) a situação das notas: cancelamentos feitos no portal etc. */
+function SituacaoAmbienteNacional() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const estado = useQuery({
+    queryKey: ["sincronizacao"],
+    queryFn: () => api.get<EstadoSincronizacao>("/api/sincronizacao"),
+    refetchInterval: (q) => (q.state.data?.em_andamento ? 2000 : false),
+  });
+  const pedida = useRef(false);
+  const ultimaConclusao = useRef<string | null | undefined>(undefined);
+
+  async function solicitar(forcar: boolean) {
+    try {
+      const r = await api.post<EstadoSincronizacao>(`/api/sincronizacao${forcar ? "?forcar=true" : ""}`);
+      if (forcar && r.motivo === "recente") toast("A situação foi conferida há menos de 2 minutos. Tente daqui a pouco.");
+    } catch {
+      // A falha aparece no estado (erro); a lista de emissões continua utilizável.
+    }
+    // Refaz a consulta (descartando uma resposta antiga em voo) para acompanhar a rodada.
+    await qc.invalidateQueries({ queryKey: ["sincronizacao"] });
+  }
+
+  // Ao abrir a aba: confere sozinho (o servidor só repete no máximo 1x por hora).
+  useEffect(() => {
+    if (pedida.current) return;
+    pedida.current = true;
+    solicitar(false);
+  }, []);
+
+  // Uma rodada terminou: recarrega a lista para mostrar as situações novas.
+  const concluida = estado.data?.em_andamento ? undefined : estado.data?.concluida_em;
+  useEffect(() => {
+    if (concluida === undefined) return;
+    if (ultimaConclusao.current !== undefined && ultimaConclusao.current !== concluida) {
+      qc.invalidateQueries({ queryKey: ["emissoes"] });
+      qc.invalidateQueries({ queryKey: ["emissao"] });
+    }
+    ultimaConclusao.current = concluida;
+  }, [concluida, qc]);
+
+  const d = estado.data;
+  if (!d) return null;
+  return (
+    <div className="situacao-adn" role="status">
+      {d.em_andamento ? (
+        <><Spinner /> Conferindo a situação das notas no Ambiente Nacional…</>
+      ) : d.erro ? (
+        <span style={{ color: "var(--erro)" }} title={d.erro}>
+          Não foi possível conferir a situação no Ambiente Nacional: {d.erro.length > 140 ? `${d.erro.slice(0, 140)}…` : d.erro}
+        </span>
+      ) : d.concluida_em ? (
+        <span>
+          Situação das notas conferida no Ambiente Nacional {haQuanto(d.concluida_em)}
+          {d.notas_atualizadas > 0 && <b> · {d.notas_atualizadas} nota(s) mudaram de situação</b>}
+        </span>
+      ) : (
+        <span>A situação das notas (ex.: cancelamentos feitos no portal) ainda não foi conferida no Ambiente Nacional.</span>
+      )}
+      {!d.em_andamento && (
+        <button className="btn btn--pequeno btn--fantasma" onClick={() => solicitar(true)}>Atualizar agora</button>
+      )}
+    </div>
+  );
+}
+
+function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => void; cancelar: (e: Emissao) => void }) {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["emissao", id], queryFn: () => api.get<Emissao>(`/api/emissoes/${id}`) });
   const [verificando, setVerificando] = useState(false);
+  const [consultando, setConsultando] = useState(false);
   const [erro, setErro] = useState<unknown>(null);
   const e = q.data;
+  const cancelamento = e?.eventos?.find((ev) => ["101101", "105104", "305101", "105102"].includes(ev.tipo));
+
+  async function atualizarSituacao() {
+    setConsultando(true);
+    setErro(null);
+    try {
+      const r = await api.post<Emissao>(`/api/emissoes/${id}/situacao`);
+      toast(
+        r.status !== e?.status
+          ? `Situação atualizada: nota ${r.status === "cancelada" ? "cancelada" : r.status === "substituida" ? "substituída" : r.status}.`
+          : r.eventos_novos
+            ? `${r.eventos_novos} evento(s) novo(s) registrado(s).`
+            : "Nenhuma mudança: a situação no Ambiente Nacional é a mesma.",
+      );
+      qc.invalidateQueries();
+    } catch (x) {
+      setErro(x);
+    } finally {
+      setConsultando(false);
+    }
+  }
 
   async function verificar() {
     setVerificando(true);
@@ -278,8 +394,14 @@ function DetalheEmissao({ id, fechar }: { id: number; fechar: () => void }) {
                 {verificando && <Spinner />} Verificar na Sefin
               </button>
             )}
-            {e.status === "autorizada" && (
+            {e.pode_cancelar && (
+              <button className="btn btn--perigo" style={{ marginRight: "auto" }} onClick={() => cancelar(e)}>Cancelar NFS-e…</button>
+            )}
+            {temArquivos(e) && (
               <>
+                <button className="btn" onClick={atualizarSituacao} disabled={consultando} title="Consulta os eventos desta nota no Ambiente Nacional">
+                  {consultando && <Spinner />} Atualizar situação
+                </button>
                 <a className="btn" href={`/api/emissoes/${e.id}/pdf?inline=true`} target="_blank" rel="noreferrer">Abrir PDF</a>
                 <button className="btn" onClick={() => baixar(`/api/emissoes/${e.id}/xml`).catch((x) => toast(x.message, "erro"))}>Baixar XML</button>
               </>
@@ -297,6 +419,21 @@ function DetalheEmissao({ id, fechar }: { id: number; fechar: () => void }) {
             <AmbChip ambiente={e.ambiente} />
             {e.recuperada && <span className="chip">Recuperada após falha de comunicação</span>}
           </div>
+          {cancelamento && e.status !== "autorizada" && (
+            <div className="aviso">
+              <div>
+                <strong>
+                  {e.status === "substituida" ? "NFS-e substituída" : "NFS-e cancelada"}
+                  {cancelamento.dh_evento ? ` em ${dataHora(cancelamento.dh_evento)}` : ""}
+                </strong>
+                {cancelamento.motivo && <div>{cancelamento.motivo}</div>}
+                <div style={{ marginTop: 4, fontSize: 12.5 }}>
+                  {cancelamento.origem === "sistema" ? "Cancelada por este sistema." : "Registrado fora deste sistema (portal nacional ou prefeitura)."}
+                  {" "}O PDF sai com a marca d'água {e.status === "substituida" ? "SUBSTITUÍDA" : "CANCELADA"}.
+                </div>
+              </div>
+            </div>
+          )}
           {e.erro && (
             <div className={e.status === "nao_enviada" ? "aviso" : "erro-caixa"}>
               <MensagensSefin erro={e.erro} />
@@ -313,7 +450,7 @@ function DetalheEmissao({ id, fechar }: { id: number; fechar: () => void }) {
               <MensagensSefin erro={{ tipo: "alerta", resumo: "Alertas da Sefin", mensagens: e.alertas }} />
             </div>
           )}
-          <ErroCaixa erro={erro} titulo="Não foi possível verificar" />
+          <ErroCaixa erro={erro} titulo="Não foi possível consultar a Sefin / Ambiente Nacional" />
           <dl className="dl">
             <dt>Tomador</dt>
             <dd>{e.tomador_nome}<br /><span className="num">{formatarDocumento(e.tomador_documento)}</span></dd>
@@ -330,6 +467,29 @@ function DetalheEmissao({ id, fechar }: { id: number; fechar: () => void }) {
             <dd className="num">{e.tentativas}</dd>
             {e.lote_id && (<><dt>Lote</dt><dd className="num">{e.lote_id}</dd></>)}
           </dl>
+          {!!e.eventos?.length && (
+            <div>
+              <h3 className="secao-titulo">Eventos</h3>
+              <ul className="eventos">
+                {e.eventos.map((ev) => (
+                  <li key={ev.id}>
+                    <div>
+                      <strong>{ev.descricao}</strong>
+                      <span className="num">{ev.dh_evento ? dataHora(ev.dh_evento) : ""}</span>
+                    </div>
+                    {ev.motivo && <div>{ev.motivo}</div>}
+                    <div className="eventos__meta">
+                      {ev.origem === "sistema" ? "Feito por este sistema" : "Vindo do Ambiente Nacional"}
+                      {ev.autor && <> · autor <span className="num">{formatarDocumento(ev.autor)}</span></>}
+                      {ev.tem_xml && (
+                        <> · <button className="link" onClick={() => baixar(`/api/emissoes/${e.id}/eventos/${ev.id}/xml`).catch((x) => toast(x.message, "erro"))}>XML do evento</button></>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {e.chave_acesso && (
             <a href={`https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=${e.chave_acesso}`} target="_blank" rel="noreferrer">
               Consultar no portal nacional da NFS-e

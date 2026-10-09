@@ -76,6 +76,22 @@ class SefinError(Exception):
 _DICAS_CODIGO = {
     "E0010": "A série não pertence à faixa do canal de emissão. Para sistema próprio use série entre 1 e 49999 "
     "(Configurações → Série).",
+    # Eventos (cancelamento) — Anexo II do leiaute.
+    "E0822": "O prazo que o município dá para cancelar a nota já passou. Fora do prazo, peça a "
+    "“Solicitação de Análise Fiscal para Cancelamento” no Portal Nacional da NFS-e ou procure a prefeitura.",
+    "E0823": "O valor da nota passa do limite que o município permite cancelar direto. Peça a análise fiscal "
+    "para cancelamento no Portal Nacional da NFS-e ou procure a prefeitura.",
+    "E0824": "O município não permite cancelar direto nota sem tomador identificado. Procure a prefeitura.",
+    "E0827": "A nota já tem tributos recolhidos vinculados e o município não permite cancelá-la. Procure a prefeitura.",
+    "E0831": "O cancelamento deve ser pedido ao sistema que gerou a nota (ex.: emissor próprio da prefeitura).",
+    "E0840": "A nota já tem um evento que impede o cancelamento (já cancelada, substituída ou bloqueada). "
+    "Use “Atualizar situação” para trazer o estado atual do Ambiente Nacional.",
+    "E0812": "O CNPJ do autor do cancelamento precisa ser o mesmo do certificado digital carregado.",
+    "E1831": "A nota não foi encontrada no Ambiente Nacional. Confira se ela é deste ambiente (homologação/produção).",
+    "E1843": "Data/hora do pedido posterior à da Sefin: confira o relógio do servidor (data, hora e fuso).",
+    "E1845": "O ambiente do pedido (homologação/produção) é diferente do ambiente da nota.",
+    "E1805": "Este evento já foi registrado antes (pedido em duplicidade).",
+    "E0802": "Este evento já foi registrado antes (pedido em duplicidade).",
 }
 
 # Dicas por palavra-chave, para códigos ainda não mapeados.

@@ -50,6 +50,10 @@ empresa.
 - **Homologação e produção**: comece em Produção Restrita (notas de teste) e mude para Produção nas configurações.
   O ambiente fica sempre visível no topo, e emitir em produção exige digitar EMITIR.
 - **Emissões**: busca e filtros, XML e PDF de cada nota, ou várias de uma vez em um ZIP.
+- **Cancelamento** de uma ou várias notas (evento 101101), com motivo. O PDF passa a sair com a marca d'água
+  CANCELADA, e em produção é preciso digitar CANCELAR para confirmar.
+- **Situação sempre atualizada**: ao abrir a aba Emissões, o sistema confere no Ambiente Nacional (ADN) se alguma
+  nota foi cancelada ou substituída fora dele (no portal nacional ou pela prefeitura) e atualiza a lista.
 - **DANFSe gerado no próprio servidor**, conforme a **NT 008/2026 v1.02** (a geração oficial por API foi suspensa em
   03/08/2026), com QR Code para a consulta pública.
 - **Cadastro automático de clientes** a partir de XMLs de notas antigas e da [BrasilAPI](https://brasilapi.com.br)
@@ -140,6 +144,8 @@ Antes de emitir notas de verdade:
 2. Clique em **Emitir todas** (ou marque algumas linhas à esquerda para emitir só elas), confira o total e confirme.
 3. Acompanhe o lote. Se alguma nota for rejeitada, corrija o que a mensagem indicar e emita só aquela linha de novo.
 4. Baixe os PDFs e XMLs no fim do lote ou depois, na aba **Emissões**.
+5. Precisa cancelar? Abra a nota na aba **Emissões** e clique em **Cancelar NFS-e** (ou marque várias e use
+   **Cancelar**). Depois emita a nota correta pela tabela.
 
 Atalhos da tabela:
 
@@ -200,7 +206,16 @@ que estava sendo enviada na hora da queda, abra-a na aba **Emissões** e clique 
 pergunta à Sefin se ela virou nota antes de qualquer reenvio, para não gerar nota em duplicidade.
 
 **Posso cancelar uma nota pelo sistema?**
-Ainda não. Cancele pelo [portal nacional](https://www.nfse.gov.br/EmissorNacional).
+Sim: na aba **Emissões**, abra a nota e clique em **Cancelar NFS-e**, escolha o motivo e descreva-o (mínimo de 15
+caracteres). Dá para cancelar várias de uma vez marcando-as na lista. O município define até quando e até que valor
+a nota pode ser cancelada direto; fora disso a Sefin recusa (ex.: `E0822`, fora do prazo) e a mensagem explica como
+pedir a análise fiscal no [portal nacional](https://www.nfse.gov.br/EmissorNacional). O cancelamento não pode ser
+desfeito.
+
+**Cancelei uma nota no portal nacional. O sistema fica sabendo?**
+Sim. A aba **Emissões** confere a situação no Ambiente Nacional ao ser aberta (no máximo uma vez por hora; use
+**Atualizar agora** para conferir na hora, ou **Atualizar situação** dentro de uma nota). Notas canceladas ou
+substituídas fora do sistema mudam de situação, e o evento fica no histórico da nota com o XML.
 
 **Algo deu errado e não entendi a mensagem.**
 Em **Configurações → Diagnóstico**, baixe o arquivo de diagnóstico e abra uma
@@ -213,6 +228,9 @@ Tabela (cliente, CNPJ/CPF, valor, descrição)
    └─► DPS 1.01 ─► validação nos XSD oficiais ─► assinatura XMLDSig (RSA-SHA256)
           └─► Sefin Nacional (REST + mTLS com o certificado A1)
                  └─► NFS-e autorizada ─► XML salvo + DANFSe em PDF (NT 008/2026)
+
+Cancelamento: pedido de evento 101101 assinado ─► Sefin Nacional ─► evento salvo, PDF com marca CANCELADA
+Situação:     Ambiente Nacional (ADN, distribuição por NSU) ─► eventos feitos fora do sistema
 ```
 
 - **Backend:** Python 3.12, FastAPI, SQLite (SQLModel), lxml, signxml, cryptography, httpx, ReportLab.
@@ -260,7 +278,8 @@ docs/            NT 008/2026 (DANFSe), imagens e vídeos do README
 
 ## Limitações conhecidas
 
-- **Cancelamento** de NFS-e (evento e101101) ainda não implementado: cancele pelo portal nacional.
+- **Substituição** de NFS-e e **solicitação de análise fiscal** para cancelamento fora do prazo: faça pelo portal
+  nacional (o sistema reconhece a nota substituída/cancelada depois).
 - **Grupo IBS/CBS** (reforma tributária) ainda não é enviado. Para optantes do Simples Nacional ele passa a ser
   obrigatório em **janeiro de 2027**.
 - **CNPJ alfanumérico** de tomador é aceito no cadastro, mas a emissão fica bloqueada até a Sefin publicar um XSD

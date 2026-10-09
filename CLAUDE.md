@@ -11,6 +11,9 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
 
 - **Fase atual:** F5 — verificação. O fluxo completo foi testado com Sefin simulada e com a Sefin real recusando um
   certificado falso; a validação em Produção Restrita com certificado real é feita por quem instala.
+- **F6 (parcial, 2026-10-09):** cancelamento (evento 101101) e situação das notas pelo ADN implementados e testados
+  com Sefin/ADN **simulados** (a Sefin/ADN não eram acessíveis do ambiente de desenvolvimento). Validar em
+  Produção Restrita: cancelar uma nota pelo sistema e outra pelo portal e conferir a sincronização.
 - Se a Sefin rejeitar a assinatura da DPS, trocar `C14N` em `backend/src/emissor/nfse/signer.py` para C14N 1.0
   inclusiva e registrar aqui.
 - Ambientes: o sistema alterna entre **Produção Restrita (homologação)** e **Produção** nas configurações.
@@ -47,6 +50,7 @@ Premissas de produto:
 | **pynfse-nacional** (roberto-mello, 0.9.5 jul/2026) | Cliente completo (DPS, assinatura signxml, mTLS, consulta, cancelamento, PDF) | O mais maduro, porém **AGPL-3.0** e o PDF local **não segue a NT 008** (ainda "DANFSe v1.0"). Usado apenas como **referência** de comportamento (não copiar código — licença). |
 | **brans-nfe** (MIT, 0.2.0 alpha jun/2026) | Cliente sobre nfelib | DPS 1.00 + RSA-SHA1, 1 contribuidor. Imaturo. |
 | **nfse_sefin** (claudio-mas) | Diagnóstico | Ainda não emite. O `DESIGN.md` dele tem boas anotações de contrato da API. |
+| **open-nfse** (fm-s, TypeScript, MIT) | Cliente com eventos e distribuição por NSU | Traz os **OpenAPI oficiais** (Sefin, ADN Contribuinte) e as regras do Anexo II de eventos extraídas em `specs/ruleset/`. Usado como **referência** na F6 (pesquisa de 2026-10-09). |
 
 **Conclusão:** não existe lib Python madura + licença permissiva + DPS 1.01 + DANFSe NT 008.
 Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base confiáveis:
@@ -120,8 +124,9 @@ Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base 
 | `certificate.py` | PFX → chave/cert, info (titular, CNPJ via OID 2.16.76.1.3.3), `ssl_context()` p/ mTLS |
 | `dps_builder.py` | `build_dps`, `id_dps` (ordem do XSD, igual às notas do Emissor Web) |
 | `signer.py` | `assinar` / `verificar` (signxml) |
-| `xsd.py` | `validar_dps` / `validar_nfse` |
-| `client.py` | `SefinClient`: `emitir`, `consultar_dps`, `consultar_nfse`; log de cada troca em `data/logs/sefin/` |
+| `xsd.py` | `validar_dps` / `validar_nfse` / `validar_pedido_evento` / `validar_evento` |
+| `client.py` | `SefinClient`: `emitir`, `consultar_dps`, `consultar_nfse`, `registrar_evento`, `consultar_evento`; ADN: `distribuicao_dfe`, `eventos_nfse`; log de cada troca em `data/logs/sefin/` |
+| `eventos.py` | pedido de cancelamento (`preparar_cancelamento`, `enviar_cancelamento` com a mesma lógica anti-duplicidade da emissão), `EventoDoc` (leitura de `<evento>`), tipos de evento e efeito na situação |
 | `errors.py` | `SefinError` (`tipo`: validacao_local/rejeicao/autenticacao/indisponivel/ambiguo), mensagens + dicas |
 | `emissao.py` | `preparar_dps` + `enviar_dps`: retentativa com a **mesma** DPS, verificação `/dps/{id}` antes de reenviar |
 | `xml_reader.py` | `NFSeDoc`, `extrair_padroes` (nota mais recente), `extrair_tomador` |
@@ -152,7 +157,8 @@ Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base 
 ### API e emissão (F3)
 
 Estados da emissão: `pendente → processando → autorizada | rejeitada | erro`; `pendente → nao_enviada`
-(lote cancelado/interrompido). Lote: `em_andamento | concluido | interrompido | cancelado`.
+(lote cancelado/interrompido); `autorizada → cancelada | substituida` (eventos, ver "Eventos" abaixo).
+Lote: `em_andamento | concluido | interrompido | cancelado`.
 
 - `rejeitada` (Sefin recusou ou validação local) **não** interrompe o lote; `erro` de certificado (403/TLS),
   Sefin indisponível, resposta ambígua ou inválida **interrompe** (restantes ficam `nao_enviada`).
@@ -165,6 +171,8 @@ Estados da emissão: `pendente → processando → autorizada | rejeitada | erro
 - Arquivos: `data/xml|pdf/<homologacao|producao>/AAAA/MM/AAAAMMDD_NFSe-NNNN_<PRESTADOR>-para-<TOMADOR>_R<valor>.*`.
   PDF regenerado sob demanda se faltar.
 - Erros HTTP sempre como `{"mensagem": str, "detalhes": [...]}`; 500 inclui `request_id` (mesmo do log).
+  `SefinError` que chega à API vira 400 (rejeição/validação local) ou 502 (certificado, Sefin/ADN fora do ar) com
+  `sefin` = `{tipo, resumo, mensagens[{codigo, descricao, complemento, dica}]}`; a tela mostra código e "Como resolver".
 - Datas no SQLite: hora local sem fuso (`NaiveDatetime`; o SQLModel atual exige a anotação).
 - Tabela: `PUT /api/tabela` recebe o estado completo (a grade salva após cada edição, com debounce).
 - Importação de clientes por XML (`POST /api/clientes/importar-xmls`, XMLs soltos ou `.zip`): cliente novo recebe
@@ -182,6 +190,8 @@ Estados da emissão: `pendente → processando → autorizada | rejeitada | erro
 | `GET /api/municipios?q=` | busca IBGE |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
 | `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip`, `POST /api/emissoes/{id}/verificar` | emissões |
+| `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
+| `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
 
 ### Frontend (F4)
@@ -234,11 +244,53 @@ Roteiro de teste em homologação (para quem instala):
 5. Se algo falhar: Configurações → "Baixar arquivo de diagnóstico" (tem as trocas com a Sefin, sem segredos).
 
 Pendências conhecidas:
-- Cancelamento de NFS-e (evento e101101) — não implementado (F6).
+- Cancelamento e sincronização pelo ADN não testados contra a Sefin/ADN reais (ver Status).
+- Substituição de NFS-e (DPS com `infDPS/subst`) e solicitação de análise fiscal (101103) — não implementadas;
+  feitas no portal, aparecem aqui pela sincronização.
 - Grupo IBS/CBS — obrigatório ao Simples em 01/2027 (F6).
-- CNPJ alfanumérico de tomador bloqueado até a Sefin publicar XSD compatível.
+- CNPJ alfanumérico de tomador bloqueado até a Sefin publicar XSD compatível. **Achado de 2026-10-09:** segundo o
+  open-nfse, o pacote `esquemas-nfse-rtc-v1-01-20260727` (Produção Restrita, em produção desde 10/08/2026) já aceita
+  CNPJ alfanumérico (`TSCNPJ` `[0-9A-Z]{14}`, Ids e chaves) e corrigiu o `TSSerieDPS`. Conferir no gov.br e atualizar
+  `xsd/v1_01/` (não verificado na fonte oficial: gov.br inacessível do ambiente de desenvolvimento).
 - Sem login (decisão de produto); usar `EMISSOR_IPS_PERMITIDOS` para restringir à rede local.
 - Frontend sem testes automatizados (verificado manualmente no navegador); backend com testes pytest.
+
+### Eventos: cancelamento e situação pelo ADN (F6, 2026-10-09)
+
+Pesquisa (OpenAPI oficiais da Sefin e do ADN Contribuinte e regras do Anexo II, via open-nfse; XSD 1.01 local):
+- **Cancelamento = evento 101101**, enviado pelo emitente para `POST {sefin}/nfse/{chave}/eventos` com
+  `{"pedidoRegistroEventoXmlGZipB64": base64(gzip(pedRegEvento assinado))}` → 201 `{eventoXmlGZipB64, ...}`
+  (o `<evento>` processado, assinado pela Sefin). Rejeição: 400 com `erro` **em lista** (o Swagger diz objeto).
+- `pedRegEvento versao="1.01"`: `infPedReg Id="PRE"+chave(50)+tipo(6)` (59 caracteres, **sem** `nPedRegEvento` — o
+  formato antigo de 62 caracteres é rejeitado com E1235), `tpAmb`, `verAplic`, `dhEvento` (com fuso, não posterior ao
+  recebimento — E1843), `CNPJAutor` (= CNPJ do certificado — E0812), `chNFSe`, `e101101{xDesc "Cancelamento de
+  NFS-e", cMotivo 1|2|9, xMotivo 15–255}`. Assinatura igual à da DPS (referência ao `Id` do `infPedReg`).
+- Sem número de pedido: a Sefin deduplica por (chave, tipo). Em timeout/5xx ou E0840/E1805/E0802, consulta-se
+  `GET {sefin}/nfse/{chave}/eventos/101101/1` antes de reenviar o **mesmo** pedido (como na emissão).
+- Cancelamento e substituição são **terminais** (nenhum evento depois). 105102 (substituição) é gerado pelo sistema
+  nacional ao receber uma DPS com `subst` — o contribuinte não o envia. Prazo/valor para cancelar são parametrizados
+  pelo município (E0822/E0823/E0824/E0827) → dicas em `errors.py` apontam a análise fiscal no portal.
+- A NFS-e não muda: `cStat` continua 100. O DANFSe indica a situação só pela marca d'água (NT 008, 2.5.1/2.5.2).
+- **ADN Contribuinte** (`{adn}/contribuintes`, mesmo mTLS): `GET /DFe/{NSU}?lote=true` (até 50 documentos após o NSU:
+  NFS-e e eventos em que o CNPJ aparece) e `GET /NFSe/{chave}/Eventos`. Respostas em PascalCase
+  (`StatusProcessamento`, `LoteDFe[{NSU, ChaveAcesso, TipoDocumento, TipoEvento, ArquivoXml}]`); 404 **com corpo**
+  = nada encontrado, 400 com corpo = rejeição; sem `StatusProcessamento` → resposta não veio do serviço.
+  Sem limite de consulta documentado (na NF-e, consultar de novo em < 1 h após chegar ao fim gera "consumo indevido").
+
+Implementação (`nfse/eventos.py`, `services/eventos.py`, tabelas `evento_nfse` e `sincronizacao_adn`):
+- Cancelar: no ambiente em que a nota foi emitida, só `autorizada`; evento gravado ao lado do XML da nota
+  (`..._evento-101101-001.xml`), status `cancelada`, PDF refeito com CANCELADA. E0840 → consulta os eventos no ADN e,
+  se a nota já estava cancelada/substituída, atualiza e avisa.
+- Efeito dos eventos: 101101/105104/305101 → `cancelada`; 105102 → `substituida`; os demais (manifestação do
+  tomador, bloqueio...) só entram no histórico. Evento de chave que não é do sistema é ignorado.
+- Sincronização (`Sincronizador`): cursor NSU por `ambiente:CNPJ`; pausa de 1 s entre páginas; para quando vem
+  menos de 50 documentos ou nada novo. Disparada ao abrir a aba Emissões, **no máximo 1×/hora** (forçada pelo botão
+  "Atualizar agora": intervalo mínimo de 2 min); thread em segundo plano. O log da troca guarda a resposta sem os XMLs
+  embutidos (vão para `data/xml`). "Atualizar situação" na nota usa `GET /NFSe/{chave}/Eventos`.
+- ZIP de XMLs inclui os eventos; notas canceladas/substituídas continuam baixáveis e saem do total autorizado.
+- Frontend: `components/CancelarNotas.tsx` (uma ou várias notas, uma por vez; para na primeira falha que não seja
+  rejeição; produção exige digitar CANCELAR). Diálogos (`.veu`, z-index 50) ficam acima da gaveta (41) — o diálogo
+  de cancelamento abre a partir dela. Horários da sincronização vão com fuso (`-03:00`): "há X min" no navegador.
 
 ### Padrões que o onboarding extrai dos XMLs
 
@@ -356,8 +408,9 @@ emissor-em-planilha/
   clientes, configurações, tratamento de erros.
 - **F5 — Verificação** (em andamento): testes ponta a ponta no navegador; testes manuais em
   homologação; ajustes; liberação de produção.
-- **F6 — Futuro:** cancelamento de NFS-e, grupo IBS/CBS (obrigatório ao Simples em 01/2027),
-  sincronização com ADN para importar notas emitidas fora do sistema.
+- **F6 — Futuro (em andamento):** ✅ cancelamento de NFS-e e situação pelo ADN (2026-10-09); grupo IBS/CBS
+  (obrigatório ao Simples em 01/2027); importar notas emitidas fora do sistema (a distribuição por NSU já é lida —
+  hoje só os eventos de notas do sistema são aplicados).
 
 ## Convenções
 
@@ -414,3 +467,6 @@ emissor-em-planilha/
 | 2026-10-08 | Rodar só por `iniciar.bat` (instala, atualiza e gera a página sozinho) ou `docker-compose.yaml`; `atualizar.bat` removido | Um único ponto de entrada por plataforma; atualizar = baixar o código e iniciar de novo |
 | 2026-10-08 | Imagens e vídeos do README em `docs/img` e `docs/video`, gravados com dados fictícios, certificado falso e Sefin/BrasilAPI simuladas (Chrome headless + screencast CDP + ffmpeg, scripts fora do repo) | Mostrar o fluxo real sem dados de clientes; GIF para o README (vídeo `<video>` só funciona com anexos do GitHub) e MP4 para download |
 | 2026-10-08 | Publicação no GitHub pela conta `iurijw`; autor dos commits `Iuri JW <iuriwissmann@gmail.com>` | Pedido do mantenedor |
+| 2026-10-09 | Cancelamento pelo evento 101101 com retentativa do **mesmo** pedido e consulta do evento antes de reenviar | Mesma garantia anti-duplicidade da emissão; a Sefin deduplica por (chave, tipo) |
+| 2026-10-09 | Situação das notas pela distribuição do ADN por NSU, ao abrir a aba Emissões e no máximo 1×/hora | Pega cancelamentos feitos no portal/prefeitura com poucas consultas; sem limite documentado, segue a prática da NF-e |
+| 2026-10-09 | Eventos que não cancelam (manifestação, bloqueio) só ficam no histórico da nota | Não mudam a validade da nota |

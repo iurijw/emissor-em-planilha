@@ -7,6 +7,8 @@ Tabelas:
 - ``linha_tabela``  tabela de notas a emitir (persistente)
 - ``lote``          execução de emissão em massa
 - ``emissao``       uma DPS/NFS-e (histórico completo)
+- ``evento_nfse``   eventos das NFS-e emitidas (cancelamento pelo sistema ou vindos do ADN)
+- ``sincronizacao_adn`` cursor (NSU) da distribuição de documentos do Ambiente Nacional
 """
 
 from __future__ import annotations
@@ -144,7 +146,7 @@ class Emissao(SQLModel, table=True):
     lote_id: str | None = Field(default=None, index=True)
     linha_id: int | None = Field(default=None, index=True)
     ambiente: str
-    # pendente | processando | autorizada | rejeitada | erro | cancelada
+    # pendente | processando | autorizada | rejeitada | erro | nao_enviada | cancelada | substituida
     status: str = Field(default="pendente", index=True)
     serie: int | None = None
     n_dps: int | None = None
@@ -172,6 +174,36 @@ class Emissao(SQLModel, table=True):
 
     def alertas(self) -> list[dict[str, Any]]:
         return json.loads(self.alertas_json) if self.alertas_json else []
+
+
+class EventoNFSe(SQLModel, table=True):
+    """Evento de uma NFS-e emitida pelo sistema (cancelamento, substituição, manifestação...)."""
+
+    __tablename__ = "evento_nfse"
+    id: str = Field(primary_key=True)  # Id do evento ("EVT" + 59 dígitos)
+    emissao_id: int | None = Field(default=None, index=True)
+    chave_acesso: str = Field(index=True)
+    ambiente: str
+    tipo: str  # código do leiaute, ex. 101101
+    n_seq: int = 1
+    descricao: str
+    motivo: str | None = None
+    autor: str | None = None
+    dh_evento: NaiveDatetime | None = None  # dhProc (processamento na Sefin)
+    origem: str = "sistema"  # sistema (pedido feito aqui) | ambiente_nacional (portal, prefeitura...)
+    xml_path: str | None = None
+    registrado_em: NaiveDatetime = Field(default_factory=agora)
+
+
+class SincronizacaoADN(SQLModel, table=True):
+    """Último NSU lido da distribuição do ADN, por ambiente e CNPJ."""
+
+    __tablename__ = "sincronizacao_adn"
+    id: str = Field(primary_key=True)  # "<ambiente>:<cnpj>"
+    ultimo_nsu: int = 0
+    iniciada_em: NaiveDatetime | None = None
+    concluida_em: NaiveDatetime | None = None  # última sincronização completa (sem erro)
+    erro: str | None = None
 
 
 _engine: Engine | None = None

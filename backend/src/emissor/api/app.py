@@ -19,6 +19,7 @@ from emissor.api import routes_config, routes_emissoes, routes_tabela
 from emissor.db import engine
 from emissor.logging_setup import bind_context, setup_logging
 from emissor.nfse.certificate import CertificadoError
+from emissor.nfse.errors import SefinError, TipoErro
 from emissor.services.emissao import LoteError, worker
 from emissor.services.tabela import ImportacaoError
 
@@ -97,6 +98,13 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     @app.exception_handler(LoteError)
     async def _lote(_req: Request, exc: LoteError):
         return JSONResponse({"mensagem": exc.mensagem, "detalhes": exc.detalhes}, status_code=400)
+
+    @app.exception_handler(SefinError)
+    async def _sefin(_req: Request, exc: SefinError):
+        # Rejeição: o pedido tem problema (400). Demais: falha ao falar com a Sefin/ADN (502).
+        st = 400 if exc.tipo in (TipoErro.REJEICAO, TipoErro.VALIDACAO_LOCAL) else 502
+        detalhes = [m.texto() + (f" — {m.dica}" if m.dica else "") for m in exc.mensagens]
+        return JSONResponse({"mensagem": exc.resumo, "detalhes": detalhes, "sefin": exc.as_dict()}, status_code=st)
 
     @app.exception_handler(CertificadoError)
     async def _cert(_req: Request, exc: CertificadoError):

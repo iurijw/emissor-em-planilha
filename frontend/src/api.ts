@@ -17,7 +17,40 @@ export interface ErroEmissao {
   mensagens: MensagemSefin[];
 }
 
-export type StatusEmissao = "pendente" | "processando" | "autorizada" | "rejeitada" | "erro" | "nao_enviada";
+export type StatusEmissao =
+  | "pendente"
+  | "processando"
+  | "autorizada"
+  | "rejeitada"
+  | "erro"
+  | "nao_enviada"
+  | "cancelada"
+  | "substituida";
+
+/** Situações em que a nota existe na Sefin (tem XML/PDF para baixar). */
+export const COM_ARQUIVOS: StatusEmissao[] = ["autorizada", "cancelada", "substituida"];
+
+export interface EventoNFSe {
+  id: string;
+  tipo: string;
+  descricao: string;
+  motivo: string | null;
+  autor: string | null;
+  dh_evento: string | null;
+  origem: "sistema" | "ambiente_nacional";
+  tem_xml: boolean;
+}
+
+export interface EstadoSincronizacao {
+  em_andamento: boolean;
+  iniciada_em: string | null;
+  concluida_em: string | null;
+  erro: string | null;
+  documentos: number;
+  eventos_novos: number;
+  notas_atualizadas: number;
+  motivo?: "iniciada" | "em_andamento" | "recente" | "sem_notas";
+}
 
 export interface Emissao {
   id: number;
@@ -39,7 +72,11 @@ export interface Emissao {
   erro: ErroEmissao | null;
   alertas: MensagemSefin[];
   recuperada: boolean;
+  pode_cancelar: boolean;
   atualizado_em: string | null;
+  eventos?: EventoNFSe[];
+  aviso?: string | null;
+  eventos_novos?: number;
   id_dps?: string | null;
   dh_processamento?: string | null;
   tentativas?: number;
@@ -176,11 +213,14 @@ export class ApiError extends Error {
   status: number;
   detalhes: unknown;
   requestId: string | null;
-  constructor(status: number, mensagem: string, detalhes: unknown, requestId: string | null) {
+  /** Erro da Sefin/ADN com códigos e dicas (quando a operação falou com o Ambiente Nacional). */
+  sefin: ErroEmissao | null;
+  constructor(status: number, mensagem: string, detalhes: unknown, requestId: string | null, sefin: ErroEmissao | null = null) {
     super(mensagem);
     this.status = status;
     this.detalhes = detalhes;
     this.requestId = requestId;
+    this.sefin = sefin;
   }
 }
 
@@ -190,15 +230,17 @@ async function tratar<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
     let mensagem = `Erro ${resp.status} ao falar com o servidor.`;
     let detalhes: unknown = null;
+    let sefin: ErroEmissao | null = null;
     if (tipo.includes("application/json")) {
       const corpo = await resp.json().catch(() => null);
       if (corpo?.mensagem) mensagem = corpo.mensagem;
       detalhes = corpo?.detalhes ?? null;
+      sefin = corpo?.sefin ?? null;
     } else {
       const texto = await resp.text().catch(() => "");
       if (texto) mensagem = `${mensagem} ${texto.slice(0, 300)}`;
     }
-    throw new ApiError(resp.status, mensagem, detalhes, rid);
+    throw new ApiError(resp.status, mensagem, detalhes, rid, sefin);
   }
   if (tipo.includes("application/json")) return (await resp.json()) as T;
   return (await resp.blob()) as unknown as T;
