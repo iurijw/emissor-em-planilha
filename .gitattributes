@@ -1,5 +1,8 @@
 * text=auto eol=lf
+*.bat text eol=crlf
 *.pdf binary
 *.png binary
+*.jpg binary
+*.gif binary
+*.mp4 binary
 *.xlsx binary
-*.bat text eol=crlf
