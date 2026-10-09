@@ -15,11 +15,14 @@ from pydantic import BaseModel
 from sqlmodel import func, or_, select
 
 from emissor.api.serial import emissao_detalhe, emissao_resumo, lote_dict
-from emissor.db import Emissao, Lote, sessao
-from emissor.nfse.danfse.render import gerar_danfse
+from emissor.db import Emissao, EventoNFSe, Lote, sessao
 from emissor.nfse.models import normalizar_documento
 from emissor.services import arquivos
+from emissor.services import eventos as eventos_service
 from emissor.services.emissao import criar_lote, verificar_na_sefin, worker
+
+# Notas que existem na Sefin e têm XML/PDF para baixar.
+COM_ARQUIVOS = ("autorizada", "cancelada", "substituida")
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -130,14 +133,47 @@ def _emissao(emissao_id: int) -> Emissao:
     return e
 
 
+def _detalhe(e: Emissao) -> dict[str, Any]:
+    return emissao_detalhe(e, eventos_service.eventos_da_emissao(e.id))
+
+
 @router.get("/emissoes/{emissao_id}")
 def detalhe(emissao_id: int) -> dict[str, Any]:
-    return emissao_detalhe(_emissao(emissao_id))
+    return _detalhe(_emissao(emissao_id))
 
 
 @router.post("/emissoes/{emissao_id}/verificar")
 def verificar(emissao_id: int) -> dict[str, Any]:
-    return emissao_detalhe(verificar_na_sefin(emissao_id))
+    return _detalhe(verificar_na_sefin(emissao_id))
+
+
+class PedidoCancelamento(BaseModel):
+    c_motivo: str
+    x_motivo: str
+
+
+@router.post("/emissoes/{emissao_id}/cancelar")
+def cancelar(emissao_id: int, entrada: PedidoCancelamento) -> dict[str, Any]:
+    r = eventos_service.cancelar(emissao_id, entrada.c_motivo, entrada.x_motivo)
+    return _detalhe(r.emissao) | {"aviso": r.aviso}
+
+
+@router.post("/emissoes/{emissao_id}/situacao")
+def atualizar_situacao(emissao_id: int) -> dict[str, Any]:
+    """Consulta no Ambiente Nacional (ADN) os eventos da nota (ex.: cancelada no portal)."""
+    e, novos = eventos_service.atualizar_situacao(emissao_id)
+    return _detalhe(e) | {"eventos_novos": novos}
+
+
+@router.get("/sincronizacao")
+def estado_sincronizacao() -> dict[str, Any]:
+    return eventos_service.sincronizador().estado()
+
+
+@router.post("/sincronizacao")
+def sincronizar(forcar: bool = False) -> dict[str, Any]:
+    """Lê no ADN os documentos novos (cancelamentos feitos fora do sistema etc.) em segundo plano."""
+    return eventos_service.sincronizador().solicitar(forcar=forcar)
 
 
 def _xml(e: Emissao) -> tuple[Path, bytes]:
@@ -147,12 +183,21 @@ def _xml(e: Emissao) -> tuple[Path, bytes]:
     return p, p.read_bytes()
 
 
+def _xmls_eventos(e: Emissao) -> list[tuple[Path, bytes]]:
+    res = []
+    for ev in eventos_service.eventos_da_emissao(e.id):
+        p = arquivos.absoluto(ev.xml_path)
+        if p and p.is_file():
+            res.append((p, p.read_bytes()))
+    return res
+
+
 def _pdf(e: Emissao) -> tuple[str, bytes]:
     p = arquivos.absoluto(e.pdf_path)
     if p and p.is_file():
         return p.name, p.read_bytes()
     xml_path, xml = _xml(e)
-    pdf = gerar_danfse(xml)
+    pdf = eventos_service.gerar_pdf(e, xml)
     destino = xml_path.with_suffix(".pdf")
     try:
         from emissor import config
@@ -180,6 +225,16 @@ def baixar_xml(emissao_id: int) -> Response:
     return _anexo(p.name, xml, "application/xml")
 
 
+@router.get("/emissoes/{emissao_id}/eventos/{evento_id}/xml")
+def baixar_xml_evento(emissao_id: int, evento_id: str) -> Response:
+    with sessao() as s:
+        ev = s.get(EventoNFSe, evento_id)
+    p = arquivos.absoluto(ev.xml_path) if ev and ev.emissao_id == emissao_id else None
+    if not p or not p.is_file():
+        raise HTTPException(404, "XML do evento não encontrado.")
+    return _anexo(p.name, p.read_bytes(), "application/xml")
+
+
 @router.get("/emissoes/{emissao_id}/pdf")
 def baixar_pdf(emissao_id: int, inline: bool = False) -> Response:
     nome, pdf = _pdf(_emissao(emissao_id))
@@ -199,17 +254,17 @@ def baixar_zip(entrada: ZipEntrada) -> Response:
     if not entrada.ids:
         raise HTTPException(400, "Selecione ao menos uma nota.")
     with sessao() as s:
-        emissoes = [e for e in (s.get(Emissao, i) for i in entrada.ids) if e and e.status == "autorizada"]
+        emissoes = [e for e in (s.get(Emissao, i) for i in entrada.ids) if e and e.status in COM_ARQUIVOS]
     if not emissoes:
-        raise HTTPException(400, "Nenhuma das notas selecionadas está autorizada.")
+        raise HTTPException(400, "Nenhuma das notas selecionadas foi autorizada.")
     buf = io.BytesIO()
     falhas = []
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for e in emissoes:
             try:
                 if entrada.conteudo in ("xml", "ambos"):
-                    p, xml = _xml(e)
-                    z.writestr(f"xml/{p.name}" if entrada.conteudo == "ambos" else p.name, xml)
+                    for p, xml in [_xml(e), *_xmls_eventos(e)]:
+                        z.writestr(f"xml/{p.name}" if entrada.conteudo == "ambos" else p.name, xml)
                 if entrada.conteudo in ("pdf", "ambos"):
                     nome, pdf = _pdf(e)
                     z.writestr(f"pdf/{nome}" if entrada.conteudo == "ambos" else nome, pdf)

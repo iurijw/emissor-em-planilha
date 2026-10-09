@@ -33,16 +33,19 @@ def data_dir_isolado(tmp_path, monkeypatch):
     from emissor import db
     from emissor.services import certificado as cert_service
     from emissor.services import emissao as emissao_service
+    from emissor.services import eventos as eventos_service
 
     security.reset_cache()
     db.reset_engine()
     cert_service._limpar_cache()
     emissao_service.definir_worker(None)
+    eventos_service.definir_sincronizador(None)
     yield
     db.reset_engine()
     security.reset_cache()
     cert_service._limpar_cache()
     emissao_service.definir_worker(None)
+    eventos_service.definir_sincronizador(None)
 
 
 def _gerar_pfx(cnpj: str, senha: str, dias: int = 365) -> bytes:

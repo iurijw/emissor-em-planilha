@@ -142,6 +142,8 @@ a { color: var(--azul-texto); }
 .chip--rejeitada, .chip--erro { background: var(--erro-fundo); color: var(--erro); }
 .chip--processando, .chip--pendente { background: #eef3f6; color: var(--tinta); }
 .chip--nao_enviada { background: #f1f1f1; color: #6b6b6b; }
+.chip--cancelada, .chip--substituida { background: #e9ecee; color: #2f363b; }
+.chip--cancelada::before, .chip--substituida::before { width: 8px; height: 2px; border-radius: 1px; }
 .chip--homolog { background: repeating-linear-gradient(-45deg, var(--azul-fundo) 0 5px, #d5eef9 5px 10px); color: var(--tinta); }
 .chip--prod { background: var(--preto); color: #fff; }
 .chip--prod::before, .chip--homolog::before { display: none; }
@@ -174,7 +176,7 @@ a { color: var(--azul-texto); }
 @keyframes entra { from { transform: translateY(6px); opacity: 0; } }
 
 /* ---------- Diálogo / gaveta ---------- */
-.veu { position: fixed; inset: 0; background: rgb(11 16 20 / 38%); z-index: 40; display: flex; align-items: center; justify-content: center; padding: 20px; animation: aparece 0.15s ease-out; }
+.veu { position: fixed; inset: 0; background: rgb(11 16 20 / 38%); z-index: 50; /* acima da gaveta (41): diálogo aberto a partir dela */ display: flex; align-items: center; justify-content: center; padding: 20px; animation: aparece 0.15s ease-out; }
 @keyframes aparece { from { opacity: 0; } }
 .dialogo { background: var(--folha); border-radius: 10px; box-shadow: var(--sombra); width: min(720px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; }
 .dialogo--largo { width: min(980px, 100%); }
@@ -193,6 +195,7 @@ a { color: var(--azul-texto); }
 .tabela th {
   text-align: left; font: 650 11px/1 var(--f-ui); font-stretch: 112%; letter-spacing: 0.07em; text-transform: uppercase;
   color: var(--grafite); padding: 10px 12px; border-bottom: 1px solid var(--linha-forte); position: sticky; top: 0; background: var(--folha); z-index: 1;
+  white-space: nowrap;
 }
 .tabela td { padding: 9px 12px; border-bottom: 1px solid var(--linha); vertical-align: middle; }
 .tabela tbody tr:hover { background: #f5fafc; }
@@ -306,3 +309,14 @@ a { color: var(--azul-texto); }
 .editor-nome__doc { font-size: 11.5px; color: var(--grafite); align-self: center; }
 .editor-nome__mun { grid-column: 1 / -1; font-size: 11.5px; color: var(--grafite); }
 .editor-nome__lista li.editor-nome__dica { display: block; cursor: default; font-size: 11px; color: var(--grafite-claro); padding: 6px 8px 2px; }
+
+/* ---------- Situação no Ambiente Nacional / eventos ---------- */
+.situacao-adn { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--grafite); margin: -6px 0 12px; }
+.riscado { text-decoration: line-through; text-decoration-color: rgb(0 0 0 / 45%); color: var(--grafite); }
+.secao-titulo { font: 650 11px/1 var(--f-ui); font-stretch: 112%; letter-spacing: 0.07em; text-transform: uppercase; color: var(--grafite); margin: 0 0 8px; }
+.eventos { list-style: none; margin: 0; padding: 0; border: 1px solid var(--linha); border-radius: 8px; }
+.eventos li { padding: 10px 12px; border-top: 1px solid var(--linha); font-size: 13.5px; display: flex; flex-direction: column; gap: 3px; }
+.eventos li:first-child { border-top: 0; }
+.eventos li > div:first-child { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.eventos__meta { font-size: 12px; color: var(--grafite); }
+.link { background: none; border: 0; padding: 0; color: var(--azul-texto); text-decoration: underline; cursor: pointer; font-size: inherit; }

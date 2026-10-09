@@ -1,4 +1,8 @@
-"""Cliente REST da Sefin Nacional (mTLS com certificado A1).
+"""Cliente REST da Sefin Nacional e do ADN (mTLS com certificado A1).
+
+- Sefin Nacional: emissão (``/nfse``), consulta por DPS/chave e registro/consulta de eventos.
+- ADN (Ambiente de Dados Nacional, ``/contribuintes``): distribuição de documentos por NSU e
+  eventos de uma NFS-e — é por ele que chegam cancelamentos feitos fora do sistema (portal).
 
 Toda chamada é registrada:
 - no log JSON (``emissor.nfse.client``) com método, URL, status, tempo e corpo de resposta;
@@ -45,6 +49,31 @@ class RespostaEmissao:
     alertas: list[MensagemSefin] = field(default_factory=list)
     data_processamento: str | None = None
     bruto: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RespostaEvento:
+    evento_xml: bytes
+    data_processamento: str | None = None
+
+
+@dataclass
+class DocumentoDistribuido:
+    """Item de ``LoteDFe`` do ADN (NFS-e, evento...)."""
+
+    nsu: int | None
+    chave_acesso: str | None
+    tipo_documento: str  # NFSE | EVENTO | DPS | PEDIDO_REGISTRO_EVENTO | CNC | NENHUM
+    tipo_evento: str | None  # CANCELAMENTO, CANCELAMENTO_POR_SUBSTITUICAO...
+    xml: bytes | None
+    data_geracao: str | None = None
+
+
+@dataclass
+class LoteDistribuicao:
+    status: str  # DOCUMENTOS_LOCALIZADOS | NENHUM_DOCUMENTO_LOCALIZADO | REJEICAO
+    documentos: list[DocumentoDistribuido] = field(default_factory=list)
+    alertas: list[MensagemSefin] = field(default_factory=list)
 
 
 class SefinClient:
@@ -110,6 +139,46 @@ class SefinClient:
             raise self._erro_http(resp, dados, "Falha ao consultar a NFS-e")
         return self._resposta_nfse(dados, "consultar_nfse")
 
+    def registrar_evento(self, chave: str, pedido_assinado: bytes, *, operacao: str = "o evento") -> RespostaEvento:
+        """``POST /nfse/{chave}/eventos`` — registra o pedido de evento (ex.: cancelamento)."""
+        url = f"{self.ambiente.sefin_url}/nfse/{chave}/eventos"
+        corpo = {"pedidoRegistroEventoXmlGZipB64": gzip_b64(pedido_assinado)}
+        self._arquivo("evento", "req", "xml", pedido_assinado)
+        resp = self._request("POST", url, "evento", json=corpo, ambigua_em_timeout=True)
+        dados = self._json(resp, "evento")
+        b64 = _get(dados, "eventoXmlGZipB64")
+        if resp.status_code not in (200, 201) or not b64:
+            raise self._erro_http(resp, dados, f"A Sefin recusou {operacao}")
+        xml = ungzip_b64(b64)
+        self._arquivo("evento", "evento", "xml", xml)
+        return RespostaEvento(xml, _get(dados, "dataHoraProcessamento"))
+
+    def consultar_evento(self, chave: str, tipo: str, n_seq: int = 1) -> bytes | None:
+        """``GET /nfse/{chave}/eventos/{tipo}/{nSeq}`` — XML do evento, ou None se não existe."""
+        url = f"{self.ambiente.sefin_url}/nfse/{chave}/eventos/{tipo}/{n_seq}"
+        resp = self._request("GET", url, "consultar_evento")
+        if resp.status_code == 404:
+            self._json(resp, "consultar_evento")
+            return None
+        dados = self._json(resp, "consultar_evento")
+        b64 = _get(dados, "eventoXmlGZipB64")
+        if resp.status_code != 200 or not b64:
+            raise self._erro_http(resp, dados, "Falha ao consultar o evento da NFS-e")
+        return ungzip_b64(b64)
+
+    def distribuicao_dfe(self, nsu: int, *, cnpj_consulta: str | None = None) -> LoteDistribuicao:
+        """ADN ``GET /contribuintes/DFe/{NSU}?lote=true`` — até 50 documentos a partir do NSU."""
+        params: dict[str, str] = {"lote": "true"}
+        if cnpj_consulta:
+            params["cnpjConsulta"] = cnpj_consulta
+        url = f"{self.ambiente.adn_url}/contribuintes/DFe/{nsu}"
+        return self._lote_adn(self._request("GET", url, "adn_dfe", params=params), "adn_dfe")
+
+    def eventos_nfse(self, chave: str) -> LoteDistribuicao:
+        """ADN ``GET /contribuintes/NFSe/{chave}/Eventos`` — todos os eventos da NFS-e."""
+        url = f"{self.ambiente.adn_url}/contribuintes/NFSe/{chave}/Eventos"
+        return self._lote_adn(self._request("GET", url, "adn_eventos"), "adn_eventos")
+
     # --- infraestrutura -----------------------------------------------------------
     def _request(
         self, metodo: str, url: str, op: str, *, ambigua_em_timeout: bool = False, **kw: Any
@@ -173,8 +242,9 @@ class SefinClient:
             extra={"sefin_op": op, "metodo": metodo, "url": url, "ms": ms, "ambiente": self.ambiente.name},
         )
 
-    def _json(self, resp: httpx.Response, op: str) -> Any:
-        self._arquivo(op, "resp", "json", resp.content)
+    def _json(self, resp: httpx.Response, op: str, *, registrar: bool = True) -> Any:
+        if registrar:
+            self._arquivo(op, "resp", "json", resp.content)
         if not resp.content:
             return None
         try:
@@ -220,6 +290,46 @@ class SefinClient:
             bruto={k: v for k, v in dados.items() if k.lower() != "nfsexmlgzipb64"},
         )
 
+    def _lote_adn(self, resp: httpx.Response, op: str) -> LoteDistribuicao:
+        """Resposta ``LoteDistribuicaoNSUResponse`` do ADN.
+
+        O ADN responde 404 (nada encontrado) e 400 (rejeição) **com** o corpo normal; o que
+        vale é ``StatusProcessamento``. Sem esse campo, a resposta não veio do serviço.
+        """
+        dados = self._json(resp, op, registrar=False)
+        self._arquivo(op, "resp", "json", _sem_arquivos(dados, resp.content))
+        status = _get(dados, "StatusProcessamento")
+        if not isinstance(status, str):
+            if resp.status_code < 400:
+                raise SefinError(
+                    TipoErro.RESPOSTA_INVALIDA,
+                    f"Resposta inesperada do Ambiente Nacional (HTTP {resp.status_code})",
+                    corpo=resp.text[:20000],
+                )
+            raise self._erro_http(resp, dados, "O Ambiente Nacional (ADN) recusou a consulta")
+        if status.upper() == "REJEICAO":
+            raise SefinError(
+                TipoErro.REJEICAO,
+                "O Ambiente Nacional (ADN) recusou a consulta",
+                extrair_mensagens(_get(dados, "Erros") or []),
+                http_status=resp.status_code,
+                corpo=resp.text[:20000],
+            )
+        docs = []
+        for item in _get(dados, "LoteDFe") or []:
+            nsu = _get(item, "NSU")
+            docs.append(
+                DocumentoDistribuido(
+                    nsu=int(nsu) if nsu is not None else None,
+                    chave_acesso=_get(item, "ChaveAcesso"),
+                    tipo_documento=str(_get(item, "TipoDocumento") or "").upper(),
+                    tipo_evento=(str(_get(item, "TipoEvento")).upper() if _get(item, "TipoEvento") else None),
+                    xml=_decodificar_xml(_get(item, "ArquivoXml")),
+                    data_geracao=_get(item, "DataHoraGeracao"),
+                )
+            )
+        return LoteDistribuicao(status.upper(), docs, extrair_mensagens(_get(dados, "Alertas") or []))
+
     def _arquivo(self, op: str, parte: str, ext: str, conteudo: bytes) -> None:
         try:
             ctx = get_context()
@@ -229,6 +339,43 @@ class SefinClient:
             (pasta / nome).write_bytes(conteudo)
         except OSError:
             log.exception("não foi possível gravar arquivo de log da Sefin")
+
+
+def _decodificar_xml(valor: Any) -> bytes | None:
+    """``ArquivoXml`` do ADN: gzip+base64 (documentado); tolera base64 puro ou XML em texto."""
+    if not valor or not isinstance(valor, str):
+        return None
+    if valor.lstrip().startswith("<"):
+        return valor.encode("utf-8")
+    try:
+        bruto = base64.b64decode(valor)
+    except ValueError:
+        return None
+    if bruto[:2] == b"\x1f\x8b":
+        try:
+            return gzip.decompress(bruto)
+        except OSError:
+            return None
+    return bruto if bruto.lstrip().startswith(b"<") else None
+
+
+def _sem_arquivos(dados: Any, original: bytes) -> bytes:
+    """Cópia da resposta do ADN para o log sem os XMLs embutidos (que vão para data/xml)."""
+    if not isinstance(dados, dict):
+        return original
+    copia = dict(dados)
+    for k, v in copia.items():
+        if k.lower() == "lotedfe" and isinstance(v, list):
+            copia[k] = [
+                {
+                    kk: (f"<{len(vv)} caracteres omitidos>" if kk.lower() == "arquivoxml" and vv else vv)
+                    for kk, vv in item.items()
+                }
+                if isinstance(item, dict)
+                else item
+                for item in v
+            ]
+    return json.dumps(copia, ensure_ascii=False, indent=1).encode("utf-8")
 
 
 def _get(dados: Any, chave: str) -> Any:

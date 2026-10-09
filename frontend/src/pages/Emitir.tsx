@@ -116,6 +116,8 @@ function situacaoTexto(ln: LinhaLocal, cli: Cliente | undefined): { texto: strin
     const amb = e.ambiente === "2" ? " (homolog.)" : "";
     if (e.status === "autorizada")
       return { texto: `✓ Nº ${e.numero_nfse} · ${new Date(e.dh_emissao || "").toLocaleDateString("pt-BR")}${amb}`, tema: { textDark: "#0079AD" } };
+    if (e.status === "cancelada" || e.status === "substituida")
+      return { texto: `Nº ${e.numero_nfse} ${STATUS_ROTULO[e.status].toLowerCase()}${amb} — ver detalhe`, tema: { textDark: "#56656F" } };
     const cod = e.erro?.mensagens?.[0]?.codigo;
     return {
       texto: `${STATUS_ROTULO[e.status]}${cod ? ` · ${cod}` : ""}${amb} — ver detalhe`,
