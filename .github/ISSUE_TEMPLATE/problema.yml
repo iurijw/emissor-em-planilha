@@ -1,0 +1,61 @@
+name: Relatar um problema
+description: Algo não funciona como deveria no Emissor em Planilha.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por relatar. **Este relato é público:** não cole CNPJ/CPF ou nomes de clientes reais, XMLs com
+        dados reais, senhas nem o certificado digital. Se precisar mostrar uma nota, troque os dados por fictícios.
+  - type: textarea
+    id: o-que-aconteceu
+    attributes:
+      label: O que aconteceu
+      description: Copie a mensagem de erro exatamente como apareceu na tela, inclusive o código da Sefin, se houver.
+    validations:
+      required: true
+  - type: textarea
+    id: passos
+    attributes:
+      label: Como chegar no problema
+      description: O que você fez antes de o erro aparecer, passo a passo.
+      placeholder: |
+        1. Abri a aba Emissões
+        2. Cliquei em ...
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: O que você esperava que acontecesse
+  - type: dropdown
+    id: onde
+    attributes:
+      label: Onde o emissor está rodando
+      options:
+        - Hospedado (empresa.emissoremplanilha.com)
+        - No Windows, pelo iniciar.bat
+        - Docker
+        - Outro
+    validations:
+      required: true
+  - type: dropdown
+    id: ambiente
+    attributes:
+      label: Ambiente da Sefin
+      options:
+        - Produção Restrita (homologação)
+        - Produção
+        - Não se aplica
+  - type: input
+    id: codigo-suporte
+    attributes:
+      label: Código para suporte
+      description: Aparece embaixo da mensagem de erro ("Código para suporte"). Ajuda a achar o registro no log.
+  - type: checkboxes
+    id: dados
+    attributes:
+      label: Dados
+      options:
+        - label: Conferi que o relato não tem dados reais de clientes, senhas nem o certificado.
+          required: true
