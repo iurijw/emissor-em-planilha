@@ -7,6 +7,17 @@ export function useOpcoes() {
   return useQuery({ queryKey: ["opcoes"], queryFn: () => api.get<Opcoes>("/api/config/opcoes"), staleTime: Infinity });
 }
 
+const semAcento = (t: string) =>
+  t.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
+/** Escolhe o município do texto digitado sem clique na lista: único resultado ou único nome idêntico. */
+function municipioDoTexto(termo: string, lista: Municipio[]): Municipio | null {
+  if (lista.length === 1) return lista[0];
+  const t = semAcento(termo).replace(/\s*[/-]\s*([a-z]{2})$/, " / $1");
+  const iguais = lista.filter((m) => semAcento(m.nome) === t || semAcento(`${m.nome} / ${m.uf}`) === t);
+  return iguais.length === 1 ? iguais[0] : null;
+}
+
 /** Campo de município: busca por nome, guarda o código IBGE. */
 export function CampoMunicipio(props: {
   rotulo: string;
@@ -17,10 +28,14 @@ export function CampoMunicipio(props: {
   const id = useId();
   const [termo, setTermo] = useState("");
   const [aberto, setAberto] = useState(false);
+  const [destaque, setDestaque] = useState(0);
+  // Texto digitado que não virou município (nenhuma cidade escolhida na lista).
+  const [pendente, setPendente] = useState("");
   const [rotulo, setRotulo] = useState<string>("");
+  const buscar = (q: string) => api.get<Municipio[]>(`/api/municipios?q=${encodeURIComponent(q)}`);
   const busca = useQuery({
     queryKey: ["municipios", termo],
-    queryFn: () => api.get<Municipio[]>(`/api/municipios?q=${encodeURIComponent(termo)}`),
+    queryFn: () => buscar(termo),
     enabled: termo.trim().length >= 2,
   });
   useEffect(() => {
@@ -34,21 +49,68 @@ export function CampoMunicipio(props: {
       .catch(() => undefined);
   }, [props.codigo]);
 
+  const escolher = (m: Municipio) => {
+    props.onChange(m.codigo);
+    setRotulo(`${m.nome} / ${m.uf}`);
+    setPendente("");
+    setTermo("");
+    setAberto(false);
+  };
+
+  // Saiu do campo sem clicar numa cidade: aproveita o texto se ele indicar uma só.
+  const sair = async () => {
+    setAberto(false);
+    const t = termo.trim();
+    if (t.length < 2) {
+      setPendente("");
+      return;
+    }
+    let lista = busca.data;
+    if (!lista || busca.isFetching) lista = await buscar(t).catch(() => []);
+    const m = municipioDoTexto(t, lista);
+    if (m) escolher(m);
+    else setPendente(t);
+  };
+
+  const opcoes = busca.data ?? [];
+  const mostrarLista = aberto && opcoes.length > 0;
+
   return (
-    <label className="campo" style={{ position: "relative" }}>
+    <label className={`campo${pendente ? " campo--erro" : ""}`} style={{ position: "relative" }}>
       <span>{props.rotulo}</span>
       <input
         aria-describedby={`${id}-ajuda`}
-        value={aberto ? termo : rotulo || props.codigo || ""}
+        aria-expanded={mostrarLista}
+        aria-autocomplete="list"
+        role="combobox"
+        value={aberto ? termo : pendente || rotulo || props.codigo || ""}
         placeholder="Digite o nome da cidade"
         onFocus={() => {
-          setTermo("");
+          setTermo(pendente);
+          setDestaque(0);
           setAberto(true);
         }}
-        onBlur={() => setTimeout(() => setAberto(false), 150)}
-        onChange={(e) => setTermo(e.target.value)}
+        onBlur={() => void sair()}
+        onChange={(e) => {
+          setTermo(e.target.value);
+          setDestaque(0);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" && opcoes.length) {
+            e.preventDefault();
+            setDestaque((i) => (i + 1) % opcoes.length);
+          } else if (e.key === "ArrowUp" && opcoes.length) {
+            e.preventDefault();
+            setDestaque((i) => (i - 1 + opcoes.length) % opcoes.length);
+          } else if (e.key === "Enter" && mostrarLista) {
+            e.preventDefault();
+            escolher(opcoes[Math.min(destaque, opcoes.length - 1)]);
+          } else if (e.key === "Escape") {
+            setAberto(false);
+          }
+        }}
       />
-      {aberto && (busca.data?.length ?? 0) > 0 && (
+      {mostrarLista && (
         <ul
           role="listbox"
           style={{
@@ -57,16 +119,21 @@ export function CampoMunicipio(props: {
             boxShadow: "var(--sombra)", maxHeight: 240, overflow: "auto",
           }}
         >
-          {busca.data!.map((m) => (
-            <li key={m.codigo}>
+          {opcoes.map((m, i) => (
+            <li key={m.codigo} role="option" aria-selected={i === destaque}>
               <button
                 type="button"
+                tabIndex={-1}
                 className="btn btn--fantasma"
-                style={{ width: "100%", justifyContent: "space-between", fontWeight: 400 }}
+                style={{
+                  width: "100%", justifyContent: "space-between", fontWeight: 400,
+                  background: i === destaque ? "var(--linha)" : undefined,
+                }}
+                onMouseEnter={() => setDestaque(i)}
                 onMouseDown={(e) => {
+                  // Evita o blur do campo antes do clique (senão o texto digitado seria avaliado primeiro).
                   e.preventDefault();
-                  props.onChange(m.codigo);
-                  setAberto(false);
+                  escolher(m);
                 }}
               >
                 <span>
@@ -80,10 +147,16 @@ export function CampoMunicipio(props: {
           ))}
         </ul>
       )}
-      <small id={`${id}-ajuda`}>
-        {props.codigo ? <>IBGE <span className="num">{props.codigo}</span>. </> : null}
-        {props.ajuda ?? "Digite o nome e escolha na lista."}
-      </small>
+      {pendente ? (
+        <small id={`${id}-ajuda`} className="campo__erro">
+          Escolha a cidade na lista: "{pendente}" não indica um município só.
+        </small>
+      ) : (
+        <small id={`${id}-ajuda`}>
+          {props.codigo ? <>IBGE <span className="num">{props.codigo}</span>. </> : null}
+          {props.ajuda ?? "Digite o nome e escolha na lista."}
+        </small>
+      )}
     </label>
   );
 }

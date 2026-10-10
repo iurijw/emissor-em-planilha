@@ -176,7 +176,7 @@ def _validar_fiscal(d: dict[str, Any]) -> ConfigFiscal:
         if dados.get(campo) and not codes.municipio(dados[campo]):
             erros.append(f"Código IBGE de município inválido em {campo}: {dados[campo]}.")
     if not dados.get("c_mun_emissor"):
-        erros.append("Município do prestador (código IBGE) é obrigatório.")
+        erros.append("Município do prestador é obrigatório: digite o nome da cidade e escolha-a na lista.")
     if not (dados.get("c_trib_nac") or "").isdigit() or len(dados.get("c_trib_nac") or "") != 6:
         erros.append("Código de Tributação Nacional deve ter 6 dígitos.")
     if dados.get("c_nbs") and (not dados["c_nbs"].isdigit() or len(dados["c_nbs"]) != 9):
