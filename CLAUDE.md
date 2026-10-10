@@ -321,6 +321,7 @@ emissor-em-planilha/
 ├─ CLAUDE.md, README.md
 ├─ iniciar.bat               # Windows: instala/atualiza o que faltar e executa
 ├─ Dockerfile, docker-compose.yaml   # alternativa: Docker (dados em ./data)
+├─ .github/workflows/imagem.yml      # publica a imagem em ghcr.io (usada pela hospedagem)
 ├─ docs/                     # NT 008; img/ e video/ do README (dados fictícios)
 ├─ backend/                  # projeto uv (Python 3.12)
 │  ├─ pyproject.toml
@@ -509,3 +510,4 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-10 | Sem e-mail: convites e redefinição por link copiado pelo admin; recuperação total por `emissor-admin` | Envio de e-mail custaria um serviço; não é essencial |
 | 2026-10-10 | Operador pode emitir e cancelar; só admin mexe em certificado, configurações e usuários | Cancelar é do dia a dia de quem emite; fica registrado na auditoria |
 | 2026-10-10 | Suspensão da hospedagem por `EMISSOR_SUSPENSO` (consulta e download continuam) | O cliente precisa conseguir baixar os XMLs fiscais mesmo inadimplente |
+| 2026-10-10 | Imagem Docker publicada em `ghcr.io/iurijw/emissor-em-planilha` por GitHub Actions (`latest` e `sha-<commit>` a cada push na main; `X.Y.Z` nas tags `v*`) | A hospedagem cria uma máquina Fly por cliente a partir dela; quem roda sozinho continua com `iniciar.bat`/`docker compose` |
