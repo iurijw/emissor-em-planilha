@@ -318,6 +318,7 @@ emissor-em-planilha/
 ├─ CLAUDE.md, README.md
 ├─ iniciar.bat               # Windows: instala/atualiza o que faltar e executa
 ├─ Dockerfile, docker-compose.yaml   # alternativa: Docker (dados em ./data)
+├─ .github/workflows/imagem.yml      # publica a imagem em ghcr.io (usada pela hospedagem)
 ├─ docs/                     # NT 008; img/ e video/ do README (dados fictícios)
 ├─ backend/                  # projeto uv (Python 3.12)
 │  ├─ pyproject.toml
@@ -470,3 +471,4 @@ emissor-em-planilha/
 | 2026-10-09 | Cancelamento pelo evento 101101 com retentativa do **mesmo** pedido e consulta do evento antes de reenviar | Mesma garantia anti-duplicidade da emissão; a Sefin deduplica por (chave, tipo) |
 | 2026-10-09 | Situação das notas pela distribuição do ADN por NSU, ao abrir a aba Emissões e no máximo 1×/hora | Pega cancelamentos feitos no portal/prefeitura com poucas consultas; sem limite documentado, segue a prática da NF-e |
 | 2026-10-09 | Eventos que não cancelam (manifestação, bloqueio) só ficam no histórico da nota | Não mudam a validade da nota |
+| 2026-10-10 | Imagem Docker publicada em `ghcr.io/iurijw/emissor-em-planilha` por GitHub Actions (`latest` e `sha-<commit>` a cada push na main; `X.Y.Z` nas tags `v*`) | A hospedagem cria uma máquina Fly por cliente a partir dela; quem roda sozinho continua com `iniciar.bat`/`docker compose` |
