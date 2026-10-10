@@ -292,7 +292,10 @@ export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: F
           <CampoMunicipio
             rotulo="Local da prestação"
             codigo={valor.c_loc_prestacao}
-            onChange={(c) => set("c_loc_prestacao", c)}
+            onChange={(c) =>
+              // Quase sempre é o mesmo município: preenche o do prestador se ainda estiver vazio.
+              onChange({ ...valor, c_loc_prestacao: c, c_mun_emissor: valor.c_mun_emissor || (c ?? "") })
+            }
             ajuda="Normalmente o mesmo município do prestador."
           />
         </div>
