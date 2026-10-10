@@ -118,6 +118,46 @@ export interface Status {
   lote_em_andamento: string | null;
 }
 
+export type Papel = "admin" | "operador";
+
+export interface UsuarioSessao {
+  id: number;
+  email: string;
+  nome: string;
+  papel: Papel;
+  totp_ativo: boolean;
+}
+
+export interface Sessao {
+  autenticado: boolean;
+  usuario: UsuarioSessao | null;
+  primeiro_acesso: boolean;
+  primeiro_acesso_sem_codigo: boolean;
+  suspenso: boolean;
+  url_assinatura: string | null;
+}
+
+export interface Usuario {
+  id: number;
+  email: string;
+  nome: string;
+  papel: Papel;
+  ativo: boolean;
+  totp_ativo: boolean;
+  convite_pendente: boolean;
+  bloqueado: boolean;
+  criado_em: string | null;
+  ultimo_login: string | null;
+}
+
+export interface RegistroAuditoria {
+  quando: string;
+  usuario: string | null;
+  acao: string;
+  detalhe: string | null;
+  ip: string | null;
+}
+
 export interface Fiscal {
   cnpj: string;
   c_mun_emissor: string;
@@ -212,6 +252,8 @@ export interface ListaEmissoes {
 export class ApiError extends Error {
   status: number;
   detalhes: unknown;
+  /** Corpo completo da resposta de erro (ex.: precisa_codigo no login). */
+  corpo: Record<string, unknown> | null = null;
   requestId: string | null;
   /** Erro da Sefin/ADN com códigos e dicas (quando a operação falou com o Ambiente Nacional). */
   sefin: ErroEmissao | null;
@@ -231,16 +273,21 @@ async function tratar<T>(resp: Response): Promise<T> {
     let mensagem = `Erro ${resp.status} ao falar com o servidor.`;
     let detalhes: unknown = null;
     let sefin: ErroEmissao | null = null;
+    let corpo: Record<string, unknown> | null = null;
     if (tipo.includes("application/json")) {
-      const corpo = await resp.json().catch(() => null);
-      if (corpo?.mensagem) mensagem = corpo.mensagem;
+      corpo = await resp.json().catch(() => null);
+      if (corpo?.mensagem) mensagem = String(corpo.mensagem);
       detalhes = corpo?.detalhes ?? null;
-      sefin = corpo?.sefin ?? null;
+      sefin = (corpo?.sefin as ErroEmissao | undefined) ?? null;
     } else {
       const texto = await resp.text().catch(() => "");
       if (texto) mensagem = `${mensagem} ${texto.slice(0, 300)}`;
     }
-    throw new ApiError(resp.status, mensagem, detalhes, rid, sefin);
+    // Sessão expirada ou encerrada em outro lugar: o App volta para a tela de login.
+    if (resp.status === 401 && corpo?.login) window.dispatchEvent(new Event("emissor:sessao-expirada"));
+    const erro = new ApiError(resp.status, mensagem, detalhes, rid, sefin);
+    erro.corpo = corpo;
+    throw erro;
   }
   if (tipo.includes("application/json")) return (await resp.json()) as T;
   return (await resp.blob()) as unknown as T;

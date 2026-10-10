@@ -37,7 +37,8 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
 
 Premissas de produto:
 - Hospedagem: **servidor na rede local**, acesso pelo navegador.
-- Login: **não** (ver risco em "Segurança").
+- Login: **sim** desde 2026-10-10 (antes era "não"): exigido pela hospedagem paga (uma instância por cliente na
+  internet); ver "Autenticação".
 - Endereço do tomador: **cadastro automático** de clientes (XMLs importados + BrasilAPI).
 - Alternância homologação/produção obrigatória; testes manuais em homologação antes de produção.
 
@@ -193,6 +194,9 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
+| `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|primeiro-acesso\|convite\|convite/ver` | acesso |
+| `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
+| `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}`, `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
 
 ### Frontend (F4)
 
@@ -252,7 +256,6 @@ Pendências conhecidas:
   open-nfse, o pacote `esquemas-nfse-rtc-v1-01-20260727` (Produção Restrita, em produção desde 10/08/2026) já aceita
   CNPJ alfanumérico (`TSCNPJ` `[0-9A-Z]{14}`, Ids e chaves) e corrigiu o `TSSerieDPS`. Conferir no gov.br e atualizar
   `xsd/v1_01/` (não verificado na fonte oficial: gov.br inacessível do ambiente de desenvolvimento).
-- Sem login (decisão de produto); usar `EMISSOR_IPS_PERMITIDOS` para restringir à rede local.
 - Frontend sem testes automatizados (verificado manualmente no navegador); backend com testes pytest.
 
 ### Eventos: cancelamento e situação pelo ADN (F6, 2026-10-09)
@@ -391,9 +394,40 @@ emissor-em-planilha/
 ### Segurança
 - Certificado PFX e senha **criptografados em repouso** (Fernet); chave em `data/secret.key`
   (fora do git). PFX nunca é devolvido pela API; só metadados (titular, CNPJ, validade).
-- **Sem login** (decisão de produto). Risco: qualquer máquina da rede local que acessar a
-  página pode emitir notas com o certificado. Mitigação: lista de IPs permitidos
-  (`EMISSOR_IPS_PERMITIDOS`). Não expor à internet.
+- **Login obrigatório** (ver "Autenticação"); `EMISSOR_IPS_PERMITIDOS` continua como camada extra na rede local.
+- Chave Fernet em `EMISSOR_SECRET_KEY` quando definida (hospedagem: segredo do Fly, um backup do volume sozinho não
+  abre o certificado); senão `data/secret.key`.
+
+### Autenticação (2026-10-10)
+
+Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo em `emissor/auth.py`.
+- Usuários (`usuario`): e-mail = login, papel `admin` (certificado, onboarding, configurações, diagnóstico, usuários,
+  auditoria) ou `operador` (tabela, clientes, emitir, cancelar, baixar). Senha Argon2id (`argon2-cffi`), mínimo 10.
+- Sessão: token aleatório no cookie `emissor_sessao` (`HttpOnly`, `SameSite=Lax`, `Secure` em HTTPS ou com
+  `X-Forwarded-Proto: https`); o banco guarda só o SHA-256. 12 h de inatividade / 7 dias no máximo. Trocar a senha,
+  ativar 2FA, desativar ou redefinir o usuário derruba as outras sessões.
+- O middleware de `app.py` resolve a sessão em `/api` e `/docs` (`request.state.acesso`, `usuario` no log) e recusa
+  escrita com `Origin` diferente do `Host` (CSRF entre subdomínios do mesmo site). Os routers de config/tabela/emissões
+  entram com `Depends(exigir_login)`; rotas de administrador usam `AdminAtual` (`api/deps.py`).
+- Bloqueio: 10 erros seguidos → usuário bloqueado 15 min; 30 erros por IP em 15 min → 429 (em memória). No Fly o IP
+  vem de `Fly-Client-IP` (só quando `FLY_APP_NAME` existe).
+- 2FA: TOTP próprio (RFC 6238, sem dependência), segredo criptografado com a chave Fernet, passo usado gravado (sem
+  reuso), 10 códigos de recuperação (SHA-256). QR Code em SVG pelo ReportLab. Opcional, com aviso em todas as telas.
+- Primeiro acesso: só enquanto não há usuário. Token de `EMISSOR_CONVITE_INICIAL` (hospedagem) ou gerado em
+  `data/primeiro-acesso.txt` e mostrado no log da subida; acesso de 127.0.0.1 sem cabeçalho de proxy dispensa o token
+  (nunca com `EMISSOR_CONVITE_INICIAL` ou no Fly). Link da hospedagem: `https://<sub>/#/primeiro-acesso?token=<t>`.
+- Convites e redefinição: link `/#/convite?token=` de uso único (7 dias) gerado pelo admin, copiado e enviado por ele.
+  Recuperação sem nenhum admin: `emissor-admin redefinir <email> [--remover-2fa]` / `convidar` / `usuarios`.
+- Auditoria (`auditoria`): login/falha/bloqueio, senha, 2FA, usuários, certificado, configurações (com ambiente),
+  lote criado/interrompido, nota cancelada/cancelamento recusado. Não há coluna nova em tabelas antigas (o
+  `create_all` não altera tabelas existentes).
+- Suspensão (hospedagem): `EMISSOR_SUSPENSO=1` → GET e `POST /api/emissoes/zip` continuam; o resto responde 403
+  `{suspenso: true}`; `EMISSOR_URL_ASSINATURA` vira link na faixa. Lotes `em_andamento` ainda são retomados na subida
+  (anti-duplicidade). `GET /api/saude` (público) diz `{ok, versao, suspenso, administrador_criado}`; healthcheck do
+  Docker usa ele.
+- Frontend: `App.tsx` `Raiz` (sessão → convite / primeiro acesso / login / app), `pages/Acesso.tsx`,
+  `pages/Conta.tsx`, `pages/Usuarios.tsx`; 401 com `login: true` dispara `emissor:sessao-expirada`. Operador não vê
+  Configurações nem Usuários. `copiar()` em `ui.tsx` funciona em HTTP (sem `navigator.clipboard`).
 - Aviso no app quando o certificado estiver a ≤ 30 dias do vencimento.
 
 ## Plano de implementação (fases)
@@ -471,4 +505,9 @@ emissor-em-planilha/
 | 2026-10-09 | Cancelamento pelo evento 101101 com retentativa do **mesmo** pedido e consulta do evento antes de reenviar | Mesma garantia anti-duplicidade da emissão; a Sefin deduplica por (chave, tipo) |
 | 2026-10-09 | Situação das notas pela distribuição do ADN por NSU, ao abrir a aba Emissões e no máximo 1×/hora | Pega cancelamentos feitos no portal/prefeitura com poucas consultas; sem limite documentado, segue a prática da NF-e |
 | 2026-10-09 | Eventos que não cancelam (manifestação, bloqueio) só ficam no histórico da nota | Não mudam a validade da nota |
+| 2026-10-10 | Login próprio (Argon2id, sessão em cookie, TOTP, papéis admin/operador, auditoria), sem serviço externo | Hospedagem paga expõe cada instância na internet; custo zero; a versão instalada localmente também fica protegida |
+| 2026-10-10 | Login separado em cada instância (subdomínio), sem login central | Isolamento por cliente; o app continua independente da hospedagem |
+| 2026-10-10 | Sem e-mail: convites e redefinição por link copiado pelo admin; recuperação total por `emissor-admin` | Envio de e-mail custaria um serviço; não é essencial |
+| 2026-10-10 | Operador pode emitir e cancelar; só admin mexe em certificado, configurações e usuários | Cancelar é do dia a dia de quem emite; fica registrado na auditoria |
+| 2026-10-10 | Suspensão da hospedagem por `EMISSOR_SUSPENSO` (consulta e download continuam) | O cliente precisa conseguir baixar os XMLs fiscais mesmo inadimplente |
 | 2026-10-10 | Imagem Docker publicada em `ghcr.io/iurijw/emissor-em-planilha` por GitHub Actions (`latest` e `sha-<commit>` a cada push na main; `X.Y.Z` nas tags `v*`) | A hospedagem cria uma máquina Fly por cliente a partir dela; quem roda sozinho continua com `iniciar.bat`/`docker compose` |

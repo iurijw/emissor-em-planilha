@@ -6,12 +6,13 @@ from fastapi.testclient import TestClient
 
 from emissor.api.app import create_app
 
-from .conftest import SENHA_PFX
+from .conftest import SENHA_PFX, entrar_como_admin
 
 
 @pytest.fixture
 def api():
     with TestClient(create_app(iniciar_worker=False)) as c:
+        entrar_como_admin(c)
         yield c
 
 

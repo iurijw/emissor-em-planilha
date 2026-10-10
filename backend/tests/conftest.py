@@ -30,11 +30,14 @@ def data_dir_isolado(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PDF_DIR", tmp_path / "data" / "pdf")
     monkeypatch.setattr(config, "SECRET_KEY_FILE", tmp_path / "data" / "secret.key")
     monkeypatch.setattr(config, "DB_FILE", tmp_path / "data" / "emissor.db")
-    from emissor import db
+    from emissor import auth, db
     from emissor.services import certificado as cert_service
     from emissor.services import emissao as emissao_service
     from emissor.services import eventos as eventos_service
 
+    for var in ("EMISSOR_CONVITE_INICIAL", "EMISSOR_SUSPENSO", "EMISSOR_URL_ASSINATURA", "EMISSOR_SECRET_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    auth.limpar_limites()
     security.reset_cache()
     db.reset_engine()
     cert_service._limpar_cache()
@@ -46,6 +49,21 @@ def data_dir_isolado(tmp_path, monkeypatch):
     cert_service._limpar_cache()
     emissao_service.definir_worker(None)
     eventos_service.definir_sincronizador(None)
+
+
+ADMIN_EMAIL = "admin@exemplo.com.br"
+ADMIN_SENHA = "senha-de-teste-123"
+
+
+def entrar_como_admin(client) -> None:
+    """Cria o primeiro administrador (com o código de primeiro acesso) e deixa o cliente logado."""
+    from emissor import auth
+
+    r = client.post(
+        "/api/auth/primeiro-acesso",
+        json={"token": auth.token_primeiro_acesso(), "nome": "Admin", "email": ADMIN_EMAIL, "senha": ADMIN_SENHA},
+    )
+    assert r.status_code == 200, r.text
 
 
 def _gerar_pfx(cnpj: str, senha: str, dias: int = 365) -> bytes:

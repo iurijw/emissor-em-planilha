@@ -286,6 +286,8 @@ a { color: var(--azul-texto); }
   .nav { width: 100%; height: 44px; overflow-x: auto; scrollbar-width: none; }
   .nav a { padding: 0 10px; }
   .topo__info { display: none; }
+  .topo__usuario { order: 1; margin-left: auto; border-left: 0; }
+  .nav { order: 2; }
   .faixa-amb { padding: 0 16px; }
   .faixa-amb__dica { display: none; }
   .pagina { padding: 16px; }
@@ -320,3 +322,23 @@ a { color: var(--azul-texto); }
 .eventos li > div:first-child { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .eventos__meta { font-size: 12px; color: var(--grafite); }
 .link { background: none; border: 0; padding: 0; color: var(--azul-texto); text-decoration: underline; cursor: pointer; font-size: inherit; }
+
+/* ---------- Acesso (login, primeiro acesso, convite, conta) ---------- */
+.acesso { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 32px 16px; background: var(--papel); }
+.acesso__cartao { width: 100%; max-width: 420px; background: var(--folha); border: 1px solid var(--linha); border-radius: 10px; padding: 32px 28px; box-shadow: var(--sombra); }
+.acesso__marca { margin-bottom: 24px; }
+.acesso__cartao .titulo { font-size: 26px; }
+.acesso__form { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+.acesso__form .btn--grande { width: 100%; justify-content: center; }
+.acesso__dica { color: var(--grafite); font-size: 12.5px; margin: 4px 0 0; }
+.pagina--estreita { max-width: 720px; }
+.pagina--estreita .folha .acesso__form { max-width: 420px; margin-top: 8px; }
+.topo__usuario { display: flex; align-items: center; gap: 4px; padding-left: 10px; border-left: 1px solid var(--linha); }
+.topo__usuario a { color: var(--tinta); font-weight: 600; text-decoration: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topo__usuario a:hover { text-decoration: underline; }
+.faixa-suspenso { border-radius: 0; border-width: 0 0 1px; justify-content: center; }
+.qr-2fa { width: 200px; height: 200px; align-self: center; image-rendering: pixelated; }
+.codigos-recuperacao { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; font-size: 14px; }
+@media (max-width: 900px) {
+  .topo__usuario { border-left: 0; padding-left: 0; }
+}
