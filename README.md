@@ -121,7 +121,11 @@ docker compose up -d
 </p>
 <p align="center"><sub>Configuração inicial (28 s). <a href="docs/video/onboarding.mp4">Ver em MP4</a>.</sub></p>
 
-Na primeira abertura, um passo a passo pede:
+Na primeira abertura, o sistema pede para **criar o administrador** (nome, e-mail e senha). Abrindo pelo próprio
+servidor (`http://127.0.0.1:8000`) basta preencher; de outro computador, ele pede também o **código de primeiro
+acesso**, que aparece na janela onde o Emissor foi iniciado e no arquivo `data/primeiro-acesso.txt`.
+
+Em seguida, um passo a passo pede:
 
 1. **Certificado digital A1** da empresa (arquivo `.pfx` ou `.p12`) e a senha.
 2. **XMLs de notas já emitidas** (opcional, mas recomendado). Baixe alguns no
@@ -158,6 +162,11 @@ Atalhos da tabela:
 | Ordenar | Clique no título da coluna (de novo para inverter) |
 | Substituir a tabela inteira | **Importar planilha** (`.xlsx` ou `.csv`), substituindo ou acrescentando linhas |
 
+Em **Usuários** (só administradores), convide as outras pessoas: o sistema gera um link de uso único para cada uma
+criar a própria senha. **Operadores** editam a tabela, emitem e cancelam notas; **administradores** também cuidam
+do certificado, das configurações e dos usuários. Em **Minha conta** (clique no seu nome no topo), cada um troca a
+senha e ativa a verificação em duas etapas.
+
 A data de competência é sempre a data da emissão. Clientes novos são consultados na Receita (via BrasilAPI) assim
 que o CNPJ entra na tabela; o nome que você digitou prevalece sobre o da Receita.
 
@@ -172,15 +181,30 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
 | `EMISSOR_IPS_PERMITIDOS` | _(vazio = todos)_ | Faixas de IP que podem acessar, separadas por vírgula, ex.: `192.168.0.0/24` |
 | `EMISSOR_DATA_DIR` | `./data` | Banco, certificado criptografado, XML/PDF emitidos e logs |
 | `EMISSOR_FONT_DIR` | | Pasta extra com Arial/Microsoft Sans Serif para o DANFSe |
+| `EMISSOR_SECRET_KEY` | _(arquivo `data/secret.key`)_ | Chave que criptografa o certificado e os segredos de 2FA; defina para guardá-la fora de `data/` |
+| `EMISSOR_CONVITE_INICIAL` | _(gerado em `data/primeiro-acesso.txt`)_ | Código para criar o primeiro administrador (hospedagem) |
+| `EMISSOR_URL_PUBLICA` | | Endereço do sistema, usado nos links do `emissor-admin` |
+| `EMISSOR_COOKIE_SECURE` | _(automático)_ | `1` força o cookie de sessão só em HTTPS; `0` desliga |
+| `EMISSOR_SUSPENSO` | | `1` deixa o sistema só para consulta e download (assinatura da hospedagem suspensa) |
+| `EMISSOR_URL_ASSINATURA` | | Link para regularizar a assinatura, mostrado quando suspenso |
 
 ## Segurança
 
-> [!WARNING]
-> O sistema **não tem login**: qualquer computador que abrir a página pode emitir notas com o certificado da
-> empresa. Use em uma rede local confiável, restrinja com `EMISSOR_IPS_PERMITIDOS` (ou pelo firewall) e **nunca
-> exponha à internet**.
-
-- O certificado e a senha ficam criptografados em `data/`, com a chave em `data/secret.key`. O arquivo `.pfx` nunca
+- **Login** com e-mail e senha (mínimo de 10 caracteres, guardada com Argon2id). Sessão em cookie `HttpOnly`, que
+  expira após 12 horas sem uso ou 7 dias. Dez senhas erradas seguidas bloqueiam o usuário por 15 minutos.
+- **Verificação em duas etapas** com aplicativo autenticador (Google Authenticator, Microsoft Authenticator, 2FAS…),
+  com 10 códigos de recuperação. Recomendada para todos: com a senha, qualquer pessoa emitiria notas com o
+  certificado da empresa.
+- **Auditoria** em **Usuários**: entradas, tentativas recusadas, lotes emitidos, notas canceladas, mudanças de
+  configuração, de certificado e de usuários.
+- Sem envio de e-mail: senha esquecida é redefinida por um administrador (gera um link novo). Se ninguém consegue
+  entrar, use a linha de comando no servidor:
+  `uv run emissor-admin redefinir admin@empresa.com.br [--remover-2fa]` na pasta `backend`
+  (Docker: `docker compose exec emissor emissor-admin redefinir ...`).
+- Mesmo com login, prefira a rede local: restrinja com `EMISSOR_IPS_PERMITIDOS` (ou pelo firewall). Para acessar
+  pela internet, coloque o sistema atrás de HTTPS.
+- O certificado e a senha ficam criptografados em `data/`, com a chave em `data/secret.key` (ou em
+  `EMISSOR_SECRET_KEY`). O arquivo `.pfx` nunca
   é devolvido pela página.
 - **Faça backup da pasta `data/`** (banco, XMLs e PDFs emitidos, certificado) e não a compartilhe.
 - Senha, chave privada e certificado nunca vão para os logs. O arquivo de diagnóstico tem os dados das notas
@@ -235,7 +259,7 @@ Situação:     Ambiente Nacional (ADN, distribuição por NSU) ─► eventos f
 
 - **Backend:** Python 3.12, FastAPI, SQLite (SQLModel), lxml, signxml, cryptography, httpx, ReportLab.
 - **Frontend:** React 18, TypeScript, Vite, TanStack Query, [Glide Data Grid](https://github.com/glideapps/glide-data-grid).
-- Um único processo serve a página e a API (`/api`, documentação em `/docs`).
+- Um único processo serve a página e a API (`/api`, documentação em `/docs`, ambas só com login).
 
 ## Desenvolvimento
 
@@ -284,7 +308,6 @@ docs/            NT 008/2026 (DANFSe), imagens e vídeos do README
   obrigatório em **janeiro de 2027**.
 - **CNPJ alfanumérico** de tomador é aceito no cadastro, mas a emissão fica bloqueada até a Sefin publicar um XSD
   compatível.
-- Sem login (ver [Segurança](#segurança)).
 
 ## Aviso
 

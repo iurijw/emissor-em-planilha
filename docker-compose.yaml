@@ -28,3 +28,6 @@ services:
       # No Docker Desktop (Windows/macOS) todos os acessos chegam com o IP interno do Docker:
       # nesse caso, restrinja pelo firewall do computador.
       EMISSOR_IPS_PERMITIDOS: ""
+      # Chave que criptografa o certificado (padrão: arquivo data/secret.key). Para guardá-la fora de ./data,
+      # copie o conteúdo de data/secret.key para cá (ou para um arquivo .env) e só então apague o arquivo.
+      # EMISSOR_SECRET_KEY: ""
