@@ -46,6 +46,11 @@ se tiver, XMLs de notas já emitidas). Comece em **Homologação** antes de emit
 
 Instalação detalhada, uso, configuração, segurança e desenvolvimento: **[guia completo](docs/guia.md)**.
 
+## Problemas e sugestões
+
+Encontrou um erro ou tem uma ideia? [Abra um relato](https://github.com/iurijw/emissor-em-planilha/issues/new/choose).
+O relato é público: não inclua dados reais de clientes, senhas nem o certificado.
+
 ## Aviso
 
 Projeto independente, **sem vínculo** com a Receita Federal, o Comitê Gestor da NFS-e ou a Sefin Nacional. Notas

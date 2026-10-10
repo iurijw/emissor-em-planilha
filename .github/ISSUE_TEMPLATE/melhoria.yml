@@ -1,0 +1,15 @@
+name: Sugerir uma melhoria
+description: Uma ideia para o Emissor em Planilha ficar mais útil no dia a dia.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: necessidade
+    attributes:
+      label: O que você precisa fazer
+      description: "Conte a situação do dia a dia, não só a solução. Por exemplo: todo mês preciso emitir para os mesmos 40 clientes, mas ..."
+    validations:
+      required: true
+  - type: textarea
+    id: ideia
+    attributes:
+      label: Como você imagina que poderia funcionar
