@@ -1,0 +1,55 @@
+# Publica uma versão do Emissor em Planilha: cria a tag e a release vX.Y.Z a partir da main e gera a imagem
+# Docker :X.Y.Z. A hospedagem atualiza as instâncias dos clientes quando a imagem da última release existe.
+# Disparo manual (aba Actions > Publicar versão > Run workflow), também usado pelo Claude.
+name: Publicar versão
+
+on:
+  workflow_dispatch:
+    inputs:
+      versao:
+        description: "Versão no formato X.Y.Z (sem o v)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: versao
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      # A versão da release tem de ser a do pacote: ela vai no verAplic das notas e em /api/saude.
+      - name: Conferir a versão
+        env:
+          VERSAO: ${{ inputs.versao }}
+        run: |
+          if ! [[ "$VERSAO" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Versão inválida: use X.Y.Z, por exemplo 0.2.0"
+            exit 1
+          fi
+          PACOTE=$(sed -n 's/^version = "\(.*\)"$/\1/p' backend/pyproject.toml | head -1)
+          if [[ "$PACOTE" != "$VERSAO" ]]; then
+            echo "::error::backend/pyproject.toml está na versão $PACOTE; atualize para $VERSAO na main antes de publicar"
+            exit 1
+          fi
+      - name: Criar a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSAO: ${{ inputs.versao }}
+        run: |
+          gh release create "v$VERSAO" --repo "$GITHUB_REPOSITORY" --target main --title "$VERSAO" --generate-notes
+      # Tags criadas com o token do workflow não disparam outros workflows; a imagem é pedida explicitamente.
+      - name: Gerar a imagem Docker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSAO: ${{ inputs.versao }}
+        run: |
+          gh workflow run imagem.yml --repo "$GITHUB_REPOSITORY" --ref "v$VERSAO"
