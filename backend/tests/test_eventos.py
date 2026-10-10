@@ -26,7 +26,7 @@ from emissor.nfse.xsd import validar_evento, validar_pedido_evento
 from emissor.services import emissao as emissao_service
 from emissor.services import eventos as eventos_service
 
-from .conftest import CNPJ_PRESTADOR, SENHA_PFX
+from .conftest import CNPJ_PRESTADOR, SENHA_PFX, entrar_como_admin
 
 CHAVE = "4205407" + "2" + CNPJ_PRESTADOR + "0" * 27 + "1"
 DH = datetime(2026, 10, 9, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
@@ -336,6 +336,7 @@ def api(falsa):
     emissao_service.definir_worker(w)
     eventos_service.definir_sincronizador(eventos_service.Sincronizador(dormir=lambda s: None))
     with TestClient(create_app(iniciar_worker=False)) as c:
+        entrar_como_admin(c)
         c.worker = w
         yield c
 

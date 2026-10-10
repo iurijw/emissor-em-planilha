@@ -8,14 +8,18 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from emissor import config
-from emissor.api import routes_config, routes_emissoes, routes_tabela
+from emissor import auth, config
+from emissor.api import routes_auth, routes_config, routes_emissoes, routes_tabela
+from emissor.api.deps import exigir_login, ip_cliente
 from emissor.db import engine
 from emissor.logging_setup import bind_context, setup_logging
 from emissor.nfse.certificate import CertificadoError
@@ -39,6 +43,7 @@ def _redes_permitidas() -> list[ipaddress._BaseNetwork]:
 async def lifespan(app: FastAPI):
     setup_logging()
     engine()
+    auth.anunciar_primeiro_acesso()
     if app.state.iniciar_worker:
         worker().iniciar()
     log.info("servidor iniciado", extra={"versao": config.VER_APLIC, "data_dir": str(config.DATA_DIR)})
@@ -46,7 +51,15 @@ async def lifespan(app: FastAPI):
 
 
 def create_app(iniciar_worker: bool = True) -> FastAPI:
-    app = FastAPI(title="Emissor em Planilha", version=config.APP_VERSION, lifespan=lifespan)
+    # /docs e o OpenAPI ficam atrás do login (rotas próprias abaixo).
+    app = FastAPI(
+        title="Emissor em Planilha",
+        version=config.APP_VERSION,
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.iniciar_worker = iniciar_worker
     redes = _redes_permitidas()
 
@@ -62,8 +75,22 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
             if not permitido:
                 log.warning("acesso bloqueado por IP", extra={"ip": ip, "path": request.url.path})
                 return JSONResponse({"mensagem": f"Acesso não permitido a partir de {ip}."}, status_code=403)
+        caminho = request.url.path
+        protegido = caminho.startswith("/api") or caminho == "/docs"
+        # CSRF: além do cookie SameSite=Lax, recusa escrita vinda de outra origem (outro site ou subdomínio).
+        if protegido and request.method not in ("GET", "HEAD", "OPTIONS"):
+            origem = request.headers.get("origin")
+            if origem and urlsplit(origem).netloc != request.headers.get("host"):
+                log.warning("requisição de outra origem recusada", extra={"origem": origem, "path": caminho})
+                return JSONResponse({"mensagem": "Requisição de outra origem recusada."}, status_code=403)
+        request.state.acesso = None
+        if protegido and request.cookies.get(auth.COOKIE):
+            request.state.acesso = await run_in_threadpool(
+                auth.resolver_sessao, request.cookies.get(auth.COOKIE), ip_cliente(request)
+            )
+        usuario = request.state.acesso.email if request.state.acesso else None
         inicio = time.perf_counter()
-        with bind_context(request_id=rid):
+        with bind_context(request_id=rid, usuario=usuario):
             try:
                 resp = await call_next(request)
             except Exception:
@@ -95,6 +122,10 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
         corpo = exc.detail if isinstance(exc.detail, dict) else {"mensagem": str(exc.detail)}
         return JSONResponse(corpo, status_code=exc.status_code)
 
+    @app.exception_handler(auth.AuthError)
+    async def _auth(_req: Request, exc: auth.AuthError):
+        return JSONResponse({"mensagem": exc.mensagem, **exc.extra}, status_code=exc.status)
+
     @app.exception_handler(LoteError)
     async def _lote(_req: Request, exc: LoteError):
         return JSONResponse({"mensagem": exc.mensagem, "detalhes": exc.detalhes}, status_code=400)
@@ -119,9 +150,19 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
         erros = [f"{'.'.join(str(p) for p in e['loc'][1:])}: {e['msg']}" for e in exc.errors()]
         return JSONResponse({"mensagem": "Dados inválidos na requisição.", "detalhes": erros}, status_code=422)
 
-    app.include_router(routes_config.router, prefix="/api")
-    app.include_router(routes_tabela.router, prefix="/api")
-    app.include_router(routes_emissoes.router, prefix="/api")
+    app.include_router(routes_auth.router, prefix="/api")
+    logado = [Depends(exigir_login)]
+    app.include_router(routes_config.router, prefix="/api", dependencies=logado)
+    app.include_router(routes_tabela.router, prefix="/api", dependencies=logado)
+    app.include_router(routes_emissoes.router, prefix="/api", dependencies=logado)
+
+    @app.get("/api/openapi.json", include_in_schema=False, dependencies=logado)
+    async def openapi():
+        return app.openapi()
+
+    @app.get("/docs", include_in_schema=False, dependencies=logado)
+    async def docs():
+        return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Emissor em Planilha — API")
 
     if FRONTEND_DIST.is_dir():
         app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")

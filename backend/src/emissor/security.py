@@ -1,8 +1,13 @@
 """Criptografia em repouso (Fernet) para o certificado e sua senha.
 
-A chave fica em ``data/secret.key`` (gerada na primeira execução, fora do git).
-Quem tiver acesso a ``data/`` inteiro consegue decifrar; o objetivo é que o PFX e a
-senha nunca fiquem em texto puro no banco, em backups parciais ou em logs.
+A chave vem de ``EMISSOR_SECRET_KEY`` (chave Fernet em base64) quando definida — é o caso da
+hospedagem, em que ela fica nos segredos do provedor e um backup do volume sozinho não abre o
+certificado. Sem a variável, fica em ``data/secret.key`` (gerada na primeira execução, fora do git):
+quem tiver acesso a ``data/`` inteiro consegue decifrar; o objetivo é que o PFX e a senha nunca
+fiquem em texto puro no banco, em backups parciais ou em logs.
+
+Para levar uma instalação existente para a variável, copie o conteúdo de ``data/secret.key``
+para ``EMISSOR_SECRET_KEY`` (e só então apague o arquivo).
 """
 
 from __future__ import annotations
@@ -17,6 +22,14 @@ from emissor import config
 
 @lru_cache(maxsize=1)
 def _fernet() -> Fernet:
+    chave_env = os.environ.get("EMISSOR_SECRET_KEY", "").strip()
+    if chave_env:
+        try:
+            return Fernet(chave_env.encode())
+        except ValueError as err:
+            raise RuntimeError(
+                "EMISSOR_SECRET_KEY inválida: deve ser uma chave Fernet (32 bytes em base64 urlsafe)."
+            ) from err
     config.ensure_dirs()
     path = config.SECRET_KEY_FILE
     if not path.exists():
