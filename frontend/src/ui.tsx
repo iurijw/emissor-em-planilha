@@ -193,3 +193,19 @@ export function instalarCapturaDeErros() {
 export function Spinner() {
   return <span className="spinner" aria-hidden="true" />;
 }
+
+/** Copia texto; funciona também em HTTP na rede local, onde navigator.clipboard não existe. */
+export async function copiar(texto: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(texto);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = texto;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
