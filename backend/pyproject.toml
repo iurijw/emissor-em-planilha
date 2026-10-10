@@ -7,6 +7,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "argon2-cffi>=23.1.0",
     "certifi>=2026.7.22",
     "cryptography>=50.0.1",
     "fastapi>=0.141.1",
@@ -23,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 emissor = "emissor:main"
+emissor-admin = "emissor.admin_cli:main"
 
 [build-system]
 requires = ["uv_build>=0.8.13,<0.9.0"]

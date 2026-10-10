@@ -12,7 +12,7 @@ from emissor.api.app import create_app
 from emissor.nfse.client import SefinClient, gzip_b64
 from emissor.services import emissao as emissao_service
 
-from .conftest import SENHA_PFX
+from .conftest import SENHA_PFX, entrar_como_admin
 
 
 class SefinFalsa:
@@ -57,6 +57,7 @@ def api(sefin):
     )
     emissao_service.definir_worker(w)
     with TestClient(create_app(iniciar_worker=False)) as c:
+        entrar_como_admin(c)
         c.worker = w
         yield c
 

@@ -15,7 +15,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlmodel import func, select
 
-from emissor import config
+from emissor import auth, config
+from emissor.api.deps import AdminAtual
 from emissor.api.serial import CAMPOS_FISCAIS, cliente_dict, fiscal_dict
 from emissor.db import Cliente, Emissao, LinhaTabela, agora, obter_config, sessao
 from emissor.logging_setup import get_context
@@ -78,11 +79,14 @@ def status() -> dict[str, Any]:
 
 
 @router.post("/certificado")
-async def enviar_certificado(arquivo: UploadFile = File(...), senha: str = Form(...)) -> dict[str, Any]:
+async def enviar_certificado(
+    admin: AdminAtual, arquivo: UploadFile = File(...), senha: str = Form(...)
+) -> dict[str, Any]:
     pfx = await arquivo.read()
     if len(pfx) > MAX_PFX:
         raise HTTPException(400, "Arquivo grande demais para um certificado A1.")
     info = cert_service.salvar(pfx, senha)
+    auth.auditar("certificado_enviado", f"{info.titular} (válido até {info.valido_ate:%d/%m/%Y})", admin)
     resp = info.as_dict()
     with sessao() as s:
         fiscal = obter_config(s).config_fiscal()
@@ -98,7 +102,7 @@ async def enviar_certificado(arquivo: UploadFile = File(...), senha: str = Form(
 
 
 @router.get("/onboarding/padroes")
-def padroes() -> dict[str, Any]:
+def padroes(_admin: AdminAtual) -> dict[str, Any]:
     """Padrões iniciais (o CNPJ vem do certificado; o resto, dos XMLs importados ou do formulário)."""
     info = cert_service.info()
     cfg = ConfigFiscal(cnpj=(info.cnpj if info else "") or "", c_mun_emissor="")
@@ -106,7 +110,7 @@ def padroes() -> dict[str, Any]:
 
 
 @router.post("/onboarding/xmls")
-async def importar_xmls(arquivos: list[UploadFile] = File(...)) -> dict[str, Any]:
+async def importar_xmls(_admin: AdminAtual, arquivos: list[UploadFile] = File(...)) -> dict[str, Any]:
     docs, erros = [], []
     for a in arquivos:
         conteudo = await a.read()
@@ -241,7 +245,7 @@ def _aplicar_config(entrada: ConfigEntrada) -> None:
 
 
 @router.post("/onboarding/concluir")
-def concluir_onboarding(entrada: ConcluirOnboarding) -> dict[str, Any]:
+def concluir_onboarding(entrada: ConcluirOnboarding, admin: AdminAtual) -> dict[str, Any]:
     if cert_service.info() is None:
         raise HTTPException(400, "Carregue o certificado digital antes de concluir.")
     if entrada.fiscal is None:
@@ -264,6 +268,7 @@ def concluir_onboarding(entrada: ConcluirOnboarding) -> dict[str, Any]:
                 )
         s.commit()
     log.info("onboarding concluído", extra={"linhas": len(entrada.linhas)})
+    auth.auditar("onboarding_concluido", None, admin)
     return status()
 
 
@@ -285,9 +290,14 @@ def obter() -> dict[str, Any]:
 
 
 @router.put("/config")
-def salvar(entrada: ConfigEntrada) -> dict[str, Any]:
+def salvar(entrada: ConfigEntrada, admin: AdminAtual) -> dict[str, Any]:
     _aplicar_config(entrada)
-    log.info("configuração salva", extra={"campos": [k for k, v in entrada.model_dump().items() if v is not None]})
+    campos = [k for k, v in entrada.model_dump().items() if v is not None]
+    log.info("configuração salva", extra={"campos": campos})
+    detalhe = ", ".join(campos)
+    if entrada.ambiente is not None:
+        detalhe += f" (ambiente {Ambiente(entrada.ambiente).descricao})"
+    auth.auditar("configuracao_alterada", detalhe, admin)
     return obter()
 
 
@@ -317,7 +327,7 @@ def municipios(q: str = "") -> list[dict[str, str]]:
 
 
 @router.post("/config/testar-conexao")
-def testar_conexao() -> dict[str, Any]:
+def testar_conexao(_admin: AdminAtual) -> dict[str, Any]:
     """Consulta uma DPS fictícia: HTTP 404 = mTLS e certificado aceitos (nada é emitido)."""
     cert = cert_service.carregar()
     if cert is None:
@@ -356,7 +366,7 @@ def log_cliente(entrada: LogCliente) -> dict[str, bool]:
 
 
 @router.get("/diagnostico")
-def diagnostico(dias: int = 7) -> Response:
+def diagnostico(_admin: AdminAtual, dias: int = 7) -> Response:
     """ZIP com logs recentes, trocas com a Sefin e resumo do banco (sem certificado/senha)."""
     limite = datetime.now() - timedelta(days=max(1, min(dias, 30)))
     buf = io.BytesIO()

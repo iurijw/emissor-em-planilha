@@ -9,6 +9,8 @@ Tabelas:
 - ``emissao``       uma DPS/NFS-e (histórico completo)
 - ``evento_nfse``   eventos das NFS-e emitidas (cancelamento pelo sistema ou vindos do ADN)
 - ``sincronizacao_adn`` cursor (NSU) da distribuição de documentos do Ambiente Nacional
+- ``usuario``, ``sessao_usuario``, ``convite_usuario`` login (ver ``emissor.auth``)
+- ``auditoria``     quem fez o quê (login, emissão, cancelamento, configurações, usuários)
 """
 
 from __future__ import annotations
@@ -204,6 +206,55 @@ class SincronizacaoADN(SQLModel, table=True):
     iniciada_em: NaiveDatetime | None = None
     concluida_em: NaiveDatetime | None = None  # última sincronização completa (sem erro)
     erro: str | None = None
+
+
+class Usuario(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    email: str = Field(index=True, unique=True)  # minúsculo; é o login
+    nome: str = ""
+    papel: str = "operador"  # admin | operador
+    senha_hash: str | None = None  # Argon2id; None até aceitar o convite
+    ativo: bool = True
+    totp_segredo_enc: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))
+    totp_ativo: bool = False
+    totp_ultimo_passo: int = 0  # impede reusar o mesmo código
+    codigos_recuperacao_json: str = "[]"  # SHA-256 dos códigos ainda não usados
+    falhas_login: int = 0
+    bloqueado_ate: NaiveDatetime | None = None
+    criado_em: NaiveDatetime = Field(default_factory=agora)
+    ultimo_login: NaiveDatetime | None = None
+
+
+class SessaoUsuario(SQLModel, table=True):
+    __tablename__ = "sessao_usuario"
+    id: str = Field(primary_key=True)  # SHA-256 do token do cookie (o token em si não é guardado)
+    usuario_id: int = Field(index=True)
+    criada_em: NaiveDatetime = Field(default_factory=agora)
+    ultimo_uso: NaiveDatetime = Field(default_factory=agora)
+    ip: str | None = None
+    user_agent: str | None = None
+
+
+class ConviteUsuario(SQLModel, table=True):
+    """Link de uso único para definir a senha (usuário novo ou senha redefinida pelo administrador)."""
+
+    __tablename__ = "convite_usuario"
+    id: str = Field(primary_key=True)  # SHA-256 do token
+    usuario_id: int = Field(index=True)
+    finalidade: str = "convite"  # convite | redefinicao
+    criado_em: NaiveDatetime = Field(default_factory=agora)
+    expira_em: NaiveDatetime
+    usado_em: NaiveDatetime | None = None
+
+
+class Auditoria(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    quando: NaiveDatetime = Field(default_factory=agora, index=True)
+    usuario_id: int | None = Field(default=None, index=True)
+    usuario_email: str | None = None
+    acao: str = Field(index=True)  # ex.: login, login_falhou, lote_criado, nota_cancelada
+    detalhe: str | None = None
+    ip: str | None = None
 
 
 _engine: Engine | None = None

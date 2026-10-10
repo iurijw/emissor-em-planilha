@@ -14,6 +14,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlmodel import func, or_, select
 
+from emissor import auth
+from emissor.api.deps import UsuarioAtual
 from emissor.api.serial import emissao_detalhe, emissao_resumo, lote_dict
 from emissor.db import Emissao, EventoNFSe, Lote, sessao
 from emissor.nfse.models import normalizar_documento
@@ -33,8 +35,9 @@ class NovoLote(BaseModel):
 
 
 @router.post("/lotes")
-def novo_lote(entrada: NovoLote) -> dict[str, Any]:
+def novo_lote(entrada: NovoLote, acesso: UsuarioAtual) -> dict[str, Any]:
     lote = criar_lote(entrada.linha_ids)
+    auth.auditar("lote_criado", f"lote {lote.id}: {lote.total} nota(s), ambiente {lote.ambiente}", acesso)
     return obter_lote(lote.id)
 
 
@@ -57,7 +60,7 @@ def obter_lote(lote_id: str) -> dict[str, Any]:
 
 
 @router.post("/lotes/{lote_id}/cancelar")
-def cancelar_lote(lote_id: str) -> dict[str, Any]:
+def cancelar_lote(lote_id: str, acesso: UsuarioAtual) -> dict[str, Any]:
     with sessao() as s:
         lote = s.get(Lote, lote_id)
     if lote is None:
@@ -65,6 +68,7 @@ def cancelar_lote(lote_id: str) -> dict[str, Any]:
     if lote.status != "em_andamento":
         raise HTTPException(400, "Este lote já foi finalizado.")
     worker().cancelar(lote_id)
+    auth.auditar("lote_interrompido", f"lote {lote_id}", acesso)
     return {"ok": True, "mensagem": "Cancelamento solicitado: a nota em envio termina e as demais não serão enviadas."}
 
 
@@ -153,8 +157,17 @@ class PedidoCancelamento(BaseModel):
 
 
 @router.post("/emissoes/{emissao_id}/cancelar")
-def cancelar(emissao_id: int, entrada: PedidoCancelamento) -> dict[str, Any]:
-    r = eventos_service.cancelar(emissao_id, entrada.c_motivo, entrada.x_motivo)
+def cancelar(emissao_id: int, entrada: PedidoCancelamento, acesso: UsuarioAtual) -> dict[str, Any]:
+    try:
+        r = eventos_service.cancelar(emissao_id, entrada.c_motivo, entrada.x_motivo)
+    except Exception as err:
+        auth.auditar("cancelamento_recusado", f"emissão {emissao_id}: {err}", acesso)
+        raise
+    auth.auditar(
+        "nota_cancelada",
+        f"emissão {emissao_id}, NFS-e {r.emissao.numero_nfse or '-'} ({r.emissao.chave_acesso}), motivo {entrada.c_motivo}",
+        acesso,
+    )
     return _detalhe(r.emissao) | {"aviso": r.aviso}
 
 
