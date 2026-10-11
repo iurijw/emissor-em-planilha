@@ -106,12 +106,16 @@ Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base 
 ### Achados da F1 (2026-09-23)
 
 - **XSD oficial v1.01 (pacote 20260209) tem defeito em `TSSerieDPS`**: padrão `^0{0,4}\d{1,5}$`; em regex XSD
-  `^`/`$` são literais, então **nenhuma** série valida (nem as notas reais do Emissor Web). Cópia local em
-  `backend/src/emissor/nfse/xsd/v1_01/` corrigida (ver `LEIAME.txt`). Pacote RTC de out/2025 é mais antigo; não usar.
+  `^`/`$` são literais, então **nenhuma** série valida (nem as notas reais do Emissor Web). Corrigido pela Sefin no
+  pacote `esquemas-nfse-rtc-v1-01-20260727` (ver abaixo).
+- **XSD local = pacote `esquemas-nfse-rtc-v1-01-20260727`** (página "Produção Restrita" do gov.br; o CNPJ alfanumérico
+  entrou em produção em 10/08/2026, página "Atualizações e Implantações"), conferido no gov.br em 2026-10-11:
+  `TSCNPJ` `[0-9A-Z]{14}`, Ids e chaves alfanuméricos, `TSSerieDPS` `[0-9]{1,4}|[0-8][0-9]{4}`, descrições não podem
+  ser só espaços. Único patch local: `TSChaveNFSe` (o oficial põe as letras nas posições 7-20; o CNPJ fica em 10-23),
+  ver `LEIAME.txt`. A estrutura do grupo `IBSCBS` não mudou em relação ao pacote 20260209.
 - O grupo `IBSCBS` já existe (opcional) no XSD 1.01 → a F6 não exige troca de leiaute.
-- **`TSCNPJ` no XSD 1.01 ainda é `[0-9]{14}`**: CNPJ alfanumérico de tomador não passa na validação local.
-  O sistema aceita e valida o CNPJ alfanumérico no cadastro, mas a emissão será bloqueada com erro claro
-  até a Sefin publicar XSD compatível.
+- CNPJ alfanumérico (tomador e prestador) liberado na emissão e no cancelamento desde 2026-10-11 (antes era bloqueado
+  porque o XSD 20260209 só aceitava `[0-9]{14}`).
 - `TSString` (logradouro, bairro, número...) só aceita Latin-1 sem espaço nas pontas e sem quebra de linha →
   `limpar_texto()` normaliza aspas/travessões tipográficos e remove emoji. `xDescServ` aceita quebras de linha.
 - **signxml**: com namespace padrão (sem prefixo `ds:`), o elemento `<Signature>` fica sem namespace na árvore
@@ -260,10 +264,10 @@ Pendências conhecidas:
   feitas no portal, aparecem aqui pela sincronização.
 - Grupo IBS/CBS enviado só no caso simples (ver "Tributações, abas e nota avulsa"); validar em Produção Restrita
   e conferir o `cClassTrib` certo para optantes do Simples com a contabilidade.
-- CNPJ alfanumérico de tomador bloqueado até a Sefin publicar XSD compatível. **Achado de 2026-10-09:** segundo o
-  open-nfse, o pacote `esquemas-nfse-rtc-v1-01-20260727` (Produção Restrita, em produção desde 10/08/2026) já aceita
-  CNPJ alfanumérico (`TSCNPJ` `[0-9A-Z]{14}`, Ids e chaves) e corrigiu o `TSSerieDPS`. Conferir no gov.br e atualizar
-  `xsd/v1_01/` (não verificado na fonte oficial: gov.br inacessível do ambiente de desenvolvimento).
+- NT 009 v1.01 (11/09/2026, cronograma ainda não publicado) muda o leiaute: `finNFSe` sai do grupo IBSCBS para
+  `infDPS`, `CST`/`cClassTrib` sobem para `IBSCBS/valores/trib`, `indDest`/`dest` vão para `infDPS`, `vDedRed` e
+  `gReeRepRes` viram `vAjusteBC`, e o Simples ganha `regApIBSCBSSN`, `cAtvSN` e `opSimpNac=4`. Quando entrar em
+  produção, ajustar `dps_builder._ibscbs` e o XSD local (Anexo VI v1.04.01 na página "RTC" do gov.br).
 - Frontend sem testes automatizados (verificado manualmente no navegador); backend com testes pytest.
 
 ### Eventos: cancelamento e situação pelo ADN (F6, 2026-10-09)
@@ -306,10 +310,14 @@ Implementação (`nfse/eventos.py`, `services/eventos.py`, tabelas `evento_nfse`
 ### Tributações, abas e nota avulsa (F6, 2026-10-11)
 
 **IBS/CBS** — base: XSD 1.01 local (`TCRTCInfoIBSCBS`) e o Anexo I (RN DPS_NFS-e v1.01 2026-02-09) e Anexo C
-(IndOp v1.01 2026-01-22) extraídos pelo open-nfse (`specs/ruleset/`). A DPS leva `finNFSe=0`, `indFinal` (opcional,
-será descontinuado pela NT 005), `cIndOp`, `indDest=0` e `valores/trib/gIBSCBS/{CST, cClassTrib}`, depois de
+(IndOp v1.01 2026-01-22), conferidos no gov.br em 2026-10-11 (regras E0322, E0901, E0903/E0904, E0910, E0928/E0932,
+E0958, E0959 e E0964 batem com a implementação). A DPS leva `finNFSe=0`, `indFinal` (opcional;
+a NT 005 previa retirar e a NT 009 o reinseriu), `cIndOp`, `indDest=0` e `valores/trib/gIBSCBS/{CST, cClassTrib}`, depois de
 `valores`. Valores/alíquotas não vão na DPS: a Sefin calcula e devolve em `infNFSe/IBSCBS` (o DANFSe já os imprime).
 - CST = 3 primeiros dígitos do `cClassTrib` (E0959), então só o `cClassTrib` é pedido. Sugestão: `000001`.
+  O Anexo VIII (correlação item LC 116 × NBS × cIndOp × cClassTrib v1.01, página "RTC") sugere outro código para
+  alguns serviços: ex. contabilidade 17.19 / NBS 1.1302.21.00 → cIndOp `100301` e cClassTrib `200052` (profissões
+  intelectuais, redução de 30%). A escolha é da contabilidade de cada cliente; o padrão continua `000001`.
 - `cIndOp`: só os 13 códigos de `codes.C_IND_OP` (destinatário = tomador, tomador no Brasil, sem grupos de imóvel,
   evento ou transporte). Padrão `100301` (demais serviços, onerosa: domicílio do adquirente).
 - Bloqueios locais com mensagem: sem `cNBS` (E0322); `cTribNac` 25.05/15.09/17.12/10.05 exige `tpOper` (E0903),
@@ -558,4 +566,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-11 | Tributações predefinidas completas (cópia dos padrões), aplicadas por aba ou na nota avulsa; cópia na emissão | Comportamento previsível: a tributação é exatamente o que se vê; notas na fila não mudam se ela for editada |
 | 2026-10-11 | Abas com clientes exclusivos: erro dentro da aba, só aviso fora dela | Segrega sem travar quem precisa emitir o mesmo cliente com outra tributação |
 | 2026-10-11 | Nota avulsa = lote de 1 sem linha da tabela | Reaproveita fila, numeração, anti-duplicidade e validação |
+| 2026-10-11 | XSD local trocado pelo pacote `esquemas-nfse-rtc-v1-01-20260727` e CNPJ alfanumérico liberado | Conferido no gov.br: é o leiaute em produção desde 10/08/2026; corrige `TSSerieDPS` |
 | 2026-10-11 | Vídeos em HD com zoom (`docs/video/*-hd.mp4`, 1920x1080, em 1,5x, legendas e cursor desenhados na montagem) gravados com dados fictícios e Sefin/BrasilAPI simuladas; scripts em `/mnt/project-files/ferramentas/videos/` (fora do repo). O site da hospedagem exibe esses arquivos | Mostrar o sistema em detalhe no guia do site; os scripts permitem regravar quando a tela mudar |

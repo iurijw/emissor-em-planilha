@@ -1,4 +1,13 @@
-Fonte: https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/nfse-esquemas_xsd-v1-01-20260209.zip
-Arquivos oficiais sem alteracao, exceto tiposSimples_v1.01.xsd (TSSerieDPS): o padrao oficial
-'^0{0,4}\d{1,5}$' foi trocado por '0{0,4}\d{1,5}' porque ^ e $ sao literais em regex XSD e
-rejeitam qualquer serie (inclusive as notas reais do Emissor Web).
+Fonte: https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/esquemas-nfse-rtc-v1-01-20260727.zip
+(pacote de 27/07/2026; CNPJ alfanumerico em producao desde 10/08/2026, segundo
+https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/atualizacoes-e-implantacoes).
+Conferido no gov.br em 11/10/2026. Em relacao ao pacote anterior (nfse-esquemas_xsd-v1-01-20260209.zip):
+- TSCNPJ, Ids (DPS, NFS-e, pedido de evento, evento) e chaves aceitam CNPJ alfanumerico;
+- TSSerieDPS corrigido para '[0-9]{1,4}|[0-8][0-9]{4}' (o anterior usava '^...$', literais em regex XSD,
+  e rejeitava qualquer serie; por isso a copia local tinha um patch);
+- descricoes (TSDesc*, TSDescInfCompl) nao podem ser so espacos.
+
+Arquivos oficiais sem alteracao, exceto tiposSimples_v1.01.xsd (TSChaveNFSe): o padrao oficial
+'[0-9]{6}([0-9A-Z]{14})[0-9]{30}' poe as letras nas posicoes 7-20 da chave, mas a inscricao federal fica nas
+posicoes 10-23 (cMun 7 + ambiente gerador 1 + tipo de inscricao 1, como em TSIdNFSe e TSIdPedRegEvt). Trocado por
+'[0-9]{9}[0-9A-Z]{14}[0-9]{27}': aceita as mesmas chaves numericas e as de prestador com CNPJ alfanumerico.
