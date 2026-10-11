@@ -101,7 +101,7 @@ docker compose up -d
 <p align="center">
   <img src="img/demo-onboarding.gif" alt="Configuração inicial: certificado, XMLs de notas antigas, padrões fiscais, ambiente e tabela montada" width="820">
 </p>
-<p align="center"><sub>Configuração inicial (28 s). <a href="video/onboarding.mp4">Ver em MP4</a> · <a href="video/configuracao-inicial-hd.mp4">em HD, com zoom (50 s)</a> · <a href="video/emissao-em-lote-hd.mp4">emissão em lote em HD (80 s)</a>.</sub></p>
+<p align="center"><sub>Configuração inicial (28 s). <a href="video/onboarding.mp4">Ver em MP4</a> · <a href="video/configuracao-inicial-hd.mp4">em HD, com zoom (34 s)</a> · <a href="video/emissao-em-lote-hd.mp4">emissão em lote em HD (53 s)</a>.</sub></p>
 
 Na primeira abertura, o sistema pede para **criar o administrador** (nome, e-mail e senha). Abrindo pelo próprio
 servidor (`http://127.0.0.1:8000`) basta preencher; de outro computador, ele pede também o **código de primeiro
