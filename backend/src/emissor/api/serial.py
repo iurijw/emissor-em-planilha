@@ -49,6 +49,7 @@ def emissao_resumo(e: Emissao) -> dict[str, Any]:
         "erro": erro,
         "alertas": e.alertas(),
         "recuperada": e.recuperada,
+        "tributacao_nome": e.tributacao_nome or ("Só desta nota" if e.tributacao_json else None),
         "atualizado_em": dt(e.atualizado_em),
     }
 
@@ -83,6 +84,7 @@ def evento_dict(ev: EventoNFSe) -> dict[str, Any]:
 def linha_dict(ln: LinhaTabela, ultima: Emissao | None) -> dict[str, Any]:
     return {
         "id": ln.id,
+        "aba_id": ln.aba_id,
         "ordem": ln.ordem,
         "nome": ln.nome,
         "documento": ln.documento,

@@ -22,6 +22,13 @@ empresa.
 
 - **Tabela tipo Excel**: seleção em faixa, digitar e aplicar a várias células de uma vez, copiar/colar do Excel,
   alça de preenchimento, ordenação por coluna. A tabela fica salva de um mês para o outro.
+- **Abas** na tabela, como as planilhas do Excel: organize os clientes em abas, cada uma com uma **tributação**
+  própria (código do serviço, retenção de ISS, PIS/COFINS, IBS/CBS) e, se quiser, **clientes exclusivos** (só eles
+  saem por aquela aba).
+- **Nota avulsa**: emita uma nota só, sem mexer na tabela, com a tributação padrão, uma tributação cadastrada ou uma
+  tributação só para aquela nota.
+- **IBS e CBS** (reforma tributária): o grupo pode ser enviado na nota, com o indicador da operação e a
+  classificação tributária; a Sefin calcula os valores.
 - **Importar e exportar** a tabela em Excel (`.xlsx`) ou CSV.
 - **Emissão em lote** com progresso em tempo real. A fila envia uma nota por vez e, se a conexão cair, consulta a
   Sefin antes de reenviar: a mesma DPS nunca vira duas notas.
@@ -133,6 +140,15 @@ Antes de emitir notas de verdade:
 5. Precisa cancelar? Abra a nota na aba **Emissões** e clique em **Cancelar NFS-e** (ou marque várias e use
    **Cancelar**). Depois emita a nota correta pela tabela.
 
+**Abas e tributações.** As abas ficam no rodapé da tabela; o **+** cria uma nova. Clique na aba aberta para
+renomeá-la, escolher a tributação dela ou os clientes exclusivos. O selo ao lado do nome mostra a tributação com
+que as notas daquela aba saem ("padrão" = os padrões da nota em Configurações). As tributações são cadastradas por
+um administrador em **Configurações → Tributações**; partem dos padrões da nota e só o que muda precisa ser ajustado.
+Ao emitir, a tributação é copiada para a nota: alterá-la depois não muda notas já enviadas.
+
+**Nota avulsa.** O botão **Nota avulsa** (ao lado de Emitir) abre um formulário com cliente, valor, descrição e a
+tributação. A nota passa pela mesma conferência e pela mesma numeração da tabela e aparece na aba **Emissões**.
+
 Atalhos da tabela:
 
 | Para | Faça |
@@ -142,7 +158,7 @@ Atalhos da tabela:
 | Repetir um valor para baixo | Arraste o canto da seleção (alça de preenchimento) |
 | Limpar células | <kbd>Delete</kbd> |
 | Ordenar | Clique no título da coluna (de novo para inverter) |
-| Substituir a tabela inteira | **Importar planilha** (`.xlsx` ou `.csv`), substituindo ou acrescentando linhas |
+| Substituir a tabela inteira | **Importar planilha** (`.xlsx` ou `.csv`), substituindo ou acrescentando linhas na aba aberta |
 
 Em **Usuários** (só administradores), convide as outras pessoas: o sistema gera um link de uso único para cada uma
 criar a própria senha. **Operadores** editam a tabela, emitem e cancelam notas; **administradores** também cuidam
@@ -287,8 +303,11 @@ docs/            NT 008/2026 (DANFSe), imagens e vídeos do README
 
 - **Substituição** de NFS-e e **solicitação de análise fiscal** para cancelamento fora do prazo: faça pelo portal
   nacional (o sistema reconhece a nota substituída/cancelada depois).
-- **Grupo IBS/CBS** (reforma tributária) ainda não é enviado. Para optantes do Simples Nacional ele passa a ser
-  obrigatório em **janeiro de 2027**.
+- **Grupo IBS/CBS** (reforma tributária): é enviado quando ligado nos padrões da nota ou na tributação, sempre como
+  NFS-e regular e com o destinatário igual ao tomador. Operações com destinatário diferente, tomador no exterior,
+  imóveis, eventos, transporte, compras governamentais, diferimento ou crédito presumido não são enviadas pelo
+  sistema. A ausência do grupo não rejeita a nota até 31/12/2026; confirme com a contabilidade a partir de quando
+  ele é exigido para você e quais códigos usar.
 - **CNPJ alfanumérico** de tomador é aceito no cadastro, mas a emissão fica bloqueada até a Sefin publicar um XSD
   compatível.
 

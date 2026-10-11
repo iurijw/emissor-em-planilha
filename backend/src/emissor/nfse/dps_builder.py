@@ -6,13 +6,16 @@ estrutura das notas geradas pelo Emissor Web nacional (ver CLAUDE.md).
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from lxml import etree
 
 from emissor.config import VER_APLIC
+from emissor.nfse.codes import SUBITENS_EXIGEM_TP_OPER
 from emissor.nfse.constants import NS_NFSE, SERIE_API_MAX, SERIE_API_MIN, VERSAO_LEIAUTE
 from emissor.nfse.models import (
+    ConfigFiscal,
     DpsInput,
     Tomador,
     formatar_decimal,
@@ -158,7 +161,37 @@ def build_dps(inp: DpsInput) -> etree._Element:
     else:
         _sub(tot, "indTotTrib", "0")
 
+    if cfg.ibscbs:
+        _ibscbs(inf, cfg)
+
     return dps
+
+
+def _ibscbs(inf: etree._Element, cfg: ConfigFiscal) -> None:
+    """Grupo IBS/CBS (``TCRTCInfoIBSCBS``): NFS-e regular, destinatário = tomador.
+
+    Os valores e alíquotas não vão na DPS: a Sefin calcula e devolve em ``infNFSe/IBSCBS``.
+    """
+    if not cfg.c_nbs:
+        raise DpsBuildError("Com IBS/CBS informado, o código NBS do serviço é obrigatório (regra E0322).")
+    if not re.fullmatch(r"\d{6}", cfg.ibscbs_c_ind_op or ""):
+        raise DpsBuildError(f"Código indicador da operação do IBS/CBS inválido: {cfg.ibscbs_c_ind_op!r} (6 dígitos).")
+    if not re.fullmatch(r"\d{6}", cfg.ibscbs_c_class_trib or ""):
+        raise DpsBuildError(f"Classificação tributária do IBS/CBS inválida: {cfg.ibscbs_c_class_trib!r} (6 dígitos).")
+    if cfg.c_trib_nac[:4] in SUBITENS_EXIGEM_TP_OPER:
+        raise DpsBuildError(
+            f"O serviço {cfg.c_trib_nac} exige o tipo de operação do IBS/CBS (tpOper), que este sistema ainda não "
+            "envia. Emita esta nota sem o grupo IBS/CBS ou pelo Emissor Nacional."
+        )
+    g = _sub(inf, "IBSCBS")
+    _sub(g, "finNFSe", "0")
+    _opt(g, "indFinal", cfg.ibscbs_ind_final)
+    _sub(g, "cIndOp", cfg.ibscbs_c_ind_op)
+    _sub(g, "indDest", "0")
+    trib = _sub(_sub(g, "valores"), "trib")
+    gibscbs = _sub(trib, "gIBSCBS")
+    _sub(gibscbs, "CST", cfg.ibscbs_c_class_trib[:3])
+    _sub(gibscbs, "cClassTrib", cfg.ibscbs_c_class_trib)
 
 
 def to_bytes(el: etree._Element) -> bytes:

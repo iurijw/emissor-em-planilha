@@ -14,6 +14,9 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
 - **F6 (parcial, 2026-10-09):** cancelamento (evento 101101) e situação das notas pelo ADN implementados e testados
   com Sefin/ADN **simulados** (a Sefin/ADN não eram acessíveis do ambiente de desenvolvimento). Validar em
   Produção Restrita: cancelar uma nota pelo sistema e outra pelo portal e conferir a sincronização.
+- **F6 (2026-10-11):** grupo IBS/CBS na DPS, tributações predefinidas, abas da tabela (com tributação própria e
+  clientes exclusivos) e nota avulsa; ver "Tributações, abas e nota avulsa". Testado com Sefin simulada; validar o
+  grupo IBS/CBS em Produção Restrita.
 - Se a Sefin rejeitar a assinatura da DPS, trocar `C14N` em `backend/src/emissor/nfse/signer.py` para C14N 1.0
   inclusiva e registrar aqui.
 - Ambientes: o sistema alterna entre **Produção Restrita (homologação)** e **Produção** nas configurações.
@@ -95,9 +98,10 @@ Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base 
 - **Id da DPS:** `"DPS" + cMun(7) + tpInsc(1: 1=CPF, 2=CNPJ) + inscrição(14, zeros à esq.) + série(5) + nDPS(15)`.
   Ex.: `DPS 4205407 2 11444777000161 00001 000000000000042` (sem os espaços).
 - **Reforma tributária (IBS/CBS):** para optantes do Simples Nacional o grupo IBSCBS passa a ser
-  obrigatório em **jan/2027**, e a ausência não rejeita até 31/12/2026 (Ato Conjunto RFB/CGIBS 4/2026).
-  → Versão inicial emite **DPS 1.01 sem IBSCBS**, igual às notas do Emissor Web; o builder deve ficar
-  preparado para receber o grupo (fase F6, antes de 01/2027).
+  obrigatório em **jan/2027**, e a ausência não rejeita até 31/12/2026 (Ato Conjunto RFB/CGIBS 4/2026; orientação
+  CGNFS-e de 07/08/2026: destaque escalonado 01/10/2026, 01/12/2026 e 01/01/2027).
+  → Desde 2026-10-11 o grupo é **opcional por tributação** (`ConfigFiscal.ibscbs`, desligado por padrão; o onboarding
+  liga se a nota mais recente o tiver). Ver "Tributações, abas e nota avulsa".
 
 ### Achados da F1 (2026-09-23)
 
@@ -189,6 +193,9 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET/PUT /api/tabela`, `POST /api/tabela/importar?modo=`, `GET /api/tabela/exportar?formato=`, `POST /api/tabela/validar` | tabela |
 | `GET /api/clientes?q=`, `GET/PUT/DELETE /api/clientes/{doc}`, `POST /api/clientes/{doc}/consultar`, `POST /api/clientes/consultar-pendentes`, `POST /api/clientes/importar-xmls` | clientes |
 | `GET /api/municipios?q=` | busca IBGE |
+| `GET/POST /api/tributacoes`, `PUT/DELETE /api/tributacoes/{id}` (escrita só admin) | tributações predefinidas |
+| `GET/POST /api/abas`, `PUT/DELETE /api/abas/{id}`; `aba_id` em `GET/PUT /api/tabela`, importar e exportar | abas da tabela |
+| `POST /api/avulsa/validar`, `POST /api/avulsa` | nota avulsa |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
 | `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip`, `POST /api/emissoes/{id}/verificar` | emissões |
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
@@ -251,7 +258,8 @@ Pendências conhecidas:
 - Cancelamento e sincronização pelo ADN não testados contra a Sefin/ADN reais (ver Status).
 - Substituição de NFS-e (DPS com `infDPS/subst`) e solicitação de análise fiscal (101103) — não implementadas;
   feitas no portal, aparecem aqui pela sincronização.
-- Grupo IBS/CBS — obrigatório ao Simples em 01/2027 (F6).
+- Grupo IBS/CBS enviado só no caso simples (ver "Tributações, abas e nota avulsa"); validar em Produção Restrita
+  e conferir o `cClassTrib` certo para optantes do Simples com a contabilidade.
 - CNPJ alfanumérico de tomador bloqueado até a Sefin publicar XSD compatível. **Achado de 2026-10-09:** segundo o
   open-nfse, o pacote `esquemas-nfse-rtc-v1-01-20260727` (Produção Restrita, em produção desde 10/08/2026) já aceita
   CNPJ alfanumérico (`TSCNPJ` `[0-9A-Z]{14}`, Ids e chaves) e corrigiu o `TSSerieDPS`. Conferir no gov.br e atualizar
@@ -295,6 +303,38 @@ Implementação (`nfse/eventos.py`, `services/eventos.py`, tabelas `evento_nfse`
   rejeição; produção exige digitar CANCELAR). Diálogos (`.veu`, z-index 50) ficam acima da gaveta (41) — o diálogo
   de cancelamento abre a partir dela. Horários da sincronização vão com fuso (`-03:00`): "há X min" no navegador.
 
+### Tributações, abas e nota avulsa (F6, 2026-10-11)
+
+**IBS/CBS** — base: XSD 1.01 local (`TCRTCInfoIBSCBS`) e o Anexo I (RN DPS_NFS-e v1.01 2026-02-09) e Anexo C
+(IndOp v1.01 2026-01-22) extraídos pelo open-nfse (`specs/ruleset/`). A DPS leva `finNFSe=0`, `indFinal` (opcional,
+será descontinuado pela NT 005), `cIndOp`, `indDest=0` e `valores/trib/gIBSCBS/{CST, cClassTrib}`, depois de
+`valores`. Valores/alíquotas não vão na DPS: a Sefin calcula e devolve em `infNFSe/IBSCBS` (o DANFSe já os imprime).
+- CST = 3 primeiros dígitos do `cClassTrib` (E0959), então só o `cClassTrib` é pedido. Sugestão: `000001`.
+- `cIndOp`: só os 13 códigos de `codes.C_IND_OP` (destinatário = tomador, tomador no Brasil, sem grupos de imóvel,
+  evento ou transporte). Padrão `100301` (demais serviços, onerosa: domicílio do adquirente).
+- Bloqueios locais com mensagem: sem `cNBS` (E0322); `cTribNac` 25.05/15.09/17.12/10.05 exige `tpOper` (E0903),
+  que não é enviado. Fora do escopo: `dest`, `imovel`, `gRefNFSe`, `tpEnteGov`, `gReeRepRes`, `gTribRegular`, `gDif`,
+  `cCredPres` e a NT 009 (`gTribSN`, ainda sem cronograma).
+
+**Tributação** = os `CAMPOS_TRIBUTACAO` de `ConfigFiscal` (local da prestação, cTribNac/cTribMun/cNBS, ISSQN,
+PIS/COFINS, pTotTribSN, IBS/CBS). Prestador, regime e tpEmit vêm sempre das configurações. Tabela `tributacao`
+(JSON completo, partindo dos padrões); só admin cria/altera/exclui; não exclui se alguma aba usa.
+- `aba`: nome, ordem, `tributacao_id` (null = padrões das configurações), `clientes_json`. `garantir_abas` cria a aba
+  "Notas" e adota linhas sem aba (bancos antigos). `PUT /api/tabela?aba_id=` substitui só as linhas daquela aba.
+  Qualquer usuário logado cria/edita/exclui abas (auditado); a última aba não pode ser excluída.
+- **Clientes exclusivos** (segregação): linha de outro cliente na aba → erro; o cliente numa aba que não é a dele →
+  só aviso.
+- `criar_lote`/`criar_avulsa` copiam a tributação para `emissao.tributacao_nome/tributacao_json`; o worker aplica com
+  `aplicar_tributacao` (mudar a tributação depois não afeta notas na fila). Sem cópia = padrões do momento do envio.
+- **Nota avulsa**: lote de 1 com `linha_id` nulo, mesma fila, numeração e validação da tabela (linha transitória).
+  Tributação: padrão, predefinida (`tributacao_id`) ou só desta nota (`tributacao`, validada como completa). Operador
+  pode usar as três (auditado em `nota_avulsa`).
+- **Migração mínima** (`db._acrescentar_colunas`): colunas novas de tabelas existentes entram com `ALTER TABLE ADD
+  COLUMN` (sempre aceitando nulo). Antes disso não havia como acrescentar colunas.
+- Frontend: abas no rodapé da grade (`components/Abas.tsx`, selo da tributação em Martian Mono), editor de aba,
+  `components/NotaAvulsa.tsx` (gaveta + `EmissaoFluxo` com `avulsa`), `CamposTributacao` em `FiscalForm.tsx`,
+  Configurações → Tributações. Ao trocar de aba, a edição pendente (debounce) é salva na aba em que foi feita.
+
 ### Padrões que o onboarding extrai dos XMLs
 
 `extrair_padroes` usa a nota mais recente (por `dhProc`); fone/e-mail vêm da nota mais recente que os tenha. Sem
@@ -335,8 +375,8 @@ emissor-em-planilha/
 │  │  ├─ data/               # municipios_ibge.csv (versionado)
 │  │  ├─ nfse/               # núcleo fiscal (ver tabela acima) + xsd/ + danfse/
 │  │  ├─ services/           # emissao (fila em lote), clientes (+BrasilAPI), tabela (import/export),
-│  │  │                      # certificado, arquivos (nomes/pastas de XML e PDF)
-│  │  └─ api/                # app.py + routes_config, routes_tabela, routes_emissoes
+│  │  │                      # certificado, arquivos (nomes/pastas de XML e PDF), tributacao (abas)
+│  │  └─ api/                # app.py + routes_config, routes_tabela, routes_emissoes, routes_tributacao
 │  └─ tests/                 # pytest; certificado falso gerado em runtime; fixtures fictícias
 ├─ frontend/                 # Vite + React + TypeScript
 └─ data/                     # (gitignored) emissor.db, cert criptografado, xml/, pdf/, logs/
@@ -444,8 +484,8 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   clientes, configurações, tratamento de erros.
 - **F5 — Verificação** (em andamento): testes ponta a ponta no navegador; testes manuais em
   homologação; ajustes; liberação de produção.
-- **F6 — Futuro (em andamento):** ✅ cancelamento de NFS-e e situação pelo ADN (2026-10-09); grupo IBS/CBS
-  (obrigatório ao Simples em 01/2027); importar notas emitidas fora do sistema (a distribuição por NSU já é lida —
+- **F6 — Futuro (em andamento):** ✅ cancelamento de NFS-e e situação pelo ADN (2026-10-09); ✅ grupo IBS/CBS,
+  tributações, abas e nota avulsa (2026-10-11); importar notas emitidas fora do sistema (a distribuição por NSU já é lida —
   hoje só os eventos de notas do sistema são aplicados).
 
 ## Convenções
@@ -514,4 +554,8 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-10 | Imagem Docker publicada em `ghcr.io/iurijw/emissor-em-planilha` por GitHub Actions (`latest` e `sha-<commit>` a cada push na main; `X.Y.Z` nas tags `v*`) | A hospedagem cria uma máquina Fly por cliente a partir dela; quem roda sozinho continua com `iniciar.bat`/`docker compose` |
 | 2026-10-10 | README curto com a hospedagem em emissoremplanilha.com em destaque; manual completo em `docs/guia.md` | O README vira a vitrine da hospedagem paga; quem roda sozinho continua com todas as instruções no guia |
 | 2026-10-10 | Versões publicadas pelo workflow manual "Publicar versão" (release `vX.Y.Z` da main + imagem `:X.Y.Z`); a versão tem de ser a de `backend/pyproject.toml` | A hospedagem atualiza os clientes só por release; o workflow pode ser disparado pelo Claude, que não consegue criar tags pelo git |
+| 2026-10-11 | IBS/CBS opcional por tributação, só com destinatário = tomador; CST derivado do cClassTrib | Cobre o caso comum (serviço a cliente no Brasil) sem pedir campos que a maioria não usa; evita E0959 |
+| 2026-10-11 | Tributações predefinidas completas (cópia dos padrões), aplicadas por aba ou na nota avulsa; cópia na emissão | Comportamento previsível: a tributação é exatamente o que se vê; notas na fila não mudam se ela for editada |
+| 2026-10-11 | Abas com clientes exclusivos: erro dentro da aba, só aviso fora dela | Segrega sem travar quem precisa emitir o mesmo cliente com outra tributação |
+| 2026-10-11 | Nota avulsa = lote de 1 sem linha da tabela | Reaproveita fila, numeração, anti-duplicidade e validação |
 | 2026-10-11 | Vídeos em HD com zoom (`docs/video/*-hd.mp4`, 1920x1080, em 1,5x, legendas e cursor desenhados na montagem) gravados com dados fictícios e Sefin/BrasilAPI simuladas; scripts em `/mnt/project-files/ferramentas/videos/` (fora do repo). O site da hospedagem exibe esses arquivos | Mostrar o sistema em detalhe no guia do site; os scripts permitem regravar quando a tela mudar |

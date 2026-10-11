@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -49,8 +49,50 @@ class ConfigFiscal:
     cst_pis_cofins: str | None = "00"  # None → não envia grupo tribFed
     tp_ret_pis_cofins: str | None = None
     p_tot_trib_sn: Decimal | None = Decimal("11.08")  # None → indTotTrib = 0
+    # IBS/CBS (reforma tributária): grupo infDPS/IBSCBS, com destinatário = tomador (indDest 0)
+    ibscbs: bool = False  # False → DPS sem o grupo (aceito sem rejeição até 31/12/2026)
+    ibscbs_c_ind_op: str = "100301"
+    ibscbs_c_class_trib: str = "000001"  # o CST vai como os 3 primeiros dígitos (E0959)
+    ibscbs_ind_final: str | None = None  # opcional; será descontinuado pela NT 005
     # Emissão
     tp_emit: str = "1"
+
+
+# Campos que mudam de uma tributação para outra (abas e nota avulsa). Os demais (prestador, regime,
+# tpEmit) valem sempre os das configurações.
+CAMPOS_TRIBUTACAO = (
+    "c_loc_prestacao",
+    "c_trib_nac",
+    "c_trib_mun",
+    "c_nbs",
+    "trib_issqn",
+    "tp_ret_issqn",
+    "cst_pis_cofins",
+    "tp_ret_pis_cofins",
+    "p_tot_trib_sn",
+    "ibscbs",
+    "ibscbs_c_ind_op",
+    "ibscbs_c_class_trib",
+    "ibscbs_ind_final",
+)
+
+
+def tributacao_de(cfg: ConfigFiscal) -> dict:
+    """Campos de tributação de uma configuração, prontos para JSON."""
+    d = {k: getattr(cfg, k) for k in CAMPOS_TRIBUTACAO}
+    d["p_tot_trib_sn"] = str(cfg.p_tot_trib_sn) if cfg.p_tot_trib_sn is not None else None
+    return d
+
+
+def aplicar_tributacao(cfg: ConfigFiscal, tributacao: dict | None) -> ConfigFiscal:
+    """Configuração do prestador com os campos de tributação trocados pelos de ``tributacao``."""
+    if not tributacao:
+        return cfg
+    novos = {k: v for k, v in tributacao.items() if k in CAMPOS_TRIBUTACAO}
+    if "p_tot_trib_sn" in novos:
+        p = novos["p_tot_trib_sn"]
+        novos["p_tot_trib_sn"] = Decimal(str(p)) if p not in (None, "") else None
+    return replace(cfg, **novos)
 
 
 @dataclass

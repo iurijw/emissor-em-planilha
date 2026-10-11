@@ -38,10 +38,11 @@ from emissor.nfse.documentos import cnpj_alfanumerico, documento_valido, formata
 from emissor.nfse.dps_builder import DpsBuildError
 from emissor.nfse.emissao import ResultadoEmissao, agora_emissao, enviar_dps, preparar_dps
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
-from emissor.nfse.models import DpsInput, normalizar_documento
+from emissor.nfse.models import DpsInput, aplicar_tributacao, normalizar_documento, tributacao_de
 from emissor.nfse.xml_reader import NFSeDoc
 from emissor.services import arquivos
 from emissor.services import certificado as cert_service
+from emissor.services import tributacao as trib_service
 from emissor.services.clientes import para_tomador
 
 log = logging.getLogger(__name__)
@@ -79,8 +80,14 @@ def _valor(v: str) -> Decimal | None:
 def validar_linhas(s: Session, linhas: list[LinhaTabela], ambiente: Ambiente) -> list[ValidacaoLinha]:
     res = []
     inicio_mes = agora().replace(day=1, hour=0, minute=0, second=0)
+    abas = {a.id: a for a in trib_service.garantir_abas(s)}
+    exclusivos = trib_service.clientes_exclusivos(list(abas.values()))
+    erros_aba = _erros_tributacao_abas(s, list(abas.values()))
     for ln in linhas:
         v = ValidacaoLinha(ln.id)
+        aba = abas.get(ln.aba_id) if ln.aba_id is not None else None
+        if aba is not None:
+            v.erros.extend(erros_aba.get(aba.id, []))
         doc = normalizar_documento(ln.documento) or ""
         cli = s.get(Cliente, doc) if doc else None
         if not doc:
@@ -98,6 +105,17 @@ def validar_linhas(s: Session, linhas: list[LinhaTabela], ambiente: Ambiente) ->
             v.erros.append("Descrição do serviço não informada.")
         elif len(ln.descricao) > 2000:
             v.erros.append(f"Descrição com {len(ln.descricao)} caracteres (máximo 2000).")
+        if doc and aba is not None:
+            dona = exclusivos.get(doc)
+            if aba.clientes() and doc not in aba.clientes():
+                v.erros.append(
+                    f"A aba “{aba.nome}” é só dos clientes escolhidos para ela, e este CNPJ/CPF não está entre eles. "
+                    "Mova a linha para outra aba ou inclua o cliente na aba."
+                )
+            elif dona is not None and dona.id != aba.id:
+                v.avisos.append(
+                    f"Este cliente tem aba própria (“{dona.nome}”); aqui a nota sai com a tributação desta aba."
+                )
         if doc and not v.erros:
             if cli is None:
                 v.avisos.append("Cliente sem cadastro: a nota sairá sem o endereço do tomador.")
@@ -126,6 +144,25 @@ def validar_linhas(s: Session, linhas: list[LinhaTabela], ambiente: Ambiente) ->
         if em_andamento:
             v.erros.append("Esta linha já está em uma emissão em andamento.")
         res.append(v)
+    return res
+
+
+def _erros_tributacao_abas(s: Session, abas: list) -> dict[int, list[str]]:
+    """Problemas da tributação de cada aba (excluída ou incoerente com o cadastro atual)."""
+    base = obter_config(s).config_fiscal()
+    res: dict[int, list[str]] = {}
+    for aba in abas:
+        try:
+            nome, dados = trib_service.tributacao_da_aba(s, aba)
+        except trib_service.TributacaoError as exc:
+            res[aba.id] = [exc.mensagem]
+            continue
+        if base is None:
+            continue
+        erros = trib_service.coerencia(tributacao_de(aplicar_tributacao(base, dados)))
+        if erros:
+            origem = f"tributação “{nome}”" if nome else "padrões da nota (Configurações)"
+            res[aba.id] = [f"{origem}: {e}" for e in erros]
     return res
 
 
@@ -166,25 +203,85 @@ def criar_lote(linha_ids: list[int]) -> Lote:
         com_erro = [asdict(v) for v in validacoes if v.erros]
         if com_erro:
             raise LoteError(f"{len(com_erro)} linha(s) com erro. Corrija antes de emitir.", com_erro)
-        lote = Lote(id=uuid.uuid4().hex[:12], ambiente=cfg.ambiente, total=len(linhas))
-        s.add(lote)
+        abas = {a.id: a for a in trib_service.garantir_abas(s)}
+        itens = []
         for ln in linhas:
-            doc = normalizar_documento(ln.documento)
-            cli = s.get(Cliente, doc)
-            s.add(
-                Emissao(
-                    lote_id=lote.id,
-                    linha_id=ln.id,
-                    ambiente=cfg.ambiente,
-                    tomador_documento=doc,
-                    tomador_nome=(ln.nome or "").strip() or (cli.nome if cli else ""),
-                    valor=f"{Decimal(ln.valor):.2f}",
-                    descricao=ln.descricao.strip(),
-                )
-            )
-        s.commit()
-    log.info("lote criado", extra={"lote_id": lote.id, "total": lote.total, "ambiente": lote.ambiente})
+            nome_trib, dados_trib = trib_service.tributacao_da_aba(s, abas.get(ln.aba_id))
+            itens.append((ln.id, ln.nome, ln.documento, ln.valor, ln.descricao, nome_trib, dados_trib))
+        lote = _gravar_lote(s, cfg.ambiente, itens)
     worker().enfileirar(lote.id)
+    return lote
+
+
+@dataclass
+class NotaAvulsa:
+    nome: str
+    documento: str
+    valor: str
+    descricao: str
+    tributacao_nome: str | None = None  # None com dados = tributação só desta nota
+    tributacao: dict | None = None  # None = padrões das configurações
+
+
+def _linha_avulsa(n: NotaAvulsa) -> LinhaTabela:
+    """Linha transitória (fora do banco) para reaproveitar a validação da tabela."""
+    return LinhaTabela(
+        id=None,
+        aba_id=None,
+        nome=n.nome,
+        documento=normalizar_documento(n.documento) or "",
+        valor=n.valor,
+        descricao=n.descricao,
+    )
+
+
+def validar_avulsa(s: Session, n: NotaAvulsa, ambiente: Ambiente) -> ValidacaoLinha:
+    return validar_linhas(s, [_linha_avulsa(n)], ambiente)[0]
+
+
+def criar_avulsa(n: NotaAvulsa) -> Lote:
+    """Uma nota só, fora da tabela, emitida como um lote de 1 (mesma fila e mesmas garantias)."""
+    with sessao() as s:
+        problemas = verificar_prontidao(s)
+        if problemas:
+            raise LoteError("Não é possível emitir: " + " ".join(problemas))
+        cfg = obter_config(s)
+        v = validar_avulsa(s, n, cfg.amb)
+        if v.erros:
+            raise LoteError("A nota tem erros. Corrija antes de emitir.", v.erros)
+        ln = _linha_avulsa(n)
+        lote = _gravar_lote(
+            s, cfg.ambiente, [(None, ln.nome, ln.documento, ln.valor, ln.descricao, n.tributacao_nome, n.tributacao)]
+        )
+    worker().enfileirar(lote.id)
+    return lote
+
+
+def _gravar_lote(s: Session, ambiente: str, itens: list[tuple]) -> Lote:
+    """Grava o lote e uma emissão por item ``(linha_id, nome, documento, valor, descricao, trib_nome, trib)``.
+
+    A tributação é copiada para a emissão: mudar a tributação depois não altera notas já na fila.
+    """
+    lote = Lote(id=uuid.uuid4().hex[:12], ambiente=ambiente, total=len(itens))
+    s.add(lote)
+    for linha_id, nome, documento, valor, descricao, trib_nome, trib in itens:
+        doc = normalizar_documento(documento)
+        cli = s.get(Cliente, doc)
+        s.add(
+            Emissao(
+                lote_id=lote.id,
+                linha_id=linha_id,
+                ambiente=ambiente,
+                tomador_documento=doc,
+                tomador_nome=(nome or "").strip() or (cli.nome if cli else ""),
+                valor=f"{Decimal(valor):.2f}",
+                descricao=descricao.strip(),
+                tributacao_nome=trib_nome if trib else None,
+                tributacao_json=trib_service.dumps(trib) if trib else None,
+            )
+        )
+    s.commit()
+    log.info("lote criado", extra={"lote_id": lote.id, "total": lote.total, "ambiente": lote.ambiente})
     return lote
 
 
@@ -317,7 +414,7 @@ class EmissionWorker:
             serie=str(serie),
             n_dps=n,
             dh_emi=dh,
-            config=fiscal,
+            config=aplicar_tributacao(fiscal, e.tributacao()),
             tomador=para_tomador(cli, e.tomador_documento, e.tomador_nome),
             valor=Decimal(e.valor),
             descricao=e.descricao,

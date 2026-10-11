@@ -1,14 +1,29 @@
 import { useEffect, useRef, useState } from "react";
-import { api, baixar, type Emissao, type Lote, type Validacao } from "../api";
+import { api, baixar, type DadosTributacao, type Emissao, type Lote, type Validacao } from "../api";
 import { formatarDocumento, moeda } from "../format";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 
 type Fase = "validando" | "conferir" | "enviando" | "acompanhando";
 
+/** Corpo de ``POST /api/avulsa`` (nota fora da tabela). */
+export interface CorpoAvulsa {
+  nome: string;
+  documento: string;
+  valor: string;
+  descricao: string;
+  tributacao_id?: number | null;
+  tributacao?: DadosTributacao | null;
+}
+
 export function EmissaoFluxo(props: {
   linhaIds: number[];
   loteExistente?: string;
   nomes: Map<number, string>;
+  /** Nota avulsa: valida e emite este corpo em vez das linhas da tabela. */
+  avulsa?: CorpoAvulsa;
+  /** Nome da tributação com que as notas saem (aba aberta). */
+  tributacao?: string;
+  aoCriarLote?: (id: string) => void;
   fechar: () => void;
 }) {
   const toast = useToast();
@@ -24,7 +39,10 @@ export function EmissaoFluxo(props: {
   useEffect(() => {
     if (fase !== "validando") return;
     api
-      .post<Validacao>("/api/tabela/validar", { linha_ids: props.linhaIds })
+      .post<Validacao>(
+        props.avulsa ? "/api/avulsa/validar" : "/api/tabela/validar",
+        props.avulsa ?? { linha_ids: props.linhaIds },
+      )
       .then((v) => {
         setVal(v);
         setFase("conferir");
@@ -33,7 +51,7 @@ export function EmissaoFluxo(props: {
         setErro(e);
         setFase("conferir");
       });
-  }, [fase, props.linhaIds]);
+  }, [fase, props.linhaIds, props.avulsa]);
 
   // Acompanhamento por polling (~1 s) até o lote terminar.
   const ativo = useRef(true);
@@ -64,10 +82,13 @@ export function EmissaoFluxo(props: {
     setErro(null);
     setFase("enviando");
     try {
-      const l = await api.post<Lote>("/api/lotes", { linha_ids: props.linhaIds });
+      const l = props.avulsa
+        ? await api.post<Lote>("/api/avulsa", props.avulsa)
+        : await api.post<Lote>("/api/lotes", { linha_ids: props.linhaIds });
       setLote(l);
       setLoteId(l.id);
       setFase("acompanhando");
+      props.aoCriarLote?.(l.id);
     } catch (e) {
       setErro(e);
       setFase("conferir");
@@ -127,7 +148,7 @@ export function EmissaoFluxo(props: {
                 {prod ? "as notas terão validade jurídica" : "notas de teste, sem validade jurídica"}
               </span>
             </div>
-            <div style={{ display: "flex", gap: 40, alignItems: "baseline" }}>
+            <div style={{ display: "flex", gap: 40, alignItems: "baseline", flexWrap: "wrap" }}>
               <div>
                 <div className="contador-grande">{val.quantidade}</div>
                 <div style={{ color: "var(--grafite)" }}>nota(s)</div>
@@ -136,6 +157,12 @@ export function EmissaoFluxo(props: {
                 <div className="contador-grande">{moeda(val.total)}</div>
                 <div style={{ color: "var(--grafite)" }}>valor total</div>
               </div>
+              {(props.tributacao || val.tributacao_nome !== undefined) && (
+                <div>
+                  <div className="tributacao-conferir">{props.tributacao ?? val.tributacao_nome ?? "Padrões da nota"}</div>
+                  <div style={{ color: "var(--grafite)" }}>tributação</div>
+                </div>
+              )}
             </div>
             {val.problemas.length > 0 && (
               <div className="erro-caixa">

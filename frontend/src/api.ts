@@ -72,6 +72,7 @@ export interface Emissao {
   erro: ErroEmissao | null;
   alertas: MensagemSefin[];
   recuperada: boolean;
+  tributacao_nome: string | null;
   pode_cancelar: boolean;
   atualizado_em: string | null;
   eventos?: EventoNFSe[];
@@ -85,6 +86,7 @@ export interface Emissao {
 
 export interface Linha {
   id?: number;
+  aba_id?: number;
   nome: string;
   documento: string;
   valor: string;
@@ -176,7 +178,58 @@ export interface Fiscal {
   cst_pis_cofins: string | null;
   tp_ret_pis_cofins: string | null;
   p_tot_trib_sn: string | null;
+  ibscbs: boolean;
+  ibscbs_c_ind_op: string;
+  ibscbs_c_class_trib: string;
+  ibscbs_ind_final: string | null;
   tp_emit: string;
+}
+
+/** Campos que mudam de uma tributação para outra (o resto vem das configurações). */
+export const CAMPOS_TRIBUTACAO = [
+  "c_loc_prestacao",
+  "c_trib_nac",
+  "c_trib_mun",
+  "c_nbs",
+  "trib_issqn",
+  "tp_ret_issqn",
+  "cst_pis_cofins",
+  "tp_ret_pis_cofins",
+  "p_tot_trib_sn",
+  "ibscbs",
+  "ibscbs_c_ind_op",
+  "ibscbs_c_class_trib",
+  "ibscbs_ind_final",
+] as const;
+export type DadosTributacao = Pick<Fiscal, (typeof CAMPOS_TRIBUTACAO)[number]>;
+
+export function dadosTributacao(f: DadosTributacao): DadosTributacao {
+  return Object.fromEntries(CAMPOS_TRIBUTACAO.map((k) => [k, f[k]])) as unknown as DadosTributacao;
+}
+
+export interface Tributacao {
+  id: number;
+  nome: string;
+  dados: DadosTributacao;
+  resumo: string;
+  abas: string[];
+}
+
+export interface ListaTributacoes {
+  padrao: DadosTributacao | null;
+  padrao_resumo: string | null;
+  itens: Tributacao[];
+}
+
+export interface Aba {
+  id: number;
+  nome: string;
+  ordem: number;
+  tributacao_id: number | null;
+  tributacao_nome: string | null;
+  tributacao_excluida: boolean;
+  clientes: { documento: string; nome: string }[];
+  linhas: number;
 }
 
 export interface Config {
@@ -226,6 +279,7 @@ export interface Validacao {
   linhas: { linha_id: number; erros: string[]; avisos: string[] }[];
   quantidade: number;
   total: string;
+  tributacao_nome?: string | null;
 }
 
 export interface Lote {
