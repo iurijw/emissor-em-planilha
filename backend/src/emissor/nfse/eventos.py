@@ -125,8 +125,9 @@ def build_pedido_cancelamento(
     dh_evento: datetime,
 ) -> etree._Element:
     """Monta o ``pedRegEvento`` de cancelamento (sem assinatura)."""
-    if not re.fullmatch(r"\d{50}", chave or ""):
-        raise EventoBuildError(f"Chave de acesso inválida: {chave!r} (são 50 dígitos).")
+    # Posições 10-23 = inscrição federal do emitente (CNPJ alfanumérico tem letras).
+    if not re.fullmatch(r"\d{9}[0-9A-Z]{14}\d{27}", chave or ""):
+        raise EventoBuildError(f"Chave de acesso inválida: {chave!r} (são 50 caracteres).")
     if c_motivo not in MOTIVOS_CANCELAMENTO:
         raise EventoBuildError("Motivo do cancelamento deve ser 1 (erro na emissão), 2 (serviço não prestado) ou 9.")
     doc = normalizar_documento(autor) or ""

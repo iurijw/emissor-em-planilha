@@ -59,11 +59,6 @@ def _pessoa(parent: etree._Element, tag: str, t: Tomador) -> None:
     doc = normalizar_documento(t.documento)
     if not doc or len(doc) not in (11, 14):
         raise DpsBuildError(f"Documento do tomador inválido: {t.documento!r}")
-    if not doc.isdigit():
-        raise DpsBuildError(
-            f"CNPJ alfanumérico ({doc}) ainda não é aceito pelo leiaute oficial da NFS-e (XSD 1.01 só admite "
-            "CNPJ numérico). Aguarde a atualização da Sefin para emitir para este cliente."
-        )
     _sub(el, "CPF" if len(doc) == 11 else "CNPJ", doc)
     _opt(el, "IM", limpar_texto(t.inscricao_municipal, max_len=15))
     nome = limpar_texto(t.nome, max_len=300)

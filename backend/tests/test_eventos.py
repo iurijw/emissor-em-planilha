@@ -92,6 +92,22 @@ def test_pedido_cancelamento_valida_no_xsd_e_assinatura_confere(certificado):
     assert '<xMotivo>Valor "errado" na nota</xMotivo>' in texto
 
 
+def test_pedido_cancelamento_com_cnpj_alfanumerico_valida_no_xsd(certificado):
+    # cMun(7) + ambiente gerador(1) + tipo de inscrição(1) + CNPJ(14) + número/AAMM/código/DV(27)
+    chave = "4205407" + "1" + "2" + "12ABC34501DE35" + "0" * 26 + "1"
+    id_ped, xml = preparar_cancelamento(
+        certificado,
+        chave=chave,
+        autor="12ABC34501DE35",
+        ambiente=Ambiente.HOMOLOGACAO,
+        c_motivo="1",
+        x_motivo="Valor digitado errado na nota",
+        dh_evento=DH,
+    )
+    assert id_ped == f"PRE{chave}101101"
+    assert validar_pedido_evento(xml) == []
+
+
 @pytest.mark.parametrize(
     ("kw", "trecho"),
     [

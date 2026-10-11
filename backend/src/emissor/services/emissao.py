@@ -34,7 +34,7 @@ from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
 from emissor.nfse.constants import Ambiente
 from emissor.nfse.danfse.render import gerar_danfse
-from emissor.nfse.documentos import cnpj_alfanumerico, documento_valido, formatar_documento
+from emissor.nfse.documentos import documento_valido, formatar_documento
 from emissor.nfse.dps_builder import DpsBuildError
 from emissor.nfse.emissao import ResultadoEmissao, agora_emissao, enviar_dps, preparar_dps
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
@@ -94,8 +94,6 @@ def validar_linhas(s: Session, linhas: list[LinhaTabela], ambiente: Ambiente) ->
             v.erros.append("CNPJ/CPF não informado.")
         elif len(doc) not in (11, 14) or not documento_valido(doc):
             v.erros.append(f"CNPJ/CPF inválido: {ln.documento!r} (dígitos verificadores não conferem).")
-        elif cnpj_alfanumerico(doc):
-            v.erros.append("CNPJ alfanumérico ainda não é aceito pelo leiaute oficial da NFS-e (XSD 1.01).")
         if not (ln.nome or "").strip() and not (cli and cli.nome):
             v.erros.append("Nome da empresa não informado.")
         valor = _valor(ln.valor)

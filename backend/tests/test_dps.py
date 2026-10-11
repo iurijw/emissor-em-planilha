@@ -113,10 +113,19 @@ def test_xmls_reais_validam_no_xsd():
         assert validar_nfse(p.read_bytes()) == [], p.name
 
 
-def test_cnpj_alfanumerico_bloqueado_com_mensagem_clara(dps_input):
+def test_cnpj_alfanumerico_de_tomador_valida_no_xsd(dps_input, certificado):
+    # XSD de 27/07/2026 (CNPJ alfanumérico em produção desde 10/08/2026).
     tomador = replace(dps_input.tomador, documento="12ABC34501DE35")
-    with pytest.raises(DpsBuildError, match="alfanumérico"):
-        build_dps(replace(dps_input, tomador=tomador))
+    _, xml = preparar_dps(replace(dps_input, tomador=tomador), certificado)
+    assert b"<CNPJ>12ABC34501DE35</CNPJ>" in xml
+
+
+def test_cnpj_alfanumerico_de_prestador_valida_no_xsd(dps_input):
+    cfg = replace(dps_input.config, cnpj="12ABC34501DE35")
+    dps = build_dps(replace(dps_input, config=cfg))
+    assert dps.find(f"{N}infDPS").get("Id") == "DPS4205407212ABC34501DE3500001000000000000042"
+    erros = [e for e in validar_dps(dps) if "Signature" not in e.mensagem]
+    assert erros == []
 
 
 # --- IBS/CBS (grupo infDPS/IBSCBS) ---------------------------------------------------------------

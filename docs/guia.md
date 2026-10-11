@@ -308,8 +308,8 @@ docs/            NT 008/2026 (DANFSe), imagens e vídeos do README
   imóveis, eventos, transporte, compras governamentais, diferimento ou crédito presumido não são enviadas pelo
   sistema. A ausência do grupo não rejeita a nota até 31/12/2026; confirme com a contabilidade a partir de quando
   ele é exigido para você e quais códigos usar.
-- **CNPJ alfanumérico** de tomador é aceito no cadastro, mas a emissão fica bloqueada até a Sefin publicar um XSD
-  compatível.
+- **CNPJ alfanumérico** (de tomador ou do próprio prestador) é aceito no cadastro e na emissão, conforme o leiaute
+  publicado pela Sefin em 27/07/2026 (em produção desde 10/08/2026).
 
 ## Aviso
 
