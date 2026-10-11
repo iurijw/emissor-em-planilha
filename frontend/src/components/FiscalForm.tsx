@@ -382,9 +382,10 @@ export function CamposTributacao({ valor, onChange }: { valor: DadosTributacao; 
               valor={valor.ibscbs_c_class_trib}
               onChange={(v) => set("ibscbs_c_class_trib", v.replace(/\D/g, "").slice(0, 6))}
               ajuda={
-                classeConhecida
-                  ? op?.ibscbs_c_class_trib?.find((o) => o.valor === valor.ibscbs_c_class_trib)?.descricao
-                  : `6 dígitos da tabela oficial. O CST vai como os 3 primeiros (${(valor.ibscbs_c_class_trib || "").slice(0, 3) || "—"}).`
+                (classeConhecida
+                  ? `${op?.ibscbs_c_class_trib?.find((o) => o.valor === valor.ibscbs_c_class_trib)?.descricao}. `
+                  : `CST ${(valor.ibscbs_c_class_trib || "").slice(0, 3) || "—"} (3 primeiros dígitos). `) +
+                "Use o código da tabela oficial para o seu serviço: alguns têm redução ou isenção."
               }
               num
             />
