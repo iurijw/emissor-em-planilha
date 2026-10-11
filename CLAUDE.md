@@ -521,6 +521,12 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   Variáveis: `EMISSOR_HOST`, `EMISSOR_PORT`, `EMISSOR_DATA_DIR`, `EMISSOR_IPS_PERMITIDOS` (CIDRs separados
   por vírgula; vazio = todos), `EMISSOR_FONT_DIR`.
 - Testes: `cd backend && uv run pytest -q` · Lint/format: `uv run ruff check src tests && uv run ruff format src tests`.
+- **Testes ponta a ponta** (`tests/test_ponta_a_ponta.py` + `tests/sefin_simulada.py`): Sefin/ADN simulados que conferem a
+  DPS como a real (XSD oficial, assinatura com o certificado da conexão, Id, série, tpAmb, datas, E0959/E0322) e montam
+  a NFS-e a partir dela (assinada por um certificado "da Sefin" e validada no XSD). Todo `SefinClient` sem transporte
+  vai para a simulação; `test_todas_as_rotas` chama cada rota da API e falha se surgir rota sem teste ou erro 500.
+  Rota nova → acrescentar a chamada nesse teste.
+- **CI** (`.github/workflows/testes.yml`): ruff + pytest do backend e `npm run build` do frontend a cada PR e push na main.
 - Testes usam certificado ICP-Brasil **falso** gerado em runtime (`tests/conftest.py`) e a fixture
   fictícia `tests/fixtures/nfse_exemplo.xml` (dados trocados a partir de uma nota real; a assinatura da Sefin
   ficou só como estrutura e não confere); testes com `temp/*.xml` reais são pulados se a pasta não existir.
@@ -567,4 +573,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-11 | Abas com clientes exclusivos: erro dentro da aba, só aviso fora dela | Segrega sem travar quem precisa emitir o mesmo cliente com outra tributação |
 | 2026-10-11 | Nota avulsa = lote de 1 sem linha da tabela | Reaproveita fila, numeração, anti-duplicidade e validação |
 | 2026-10-11 | XSD local trocado pelo pacote `esquemas-nfse-rtc-v1-01-20260727` e CNPJ alfanumérico liberado | Conferido no gov.br: é o leiaute em produção desde 10/08/2026; corrige `TSSerieDPS` |
+| 2026-10-11 | Testes ponta a ponta com Sefin/ADN simulados e workflow "Testes" no GitHub Actions a cada PR | Conferir todas as rotas e emissões sem certificado real; Actions é grátis em repositório público |
 | 2026-10-11 | Vídeos em HD com zoom (`docs/video/*-hd.mp4`, 1920x1080, em 1,5x, legendas e cursor desenhados na montagem) gravados com dados fictícios e Sefin/BrasilAPI simuladas; scripts em `/mnt/project-files/ferramentas/videos/` (fora do repo). O site da hospedagem exibe esses arquivos | Mostrar o sistema em detalhe no guia do site; os scripts permitem regravar quando a tela mudar |
