@@ -10,7 +10,7 @@ from sqlmodel import select
 
 from emissor import admin_cli, auth, security
 from emissor.api.app import create_app
-from emissor.db import SessaoUsuario, sessao
+from emissor.db import SessaoUsuario, Usuario, sessao
 
 from .conftest import ADMIN_EMAIL, ADMIN_SENHA, entrar_como_admin
 
@@ -67,12 +67,20 @@ def test_primeiro_acesso(client):
 
 
 def test_primeiro_acesso_pelo_proprio_servidor_dispensa_codigo():
-    with TestClient(create_app(iniciar_worker=False), client=("127.0.0.1", 5000)) as c:
+    local = {"client": ("127.0.0.1", 5000), "base_url": "http://127.0.0.1:8000"}
+    # Página de outro site com DNS apontado para 127.0.0.1 (DNS rebinding): o Host não é local.
+    with TestClient(
+        create_app(iniciar_worker=False), client=("127.0.0.1", 5000), base_url="http://mal.example:8000"
+    ) as c:
+        assert c.get("/api/auth/sessao").json()["primeiro_acesso_sem_codigo"] is False
+        r = c.post("/api/auth/primeiro-acesso", json={"email": ADMIN_EMAIL, "senha": ADMIN_SENHA})
+        assert r.status_code == 403, r.text
+    with TestClient(create_app(iniciar_worker=False), **local) as c:
         assert c.get("/api/auth/sessao").json()["primeiro_acesso_sem_codigo"] is True
         r = c.post("/api/auth/primeiro-acesso", json={"email": ADMIN_EMAIL, "senha": ADMIN_SENHA})
         assert r.status_code == 200, r.text
     # Atrás de um proxy na mesma máquina, não.
-    with TestClient(create_app(iniciar_worker=False), client=("127.0.0.1", 5000)) as c:
+    with TestClient(create_app(iniciar_worker=False), **local) as c:
         h = {"X-Forwarded-For": "203.0.113.9"}
         assert c.get("/api/auth/sessao", headers=h).json()["primeiro_acesso_sem_codigo"] is False
 
@@ -286,3 +294,30 @@ def test_senha_guardada_com_argon2id(admin):
     with sessao() as s:
         u = s.exec(select(Usuario)).one()
     assert u.senha_hash.startswith("$argon2id$") and ADMIN_SENHA not in u.senha_hash
+
+
+def test_redefinicao_que_mantem_2fa_pede_o_codigo(admin):
+    token = _convidar(admin, "op@exemplo.com.br")
+    op = _novo_cliente()
+    op.post("/api/auth/convite", json={"token": token, "senha": "operador-senha-1"})
+    segredo = op.post("/api/auth/2fa/iniciar", json={"senha": "operador-senha-1"}).json()["segredo"]
+    assert op.post("/api/auth/2fa/ativar", json={"codigo": auth.totp_agora(segredo)}).status_code == 200
+    op_id = next(u["id"] for u in admin.get("/api/usuarios").json() if u["email"] == "op@exemplo.com.br")
+    novo = admin.post(f"/api/usuarios/{op_id}/redefinir", json={"remover_2fa": False}).json()["link"].split("token=")[1]
+    c = _novo_cliente()
+    assert c.post("/api/auth/convite/ver", json={"token": novo}).json()["pede_codigo"] is True
+    r = c.post("/api/auth/convite", json={"token": novo, "senha": "outra-senha-boa"})
+    assert r.status_code == 401 and r.json()["precisa_codigo"] is True
+    assert c.get("/api/status").status_code == 401  # o link sozinho não abriu sessão
+    r = c.post("/api/auth/convite", json={"token": novo, "senha": "outra-senha-boa", "codigo": "000000"})
+    assert r.status_code == 401
+    # O código da ativação já foi usado neste período de 30 s: libera para o teste.
+    with sessao() as s:
+        u = s.exec(select(Usuario).where(Usuario.email == "op@exemplo.com.br")).one()
+        u.totp_ultimo_passo = 0
+        s.add(u)
+        s.commit()
+    r = c.post(
+        "/api/auth/convite", json={"token": novo, "senha": "outra-senha-boa", "codigo": auth.totp_agora(segredo)}
+    )
+    assert r.status_code == 200, r.text

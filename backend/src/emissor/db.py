@@ -62,11 +62,13 @@ class Configuracao(SQLModel, table=True):
     def amb(self) -> Ambiente:
         return Ambiente(self.ambiente)
 
-    def proximo_ndps(self) -> int:
-        return self.proximo_ndps_producao if self.amb == Ambiente.PRODUCAO else self.proximo_ndps_homologacao
+    def proximo_ndps(self, amb: Ambiente | None = None) -> int:
+        """Próximo nDPS do ambiente informado (o do lote); sem ele, o ambiente atual das configurações."""
+        amb = amb or self.amb
+        return self.proximo_ndps_producao if amb == Ambiente.PRODUCAO else self.proximo_ndps_homologacao
 
-    def avancar_ndps(self, usado: int) -> None:
-        if self.amb == Ambiente.PRODUCAO:
+    def avancar_ndps(self, usado: int, amb: Ambiente | None = None) -> None:
+        if (amb or self.amb) == Ambiente.PRODUCAO:
             self.proximo_ndps_producao = usado + 1
         else:
             self.proximo_ndps_homologacao = usado + 1
