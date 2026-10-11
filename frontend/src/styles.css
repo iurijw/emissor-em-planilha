@@ -342,3 +342,58 @@ a { color: var(--azul-texto); }
 @media (max-width: 900px) {
   .topo__usuario { border-left: 0; padding-left: 0; }
 }
+
+/* ---------- Abas da tabela (como as planilhas do Excel, no rodapé da grade) ---------- */
+.grade-caixa:has(+ .abas) { border-bottom-left-radius: 0; }
+.abas { display: flex; align-items: stretch; gap: 2px; margin-top: -1px; overflow-x: auto; scrollbar-width: thin; min-height: 38px; }
+.aba { display: flex; flex: none; }
+.aba__nome {
+  display: flex; align-items: center; gap: 8px; padding: 0 12px; min-height: 36px;
+  border: 1px solid transparent; border-top: 0; border-radius: 0 0 7px 7px;
+  background: transparent; color: var(--grafite); cursor: pointer; font-weight: 550; white-space: nowrap;
+}
+.aba__nome:hover { color: var(--tinta); background: #eef5f8; }
+.aba--ativa .aba__nome {
+  background: var(--folha); color: var(--tinta); border-color: var(--linha-forte);
+  box-shadow: inset 0 3px 0 var(--azul); /* a aba aberta "continua" a grade, marcada em azul */
+}
+.aba__selo {
+  font: 500 10.5px/1 var(--f-num); font-stretch: 87.5%; letter-spacing: -0.01em;
+  padding: 4px 6px; border-radius: 4px; background: var(--azul-fundo); color: var(--azul-texto);
+  max-width: 22ch; overflow: hidden; text-overflow: ellipsis;
+}
+.aba__selo--padrao { background: transparent; color: var(--grafite); box-shadow: inset 0 0 0 1px var(--linha-forte); }
+.aba__selo--erro { background: var(--erro-fundo); color: var(--erro); }
+.aba__clientes { font-size: 11.5px; color: var(--grafite); font-weight: 450; }
+.aba__nova {
+  flex: none; width: 34px; border: 0; background: transparent; color: var(--grafite); cursor: pointer;
+  font: 400 20px/1 var(--f-ui); border-radius: 0 0 7px 7px;
+}
+.aba__nova:hover { background: #eef5f8; color: var(--azul-texto); }
+
+/* Interruptor com texto (ex.: informar IBS/CBS) */
+.interruptor { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; max-width: 75ch; }
+.interruptor input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--azul); flex: none; }
+.interruptor strong { display: block; font-weight: 600; }
+.interruptor small { display: block; color: var(--grafite); font-size: 12.5px; margin-top: 2px; }
+
+/* Lista de clientes escolhidos / sugestões */
+.lista-clientes { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--linha); border-radius: var(--raio); background: var(--folha); }
+.lista-clientes li { display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 10px; font-size: 13px; }
+.lista-clientes li + li { border-top: 1px solid var(--linha); }
+.lista-clientes li > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lista-clientes .num { color: var(--grafite); font-size: 11.5px; }
+.lista-clientes--sugestoes li { padding: 0; }
+.lista-clientes--sugestoes .btn { width: 100%; justify-content: space-between; font-weight: 450; height: 34px; border-radius: 0; }
+.lista-clientes--flutuante { position: absolute; top: 60px; left: 0; right: 0; z-index: 5; box-shadow: var(--sombra); }
+
+/* Escolha da tributação da nota avulsa */
+.escolha-tributacao { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.escolha-tributacao__op {
+  display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 10px 12px; cursor: pointer;
+  border: 1px solid var(--linha-forte); border-radius: var(--raio); background: var(--folha);
+}
+.escolha-tributacao__op strong { font-weight: 600; }
+.escolha-tributacao__op span { font-size: 12px; color: var(--grafite); }
+.escolha-tributacao__op[aria-checked="true"] { border-color: var(--azul); box-shadow: inset 0 0 0 1px var(--azul); background: var(--azul-fundo); }
+.tributacao-conferir { font: 650 20px/1.1 var(--f-ui); font-stretch: 112%; max-width: 24ch; }

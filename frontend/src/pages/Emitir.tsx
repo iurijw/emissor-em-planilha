@@ -15,9 +15,11 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, baixar, type Cliente, type Linha, type Status } from "../api";
+import { api, baixar, type Aba, type Cliente, type Linha, type Status } from "../api";
 import { documentoValido, formatarDocumento, moeda, parseTSV, parseValor, soDocumento, STATUS_ROTULO } from "../format";
+import { AbasPlanilha, EditorAba } from "../components/Abas";
 import { EditorNomeCliente } from "../components/EditorNomeCliente";
+import { NotaAvulsa } from "../components/NotaAvulsa";
 import { AmbChip, Dialogo, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 import { EmissaoFluxo } from "./EmissaoFluxo";
 import { ZonaArquivo } from "./Onboarding";
@@ -130,7 +132,7 @@ function situacaoTexto(ln: LinhaLocal, cli: Cliente | undefined): { texto: strin
   return { texto: "" };
 }
 
-export function Emitir({ status }: { status: Status }) {
+export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
   const grade = useRef<DataEditorRef>(null);
@@ -146,6 +148,14 @@ export function Emitir({ status }: { status: Status }) {
   const [emitindo, setEmitindo] = useState<{ ids: number[]; loteId?: string } | null>(null);
   const [consultando, setConsultando] = useState<string | null>(null);
   const [ordem, setOrdem] = useState<Ordem | null>(null);
+  const [abaId, setAbaId] = useState<number | null>(null);
+  const [editarAba, setEditarAba] = useState<Aba | "nova" | null>(null);
+  const [avulsa, setAvulsa] = useState(false);
+
+  const abasQ = useQuery({ queryKey: ["abas"], queryFn: () => api.get<Aba[]>("/api/abas") });
+  const abas = abasQ.data ?? [];
+  const aba = abas.find((a) => a.id === abaId) ?? null;
+  const abaRef = useRef<number | null>(null);
 
   const clientesQ = useQuery({ queryKey: ["clientes"], queryFn: () => api.get<Cliente[]>("/api/clientes") });
   const clientes = useMemo(() => new Map((clientesQ.data ?? []).map((c) => [c.documento, c])), [clientesQ.data]);
@@ -159,15 +169,27 @@ export function Emitir({ status }: { status: Status }) {
   const versao = useRef(0);
   const fila = useRef<Promise<void>>(Promise.resolve());
   const timer = useRef<number>();
+  const pendente = useRef<(() => void) | null>(null);
   const consultados = useRef(new Set<string>());
 
   const deServidor = (ls: Linha[]): LinhaLocal[] => ls.map((l) => ({ ...l, chave: novaChave() }));
 
-  const carregar = useCallback(async () => {
+  // Carrega uma aba (null = primeira). Edições ainda no debounce são salvas antes, na aba em que foram feitas.
+  const carregar = useCallback(async (id: number | null = abaRef.current) => {
+    if (pendente.current) {
+      window.clearTimeout(timer.current);
+      pendente.current();
+    }
+    versao.current++; // respostas de salvamentos de outra aba não sobrescrevem esta
+    await fila.current;
     try {
-      const r = await api.get<{ linhas: Linha[] }>("/api/tabela");
+      const r = await api.get<{ aba_id: number; linhas: Linha[] }>(`/api/tabela${id ? `?aba_id=${id}` : ""}`);
+      abaRef.current = r.aba_id;
+      setAbaId(r.aba_id);
       setLinhas(deServidor(r.linhas));
+      setSalvando("ok");
       setCarregado(true);
+      setErroCarga(null);
     } catch (e) {
       setErroCarga(e);
     }
@@ -177,15 +199,25 @@ export function Emitir({ status }: { status: Status }) {
     document.fonts?.ready.then(() => setFontes((f) => f + 1));
   }, [carregar]);
 
+  function trocarAba(id: number) {
+    if (id === abaRef.current) return;
+    setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
+    setOrdem(null);
+    setCarregado(false);
+    carregar(id).then(() => qc.invalidateQueries({ queryKey: ["abas"] }));
+  }
+
   const salvar = useCallback(
     (estado: LinhaLocal[]) => {
       const minha = ++versao.current;
+      const destino = abaRef.current;
       setSalvando("salvando");
       window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => {
+      const enviar = () => {
+        pendente.current = null;
         fila.current = fila.current.then(async () => {
           try {
-            const r = await api.put<{ linhas: Linha[] }>("/api/tabela", {
+            const r = await api.put<{ linhas: Linha[] }>(`/api/tabela${destino ? `?aba_id=${destino}` : ""}`, {
               linhas: estado.map(({ id, nome, documento, valor, descricao }) => ({ id, nome, documento, valor, descricao })),
             });
             setErroSalvar(null);
@@ -198,7 +230,9 @@ export function Emitir({ status }: { status: Status }) {
             setSalvando("erro");
           }
         });
-      }, 500);
+      };
+      pendente.current = enviar;
+      timer.current = window.setTimeout(enviar, 500);
     },
     [],
   );
@@ -475,6 +509,14 @@ export function Emitir({ status }: { status: Status }) {
           </p>
         </div>
         <div className="cabecalho-pagina__acoes">
+          <button
+            className="btn"
+            disabled={!status.pronto_para_emitir}
+            onClick={() => setAvulsa(true)}
+            title={!status.pronto_para_emitir ? status.problemas.join(" ") : "Emitir uma nota só, fora da tabela"}
+          >
+            Nota avulsa
+          </button>
           {status.lote_em_andamento && !emitindo && (
             <button className="btn" onClick={() => setEmitindo({ ids: [], loteId: status.lote_em_andamento! })}>
               <Spinner /> Emissão em andamento, ver progresso
@@ -503,12 +545,26 @@ export function Emitir({ status }: { status: Status }) {
         <button className="btn btn--pequeno" onClick={() => setImportar(true)}>
           Importar planilha
         </button>
-        <button className="btn btn--pequeno" onClick={() => baixar("/api/tabela/exportar?formato=xlsx").catch((e) => toast(e.message, "erro"))}>
+        <button className="btn btn--pequeno" onClick={() => baixar(`/api/tabela/exportar?formato=xlsx&aba_id=${abaId ?? ""}`).catch((e) => toast(e.message, "erro"))}>
           Exportar Excel
         </button>
-        <button className="btn btn--pequeno btn--fantasma" onClick={() => baixar("/api/tabela/exportar?formato=csv").catch((e) => toast(e.message, "erro"))}>
+        <button className="btn btn--pequeno btn--fantasma" onClick={() => baixar(`/api/tabela/exportar?formato=csv&aba_id=${abaId ?? ""}`).catch((e) => toast(e.message, "erro"))}>
           CSV
         </button>
+        {aba && aba.clientes.length > 0 && (
+          <button
+            className="btn btn--pequeno btn--fantasma"
+            title="Acrescenta uma linha para cada cliente da aba que ainda não está na tabela"
+            onClick={() => {
+              const presentes = new Set(linhas.map((l) => l.documento));
+              const novas = aba.clientes.filter((c) => !presentes.has(c.documento));
+              if (!novas.length) return toast("Todos os clientes da aba já estão na tabela.");
+              alterar((a) => [...a, ...novas.map((c) => ({ ...vazia(), nome: c.nome, documento: c.documento }))]);
+            }}
+          >
+            + Clientes da aba
+          </button>
+        )}
         <div className="barra__resumo">
           {consultando && (
             <span>
@@ -566,6 +622,13 @@ export function Emitir({ status }: { status: Status }) {
           />
         )}
       </div>
+      <AbasPlanilha
+        abas={abas}
+        atual={abaId}
+        trocar={trocarAba}
+        criar={() => setEditarAba("nova")}
+        editar={(a) => setEditarAba(a)}
+      />
       <p className="dica-grade">
         Selecione várias células arrastando ou com <kbd>Shift</kbd>, digite e tecle <kbd>Enter</kbd> para aplicar o valor a todas.
         Cole direto do Excel com <kbd>Ctrl</kbd>+<kbd>V</kbd>, arraste o canto da seleção para repetir valores e use
@@ -575,15 +638,34 @@ export function Emitir({ status }: { status: Status }) {
 
       {importar && (
         <Importar
+          abaId={abaId}
           fechar={() => setImportar(false)}
           concluido={(ls) => {
             versao.current++;
             setLinhas(deServidor(ls));
             setOrdem(null);
             setImportar(false);
+            qc.invalidateQueries({ queryKey: ["abas"] });
           }}
         />
       )}
+      {editarAba && (
+        <EditorAba
+          aba={editarAba === "nova" ? null : editarAba}
+          ultima={abas.length <= 1}
+          admin={admin}
+          fechar={() => setEditarAba(null)}
+          salvo={(a, excluida) => {
+            setEditarAba(null);
+            qc.invalidateQueries({ queryKey: ["abas"] });
+            if (excluida) {
+              setCarregado(false);
+              carregar(abas.find((x) => x.id !== excluida)?.id ?? null);
+            } else if (a && a.id !== abaRef.current) trocarAba(a.id);
+          }}
+        />
+      )}
+      {avulsa && <NotaAvulsa fechar={() => setAvulsa(false)} admin={admin} />}
       {detalhe?.ultima_emissao && (
         <Gaveta titulo={`${detalhe.nome || formatarDocumento(detalhe.documento)}`} fechar={() => setDetalhe(null)}
           rodape={<a className="btn" href={`#/emissoes`}>Abrir emissões</a>}>
@@ -593,6 +675,7 @@ export function Emitir({ status }: { status: Status }) {
       {emitindo && (
         <EmissaoFluxo
           linhaIds={emitindo.ids}
+          tributacao={aba ? aba.tributacao_nome ?? "Padrões da nota" : undefined}
           loteExistente={emitindo.loteId}
           nomes={new Map(linhas.filter((l) => l.id).map((l) => [l.id!, l.nome || formatarDocumento(l.documento)]))}
           fechar={() => {
@@ -643,7 +726,7 @@ function DetalheUltima({ linha }: { linha: LinhaLocal }) {
   );
 }
 
-function Importar({ fechar, concluido }: { fechar: () => void; concluido: (l: Linha[]) => void }) {
+function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: () => void; concluido: (l: Linha[]) => void }) {
   const [modo, setModo] = useState<"substituir" | "acrescentar">("substituir");
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -655,7 +738,7 @@ function Importar({ fechar, concluido }: { fechar: () => void; concluido: (l: Li
     try {
       const fd = new FormData();
       fd.append("arquivo", files[0]);
-      const r = await api.post<{ linhas: Linha[]; importadas: number; avisos: string[] }>(`/api/tabela/importar?modo=${modo}`, fd);
+      const r = await api.post<{ linhas: Linha[]; importadas: number; avisos: string[] }>(`/api/tabela/importar?modo=${modo}${abaId ? `&aba_id=${abaId}` : ""}`, fd);
       toast(`${r.importadas} linha(s) importada(s).${r.avisos.length ? ` ${r.avisos.length} aviso(s).` : ""}`);
       r.avisos.slice(0, 3).forEach((a) => toast(a, "erro"));
       concluido(r.linhas);
@@ -668,7 +751,7 @@ function Importar({ fechar, concluido }: { fechar: () => void; concluido: (l: Li
   return (
     <Dialogo titulo="Importar planilha" fechar={fechar}>
       <p style={{ marginTop: 0, color: "var(--grafite)" }}>
-        Excel (.xlsx) ou CSV com as colunas <b>Nome</b>, <b>CNPJ/CPF</b>, <b>Valor</b> e <b>Descrição</b>. A primeira linha pode
+        Vai para a aba aberta. Excel (.xlsx) ou CSV com as colunas <b>Nome</b>, <b>CNPJ/CPF</b>, <b>Valor</b> e <b>Descrição</b>. A primeira linha pode
         ter esses títulos; sem títulos, vale essa ordem.
       </p>
       <div className="amb-escolha" style={{ marginBottom: 16 }}>

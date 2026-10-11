@@ -458,6 +458,8 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
             <dd className="num">{moeda(e.valor)}</dd>
             <dt>Descrição</dt>
             <dd style={{ whiteSpace: "pre-wrap" }}>{e.descricao}</dd>
+            <dt>Tributação</dt>
+            <dd>{e.tributacao_nome ?? "Padrões da nota"}{e.linha_id === null && e.lote_id ? " (nota avulsa)" : ""}</dd>
             <dt>Emissão</dt>
             <dd>{dataHora(e.dh_emissao)}</dd>
             {e.chave_acesso && (<><dt>Chave de acesso</dt><dd className="num" style={{ fontSize: 11 }}>{e.chave_acesso}</dd></>)}

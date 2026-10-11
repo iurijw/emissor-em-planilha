@@ -1,7 +1,19 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, baixar, type CertificadoInfo, type Config, type ErroEmissao, type Fiscal, type Status } from "../api";
-import { FiscalForm } from "../components/FiscalForm";
+import {
+  api,
+  baixar,
+  dadosTributacao,
+  type CertificadoInfo,
+  type Config,
+  type DadosTributacao,
+  type ErroEmissao,
+  type Fiscal,
+  type Status,
+  type Tributacao,
+} from "../api";
+import { useTributacoes } from "../components/Abas";
+import { CamposTributacao, FiscalForm } from "../components/FiscalForm";
 import { ImportarClientesXml } from "../components/ImportarClientesXml";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, useToast } from "../ui";
 import { CartaoCertificado, ZonaArquivo } from "./Onboarding";
@@ -12,6 +24,7 @@ const SECOES = [
   ["clientes-xml", "Clientes via XML"],
   ["numeracao", "Numeração"],
   ["padroes", "Padrões da nota"],
+  ["tributacoes", "Tributações"],
   ["conexao", "Conexão com a Sefin"],
   ["diagnostico", "Diagnóstico"],
 ] as const;
@@ -57,6 +70,7 @@ export function Configuracoes({ status }: { status: Status }) {
             </section>
             <SecaoNumeracao cfg={cfg.data} />
             <SecaoPadroes cfg={cfg.data} />
+            <SecaoTributacoes />
             <SecaoConexao ambiente={cfg.data.ambiente} />
             <SecaoDiagnostico versao={status.versao} />
           </div>
@@ -253,6 +267,149 @@ function SecaoPadroes({ cfg }: { cfg: Config }) {
       <button className="btn btn--primario" style={{ marginTop: 14 }} disabled={ocupado} onClick={() => salvar({ fiscal }, "Padrões da nota salvos.")}>
         Salvar padrões
       </button>
+    </section>
+  );
+}
+
+function SecaoTributacoes() {
+  const lista = useTributacoes();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [editando, setEditando] = useState<{ id: number | null; nome: string; dados: DadosTributacao } | null>(null);
+  const [excluir, setExcluir] = useState<Tributacao | null>(null);
+  const [erro, setErro] = useState<unknown>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  async function salvar() {
+    if (!editando) return;
+    setErro(null);
+    setOcupado(true);
+    try {
+      const corpo = { nome: editando.nome, dados: editando.dados };
+      if (editando.id) await api.put(`/api/tributacoes/${editando.id}`, corpo);
+      else await api.post("/api/tributacoes", corpo);
+      toast(`Tributação “${editando.nome.trim()}” salva.`);
+      setEditando(null);
+      qc.invalidateQueries({ queryKey: ["tributacoes"] });
+      qc.invalidateQueries({ queryKey: ["abas"] });
+    } catch (e) {
+      setErro(e);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function confirmarExclusao() {
+    if (!excluir) return;
+    setOcupado(true);
+    setErro(null);
+    try {
+      await api.del(`/api/tributacoes/${excluir.id}`);
+      toast(`Tributação “${excluir.nome}” excluída.`);
+      setExcluir(null);
+      qc.invalidateQueries({ queryKey: ["tributacoes"] });
+    } catch (e) {
+      setErro(e);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  const itens = lista.data?.itens ?? [];
+  return (
+    <section className="folha" id="tributacoes">
+      <h2 className="secao-titulo">Tributações</h2>
+      <p style={{ marginTop: 0, color: "var(--grafite)" }}>
+        Combinações prontas de serviço, ISS, PIS/COFINS e IBS/CBS para notas que não seguem os padrões: cada aba da tabela
+        pode usar uma, e a nota avulsa também. Prestador e regime tributário continuam os dos padrões da nota.
+      </p>
+      <ErroCaixa erro={lista.error} titulo="Não foi possível carregar as tributações" />
+      {itens.length > 0 && (
+        <div className="tabela-caixa" style={{ marginBottom: 14 }}>
+          <table className="tabela">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Resumo</th>
+                <th>Abas que usam</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {itens.map((t) => (
+                <tr key={t.id}>
+                  <td><b>{t.nome}</b></td>
+                  <td>{t.resumo}</td>
+                  <td>{t.abas.length ? t.abas.join(", ") : <span style={{ color: "var(--grafite-claro)" }}>nenhuma</span>}</td>
+                  <td className="dir" style={{ whiteSpace: "nowrap" }}>
+                    <button className="btn btn--pequeno" onClick={() => setEditando({ id: t.id, nome: t.nome, dados: dadosTributacao(t.dados) })}>
+                      Editar
+                    </button>{" "}
+                    <button className="btn btn--pequeno btn--fantasma" onClick={() => setExcluir(t)}>
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <button
+        className="btn"
+        disabled={!lista.data?.padrao}
+        onClick={() => lista.data?.padrao && setEditando({ id: null, nome: "", dados: dadosTributacao(lista.data.padrao) })}
+      >
+        Nova tributação
+      </button>
+      {!editando && !excluir && <div style={{ marginTop: 12 }}><ErroCaixa erro={erro} /></div>}
+
+      {editando && (
+        <Dialogo
+          titulo={editando.id ? `Tributação “${editando.nome}”` : "Nova tributação"}
+          fechar={() => setEditando(null)}
+          largo
+          rodape={
+            <>
+              <button className="btn" onClick={() => setEditando(null)}>Cancelar</button>
+              <button className="btn btn--primario" disabled={ocupado || !editando.nome.trim()} onClick={salvar}>
+                {ocupado && <Spinner />} Salvar tributação
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
+            <label className="campo" style={{ maxWidth: 420 }}>
+              <span>Nome</span>
+              <input
+                value={editando.nome}
+                maxLength={60}
+                autoFocus
+                placeholder="Ex.: ISS retido pelo tomador"
+                onChange={(e) => setEditando({ ...editando, nome: e.target.value })}
+              />
+              {!editando.id && <small>Começa com os padrões da nota; mude só o que for diferente.</small>}
+            </label>
+            <CamposTributacao valor={editando.dados} onChange={(d) => setEditando({ ...editando, dados: d })} />
+            <ErroCaixa erro={erro} titulo="Tributação não salva" />
+          </div>
+        </Dialogo>
+      )}
+      {excluir && (
+        <Dialogo
+          titulo={`Excluir a tributação “${excluir.nome}”?`}
+          fechar={() => setExcluir(null)}
+          rodape={
+            <>
+              <button className="btn" onClick={() => setExcluir(null)}>Manter</button>
+              <button className="btn btn--perigo" disabled={ocupado} onClick={confirmarExclusao}>Excluir tributação</button>
+            </>
+          }
+        >
+          <p style={{ marginTop: 0 }}>Notas já emitidas não mudam. Abas que usam esta tributação precisam trocar de tributação antes.</p>
+          <ErroCaixa erro={erro} titulo="Não foi possível excluir" />
+        </Dialogo>
+      )}
     </section>
   );
 }

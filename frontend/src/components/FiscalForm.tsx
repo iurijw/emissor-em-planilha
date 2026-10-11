@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
-import { api, type Fiscal, type Municipio, type Opcoes } from "../api";
+import { api, type DadosTributacao, type Fiscal, type Municipio, type Opcoes } from "../api";
 import { formatarDocumento } from "../format";
 
 export function useOpcoes() {
@@ -265,6 +265,25 @@ export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: F
         </div>
       </section>
 
+      <CamposTributacao
+        valor={valor}
+        // Quase sempre é o mesmo município: o local da prestação preenche o do prestador se ainda estiver vazio.
+        onChange={(t) => onChange({ ...valor, ...t, c_mun_emissor: valor.c_mun_emissor || (t.c_loc_prestacao ?? "") })}
+      />
+    </div>
+  );
+}
+
+/**
+ * Serviço, tributos e IBS/CBS: o que muda de uma tributação para outra. Usado nos padrões da nota
+ * (Configurações), nas tributações predefinidas e na nota avulsa com tributação própria.
+ */
+export function CamposTributacao({ valor, onChange }: { valor: DadosTributacao; onChange: (t: DadosTributacao) => void }) {
+  const op = useOpcoes().data;
+  const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
+  const classeConhecida = op?.ibscbs_c_class_trib?.some((o) => o.valor === valor.ibscbs_c_class_trib);
+  return (
+    <>
       <section>
         <h3 className="secao-titulo">Serviço</h3>
         <div className="grade-form">
@@ -279,7 +298,7 @@ export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: F
             rotulo="Código NBS"
             valor={valor.c_nbs}
             onChange={(v) => set("c_nbs", v.replace(/\D/g, "") || null)}
-            ajuda="9 dígitos."
+            ajuda={valor.ibscbs ? "9 dígitos. Obrigatório com IBS/CBS." : "9 dígitos."}
             num
           />
           <Texto
@@ -292,10 +311,7 @@ export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: F
           <CampoMunicipio
             rotulo="Local da prestação"
             codigo={valor.c_loc_prestacao}
-            onChange={(c) =>
-              // Quase sempre é o mesmo município: preenche o do prestador se ainda estiver vazio.
-              onChange({ ...valor, c_loc_prestacao: c, c_mun_emissor: valor.c_mun_emissor || (c ?? "") })
-            }
+            onChange={(c) => set("c_loc_prestacao", c)}
             ajuda="Normalmente o mesmo município do prestador."
           />
         </div>
@@ -339,6 +355,49 @@ export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: F
           />
         </div>
       </section>
-    </div>
+
+      <section>
+        <h3 className="secao-titulo">IBS e CBS</h3>
+        <label className="interruptor">
+          <input type="checkbox" checked={valor.ibscbs} onChange={(e) => set("ibscbs", e.target.checked)} />
+          <span>
+            <strong>Informar IBS e CBS na nota</strong>
+            <small>
+              A Sefin calcula os valores a partir da classificação abaixo. Sem o grupo, a nota é aceita até 31/12/2026;
+              confirme com a contabilidade a partir de quando ele é exigido para você.
+            </small>
+          </span>
+        </label>
+        {valor.ibscbs && (
+          <div className="grade-form" style={{ marginTop: 14 }}>
+            <Selecao
+              rotulo="Indicador da operação"
+              valor={valor.ibscbs_c_ind_op}
+              opcoes={op?.ibscbs_c_ind_op}
+              onChange={(v) => set("ibscbs_c_ind_op", v ?? "100301")}
+              ajuda="Onde o IBS/CBS é devido. Serviços em geral: 100301."
+            />
+            <Texto
+              rotulo="Classificação tributária (cClassTrib)"
+              valor={valor.ibscbs_c_class_trib}
+              onChange={(v) => set("ibscbs_c_class_trib", v.replace(/\D/g, "").slice(0, 6))}
+              ajuda={
+                classeConhecida
+                  ? op?.ibscbs_c_class_trib?.find((o) => o.valor === valor.ibscbs_c_class_trib)?.descricao
+                  : `6 dígitos da tabela oficial. O CST vai como os 3 primeiros (${(valor.ibscbs_c_class_trib || "").slice(0, 3) || "—"}).`
+              }
+              num
+            />
+            <Selecao
+              rotulo="Uso ou consumo pessoal"
+              valor={valor.ibscbs_ind_final}
+              opcoes={op?.ibscbs_ind_final}
+              vazio="Não informar"
+              onChange={(v) => set("ibscbs_ind_final", v)}
+            />
+          </div>
+        )}
+      </section>
+    </>
   );
 }

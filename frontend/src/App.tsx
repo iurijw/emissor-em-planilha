@@ -202,7 +202,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </div>
           </div>
         )}
-        {rotaVisivel === "emitir" && <Emitir status={s} />}
+        {rotaVisivel === "emitir" && <Emitir status={s} admin={admin} />}
         {rotaVisivel === "emissoes" && <Emissoes />}
         {rotaVisivel === "clientes" && <Clientes />}
         {rotaVisivel === "configuracoes" && <Configuracoes status={s} />}
