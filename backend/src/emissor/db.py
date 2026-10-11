@@ -4,6 +4,8 @@ Tabelas:
 - ``configuracao``  (linha única) ambiente, série, contadores de nDPS, padrões fiscais (JSON)
 - ``certificado``   (linha única) PFX e senha criptografados + metadados
 - ``cliente``       cadastro de tomadores
+- ``tributacao``    tributações predefinidas (código do serviço, ISS, PIS/COFINS, IBS/CBS) usadas por abas e notas avulsas
+- ``aba``           abas da tabela de notas (cada uma pode ter tributação própria e clientes exclusivos)
 - ``linha_tabela``  tabela de notas a emitir (persistente)
 - ``lote``          execução de emissão em massa
 - ``emissao``       uma DPS/NFS-e (histórico completo)
@@ -121,9 +123,41 @@ class Cliente(SQLModel, table=True):
         return all([self.c_mun, self.cep, self.logradouro, self.bairro])
 
 
+class Tributacao(SQLModel, table=True):
+    """Tributação predefinida: os campos de ``CAMPOS_TRIBUTACAO`` completos, em JSON."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    nome: str = Field(index=True, unique=True)
+    dados_json: str = "{}"
+    criado_em: NaiveDatetime = Field(default_factory=agora)
+    atualizado_em: NaiveDatetime = Field(default_factory=agora)
+
+    def dados(self) -> dict[str, Any]:
+        return json.loads(self.dados_json or "{}")
+
+
+class Aba(SQLModel, table=True):
+    """Aba da tabela de notas. Sem tributação = padrões das configurações.
+
+    ``clientes_json`` (lista de CNPJ/CPF) torna a aba exclusiva desses clientes: só eles podem ser emitidos nela, e
+    emitir para eles em outra aba gera aviso.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    nome: str
+    ordem: int = 0
+    tributacao_id: int | None = Field(default=None, index=True)
+    clientes_json: str = "[]"
+    criado_em: NaiveDatetime = Field(default_factory=agora)
+
+    def clientes(self) -> list[str]:
+        return json.loads(self.clientes_json or "[]")
+
+
 class LinhaTabela(SQLModel, table=True):
     __tablename__ = "linha_tabela"
     id: int | None = Field(default=None, primary_key=True)
+    aba_id: int | None = Field(default=None, index=True)
     ordem: int = 0
     nome: str = ""
     documento: str = ""
@@ -168,8 +202,14 @@ class Emissao(SQLModel, table=True):
     pdf_path: str | None = None
     tentativas: int = 0
     recuperada: bool = False
+    # Tributação usada (cópia feita ao criar o lote; None = padrões das configurações no momento do envio)
+    tributacao_nome: str | None = None
+    tributacao_json: str | None = None
     criado_em: NaiveDatetime = Field(default_factory=agora)
     atualizado_em: NaiveDatetime = Field(default_factory=agora)
+
+    def tributacao(self) -> dict[str, Any] | None:
+        return json.loads(self.tributacao_json) if self.tributacao_json else None
 
     def erro(self) -> dict[str, Any] | None:
         return json.loads(self.erro_json) if self.erro_json else None
@@ -277,7 +317,20 @@ def engine() -> Engine:
             f"sqlite:///{config.DB_FILE}", connect_args={"check_same_thread": False}, pool_pre_ping=True
         )
         SQLModel.metadata.create_all(_engine)
+        _acrescentar_colunas(_engine)
     return _engine
+
+
+def _acrescentar_colunas(eng: Engine) -> None:
+    """Migração mínima: o ``create_all`` não altera tabelas existentes, então colunas novas de tabelas antigas
+    entram aqui (sempre como colunas que aceitam nulo; o valor padrão vem do modelo ao ler)."""
+    with eng.begin() as con:
+        for tabela in SQLModel.metadata.sorted_tables:
+            existentes = {r[1] for r in con.exec_driver_sql(f'PRAGMA table_info("{tabela.name}")')}
+            for col in tabela.columns:
+                if col.name not in existentes:
+                    tipo = col.type.compile(dialect=eng.dialect)
+                    con.exec_driver_sql(f'ALTER TABLE "{tabela.name}" ADD COLUMN "{col.name}" {tipo}')
 
 
 def reset_engine() -> None:

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from emissor import auth, config
-from emissor.api import routes_auth, routes_config, routes_emissoes, routes_tabela
+from emissor.api import routes_auth, routes_config, routes_emissoes, routes_tabela, routes_tributacao
 from emissor.api.deps import exigir_login, ip_cliente
 from emissor.db import engine
 from emissor.logging_setup import bind_context, setup_logging
@@ -26,6 +26,7 @@ from emissor.nfse.certificate import CertificadoError
 from emissor.nfse.errors import SefinError, TipoErro
 from emissor.services.emissao import LoteError, worker
 from emissor.services.tabela import ImportacaoError
+from emissor.services.tributacao import TributacaoError
 
 log = logging.getLogger("emissor.api")
 
@@ -130,6 +131,10 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     async def _lote(_req: Request, exc: LoteError):
         return JSONResponse({"mensagem": exc.mensagem, "detalhes": exc.detalhes}, status_code=400)
 
+    @app.exception_handler(TributacaoError)
+    async def _tributacao(_req: Request, exc: TributacaoError):
+        return JSONResponse({"mensagem": exc.mensagem, "detalhes": exc.detalhes}, status_code=400)
+
     @app.exception_handler(SefinError)
     async def _sefin(_req: Request, exc: SefinError):
         # Rejeição: o pedido tem problema (400). Demais: falha ao falar com a Sefin/ADN (502).
@@ -154,6 +159,7 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     logado = [Depends(exigir_login)]
     app.include_router(routes_config.router, prefix="/api", dependencies=logado)
     app.include_router(routes_tabela.router, prefix="/api", dependencies=logado)
+    app.include_router(routes_tributacao.router, prefix="/api", dependencies=logado)
     app.include_router(routes_emissoes.router, prefix="/api", dependencies=logado)
 
     @app.get("/api/openapi.json", include_in_schema=False, dependencies=logado)

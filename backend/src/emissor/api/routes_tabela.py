@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -13,10 +15,11 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from emissor.api.serial import cliente_dict, linha_dict
-from emissor.db import Cliente, Emissao, LinhaTabela, agora, obter_config, sessao
+from emissor.db import Aba, Cliente, Emissao, LinhaTabela, agora, obter_config, sessao
 from emissor.nfse.models import limpar_texto, normalizar_documento, somente_digitos
 from emissor.services import clientes as cli_service
 from emissor.services import tabela as tabela_service
+from emissor.services import tributacao as trib_service
 from emissor.services.emissao import validar_linhas, verificar_prontidao
 
 log = logging.getLogger(__name__)
@@ -26,17 +29,25 @@ router = APIRouter()
 # --- tabela ------------------------------------------------------------------------------------
 
 
-def _listar_linhas() -> list[dict[str, Any]]:
+def _listar_linhas(aba_id: int) -> list[dict[str, Any]]:
     with sessao() as s:
-        linhas = list(s.exec(select(LinhaTabela).order_by(LinhaTabela.ordem, LinhaTabela.id)))
+        linhas = list(
+            s.exec(select(LinhaTabela).where(LinhaTabela.aba_id == aba_id).order_by(LinhaTabela.ordem, LinhaTabela.id))
+        )
         ids = [ln.ultima_emissao_id for ln in linhas if ln.ultima_emissao_id]
         emissoes = {e.id: e for e in s.exec(select(Emissao).where(Emissao.id.in_(ids)))} if ids else {}
         return [linha_dict(ln, emissoes.get(ln.ultima_emissao_id)) for ln in linhas]
 
 
+def _aba(aba_id: int | None) -> Aba:
+    with sessao() as s:
+        return trib_service.resolver_aba(s, aba_id)
+
+
 @router.get("/tabela")
-def obter_tabela() -> dict[str, Any]:
-    return {"linhas": _listar_linhas()}
+def obter_tabela(aba_id: int | None = None) -> dict[str, Any]:
+    aba = _aba(aba_id)
+    return {"aba_id": aba.id, "linhas": _listar_linhas(aba.id)}
 
 
 class LinhaEntrada(BaseModel):
@@ -59,15 +70,16 @@ def _normalizar_valor(v: str | float | None) -> str:
 
 
 @router.put("/tabela")
-def salvar_tabela(entrada: TabelaEntrada) -> dict[str, Any]:
-    """Substitui a tabela inteira (a grade envia o estado completo após cada edição)."""
+def salvar_tabela(entrada: TabelaEntrada, aba_id: int | None = None) -> dict[str, Any]:
+    """Substitui as linhas de uma aba (a grade envia o estado completo da aba após cada edição)."""
+    aba = _aba(aba_id)
     with sessao() as s:
-        existentes = {ln.id: ln for ln in s.exec(select(LinhaTabela))}
+        existentes = {ln.id: ln for ln in s.exec(select(LinhaTabela).where(LinhaTabela.aba_id == aba.id))}
         manter = set()
         for ordem, e in enumerate(entrada.linhas):
             ln = existentes.get(e.id) if e.id is not None else None
             if ln is None:
-                ln = LinhaTabela()
+                ln = LinhaTabela(aba_id=aba.id)
             ln.ordem = ordem
             ln.nome = (e.nome or "").strip()
             ln.documento = normalizar_documento(e.documento) or ""
@@ -81,37 +93,51 @@ def salvar_tabela(entrada: TabelaEntrada) -> dict[str, Any]:
             if id_ not in manter:
                 s.delete(ln)
         s.commit()
-    return obter_tabela()
+    return obter_tabela(aba.id)
 
 
 @router.post("/tabela/importar")
-async def importar_tabela(arquivo: UploadFile = File(...), modo: str = Query("substituir")) -> dict[str, Any]:
+async def importar_tabela(
+    arquivo: UploadFile = File(...), modo: str = Query("substituir"), aba_id: int | None = None
+) -> dict[str, Any]:
     if modo not in ("substituir", "acrescentar"):
         raise HTTPException(400, "Modo deve ser 'substituir' ou 'acrescentar'.")
+    aba = _aba(aba_id)
     conteudo = await arquivo.read()
     res = tabela_service.importar(arquivo.filename or "", conteudo)
     with sessao() as s:
+        atuais = list(s.exec(select(LinhaTabela).where(LinhaTabela.aba_id == aba.id)))
         if modo == "substituir":
-            for ln in s.exec(select(LinhaTabela)):
+            for ln in atuais:
                 s.delete(ln)
             inicio = 0
         else:
-            inicio = len(list(s.exec(select(LinhaTabela))))
+            inicio = len(atuais)
         for i, li in enumerate(res.linhas):
             s.add(
                 LinhaTabela(
-                    ordem=inicio + i, nome=li.nome, documento=li.documento, valor=li.valor, descricao=li.descricao
+                    aba_id=aba.id,
+                    ordem=inicio + i,
+                    nome=li.nome,
+                    documento=li.documento,
+                    valor=li.valor,
+                    descricao=li.descricao,
                 )
             )
         s.commit()
-    log.info("tabela importada", extra={"arquivo": arquivo.filename, "linhas": len(res.linhas), "modo": modo})
-    return {"linhas": _listar_linhas(), "importadas": len(res.linhas), "avisos": res.avisos}
+    log.info(
+        "tabela importada",
+        extra={"arquivo": arquivo.filename, "linhas": len(res.linhas), "modo": modo, "aba_id": aba.id},
+    )
+    return {"aba_id": aba.id, "linhas": _listar_linhas(aba.id), "importadas": len(res.linhas), "avisos": res.avisos}
 
 
 @router.get("/tabela/exportar")
-def exportar_tabela(formato: str = "xlsx") -> Response:
-    linhas = _listar_linhas()
-    nome = f"notas-a-emitir-{datetime.now():%Y%m%d}"
+def exportar_tabela(formato: str = "xlsx", aba_id: int | None = None) -> Response:
+    aba = _aba(aba_id)
+    linhas = _listar_linhas(aba.id)
+    sufixo = re.sub(r"[^0-9A-Za-z]+", "-", unicodedata.normalize("NFKD", aba.nome).encode("ascii", "ignore").decode())
+    nome = f"notas-a-emitir-{sufixo.strip('-').lower() or 'aba'}-{datetime.now():%Y%m%d}"
     if formato == "csv":
         return Response(
             tabela_service.exportar_csv(linhas),

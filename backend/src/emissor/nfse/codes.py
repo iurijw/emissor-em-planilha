@@ -83,6 +83,33 @@ CST_PIS_COFINS = {
 }
 
 
+# Código indicador da operação do IBS/CBS (cIndOp, Anexo C v1.01 de 2026-01-22). Só os que este sistema consegue
+# emitir: destinatário = tomador (indDest 0), tomador no Brasil e sem os grupos de imóvel, evento ou transporte.
+C_IND_OP = {
+    "100301": "Demais serviços, operação onerosa: local do domicílio do adquirente (tomador)",
+    "100401": "Demais serviços, operação não onerosa: local do domicílio do destinatário (tomador)",
+    "030101": "Serviço prestado fisicamente sobre a pessoa ou fruído presencialmente: estabelecimento do prestador",
+    "030102": "Serviço prestado fisicamente sobre a pessoa ou fruído presencialmente: endereço do tomador",
+    "030104": "Serviço prestado fisicamente sobre a pessoa ou fruído presencialmente: local da prestação",
+    "050101": "Serviço prestado fisicamente sobre bem móvel material: estabelecimento do prestador",
+    "050102": "Serviço prestado fisicamente sobre bem móvel material: endereço do tomador",
+    "050104": "Serviço prestado fisicamente sobre bem móvel material: local da prestação",
+    "050201": "Serviços portuários: local da prestação",
+    "100101": "Cessão de espaço publicitário, operação onerosa: domicílio do adquirente (tomador)",
+    "100201": "Cessão de espaço publicitário, operação não onerosa: domicílio do destinatário (tomador)",
+    "100501": "Bens móveis imateriais e direitos, operação onerosa: domicílio do adquirente (tomador)",
+    "100601": "Bens móveis imateriais e direitos, operação não onerosa: domicílio do destinatário (tomador)",
+}
+# Sugestões de cClassTrib (tabela oficial de classificação tributária do IBS e da CBS). O campo aceita qualquer
+# código de 6 dígitos; o CST é sempre os 3 primeiros dígitos (regra E0959).
+C_CLASS_TRIB_SUGESTOES = {
+    "000001": "Situações tributadas integralmente pelo IBS e CBS",
+}
+IND_FINAL = {"0": "Não", "1": "Sim (uso ou consumo pessoal)"}
+# Subitens da LC 116 que exigem tpOper (E0903): locação/cessão de imóvel, factoring, administração de fundos...
+SUBITENS_EXIGEM_TP_OPER = ("2505", "1509", "1712", "1005")
+
+
 def descricao(tabela: dict[str, str], codigo: str | None) -> str | None:
     if codigo is None:
         return None

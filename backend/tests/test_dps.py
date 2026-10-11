@@ -117,3 +117,64 @@ def test_cnpj_alfanumerico_bloqueado_com_mensagem_clara(dps_input):
     tomador = replace(dps_input.tomador, documento="12ABC34501DE35")
     with pytest.raises(DpsBuildError, match="alfanumérico"):
         build_dps(replace(dps_input, tomador=tomador))
+
+
+# --- IBS/CBS (grupo infDPS/IBSCBS) ---------------------------------------------------------------
+
+
+def _com_ibscbs(dps_input, **kw):
+    return replace(dps_input, config=replace(dps_input.config, ibscbs=True, **kw))
+
+
+def test_dps_com_ibscbs_valida_no_xsd(dps_input, certificado):
+    inp = _com_ibscbs(dps_input, ibscbs_c_ind_op="100301", ibscbs_c_class_trib="000001", ibscbs_ind_final="0")
+    _, xml = preparar_dps(inp, certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    # O grupo vem depois de valores, e o CST é o prefixo do cClassTrib (E0959).
+    assert [etree.QName(c).localname for c in inf][-2:] == ["valores", "IBSCBS"]
+    g = inf.find(f"{N}IBSCBS")
+    assert [etree.QName(c).localname for c in g] == ["finNFSe", "indFinal", "cIndOp", "indDest", "valores"]
+    assert g.findtext(f"{N}finNFSe") == "0" and g.findtext(f"{N}indDest") == "0"
+    trib = g.find(f"{N}valores/{N}trib/{N}gIBSCBS")
+    assert trib.findtext(f"{N}CST") == "000" and trib.findtext(f"{N}cClassTrib") == "000001"
+
+
+def test_dps_sem_ibscbs_por_padrao(dps_input):
+    assert build_dps(dps_input).find(f"{N}infDPS/{N}IBSCBS") is None
+
+
+def test_ibscbs_exige_nbs_e_recusa_servico_com_tp_oper(dps_input):
+    with pytest.raises(DpsBuildError, match="NBS"):
+        build_dps(_com_ibscbs(dps_input, c_nbs=None))
+    with pytest.raises(DpsBuildError, match="tpOper"):
+        build_dps(_com_ibscbs(dps_input, c_trib_nac="250501"))
+    with pytest.raises(DpsBuildError, match="cClassTrib|Classificação"):
+        build_dps(_com_ibscbs(dps_input, ibscbs_c_class_trib="12"))
+
+
+def test_aplicar_tributacao_troca_so_campos_de_tributacao(config_fiscal):
+    from decimal import Decimal
+
+    from emissor.nfse.models import aplicar_tributacao, tributacao_de
+
+    t = tributacao_de(config_fiscal) | {"c_trib_nac": "010101", "tp_ret_issqn": "2", "p_tot_trib_sn": "6.00"}
+    t["cnpj"] = "00000000000000"  # campo do prestador: ignorado
+    cfg = aplicar_tributacao(config_fiscal, t)
+    assert cfg.c_trib_nac == "010101" and cfg.tp_ret_issqn == "2" and cfg.p_tot_trib_sn == Decimal("6.00")
+    assert cfg.cnpj == config_fiscal.cnpj
+    assert aplicar_tributacao(config_fiscal, None) is config_fiscal
+
+
+def test_padroes_do_xml_trazem_ibscbs(nfse_exemplo_bytes):
+    from emissor.nfse.xml_reader import NFSeDoc, extrair_padroes
+
+    assert extrair_padroes([NFSeDoc.from_bytes(nfse_exemplo_bytes)]).ibscbs is False
+    grupo = (
+        b"<IBSCBS><finNFSe>0</finNFSe><cIndOp>100301</cIndOp><indDest>0</indDest><valores><trib><gIBSCBS>"
+        b"<CST>200</CST><cClassTrib>200052</cClassTrib></gIBSCBS></trib></valores></IBSCBS></infDPS>"
+    )
+    xml = nfse_exemplo_bytes.replace(b"</infDPS>", grupo, 1)
+    cfg = extrair_padroes([NFSeDoc.from_bytes(xml)])
+    assert cfg.ibscbs is True and cfg.ibscbs_c_ind_op == "100301" and cfg.ibscbs_c_class_trib == "200052"

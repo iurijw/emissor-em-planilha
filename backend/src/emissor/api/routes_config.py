@@ -7,7 +7,7 @@ import json
 import logging
 import zipfile
 from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -26,10 +26,11 @@ from emissor.nfse.constants import SERIE_API_MAX, SERIE_API_MIN, Ambiente
 from emissor.nfse.documentos import cnpj_valido, formatar_documento
 from emissor.nfse.dps_builder import id_dps
 from emissor.nfse.errors import SefinError
-from emissor.nfse.models import ConfigFiscal, normalizar_documento, somente_digitos
+from emissor.nfse.models import CAMPOS_TRIBUTACAO, ConfigFiscal, normalizar_documento, somente_digitos, tributacao_de
 from emissor.nfse.xml_reader import NFSeDoc, NfseXmlError, extrair_padroes, extrair_tomador
 from emissor.services import certificado as cert_service
 from emissor.services import clientes as cli_service
+from emissor.services import tributacao as trib_service
 from emissor.services.emissao import verificar_prontidao, worker
 
 log = logging.getLogger(__name__)
@@ -168,49 +169,36 @@ def _validar_fiscal(d: dict[str, Any]) -> ConfigFiscal:
     for k, v in list(dados.items()):
         if v == "":
             dados[k] = None
+    trib, erros_trib = trib_service.normalizar({k: v for k, v in dados.items() if k in CAMPOS_TRIBUTACAO})
+    dados.update(trib)
+    erros += erros_trib
     cnpj = normalizar_documento(dados.get("cnpj"))
     if not cnpj or not cnpj_valido(cnpj):
         erros.append("CNPJ do prestador inválido.")
     dados["cnpj"] = cnpj
-    for campo in ("c_mun_emissor", "c_loc_prestacao"):
-        if dados.get(campo) and not codes.municipio(dados[campo]):
-            erros.append(f"Código IBGE de município inválido em {campo}: {dados[campo]}.")
+    if dados.get("c_mun_emissor") and not codes.municipio(dados["c_mun_emissor"]):
+        erros.append(f"Código IBGE de município inválido em c_mun_emissor: {dados['c_mun_emissor']}.")
     if not dados.get("c_mun_emissor"):
         erros.append("Município do prestador é obrigatório: digite o nome da cidade e escolha-a na lista.")
-    if not (dados.get("c_trib_nac") or "").isdigit() or len(dados.get("c_trib_nac") or "") != 6:
-        erros.append("Código de Tributação Nacional deve ter 6 dígitos.")
-    if dados.get("c_nbs") and (not dados["c_nbs"].isdigit() or len(dados["c_nbs"]) != 9):
-        erros.append("Código NBS deve ter 9 dígitos.")
     dados["fone"] = somente_digitos(dados.get("fone"))
     enums = {
         "op_simp_nac": codes.OP_SIMP_NAC,
         "reg_ap_trib_sn": codes.REG_AP_TRIB_SN,
         "reg_esp_trib": codes.REG_ESP_TRIB,
-        "trib_issqn": codes.TRIB_ISSQN,
-        "tp_ret_issqn": codes.TP_RET_ISSQN,
-        "cst_pis_cofins": codes.CST_PIS_COFINS,
-        "tp_ret_pis_cofins": codes.TP_RET_PIS_COFINS,
         "tp_emit": codes.TP_EMIT,
     }
     for campo, tabela in enums.items():
         if dados.get(campo) is not None and str(dados[campo]) not in tabela:
             erros.append(f"Valor inválido para {campo}: {dados[campo]}.")
-    p = dados.get("p_tot_trib_sn")
-    if p not in (None, ""):
-        try:
-            dados["p_tot_trib_sn"] = Decimal(str(p).replace(",", "."))
-            if not Decimal("0") <= dados["p_tot_trib_sn"] < Decimal("100"):
-                erros.append("Percentual aproximado de tributos (Simples) deve estar entre 0 e 99,99.")
-        except InvalidOperation:
-            erros.append("Percentual aproximado de tributos inválido.")
-    else:
-        dados["p_tot_trib_sn"] = None
-    if erros:
-        raise HTTPException(400, {"mensagem": "Configuração fiscal inválida.", "detalhes": erros})
-    defaults = ConfigFiscal(cnpj=cnpj, c_mun_emissor=dados["c_mun_emissor"])
+    defaults = ConfigFiscal(cnpj=cnpj or "", c_mun_emissor=dados.get("c_mun_emissor") or "")
     base = {f: getattr(defaults, f) for f in CAMPOS_FISCAIS}
     base.update({k: v for k, v in dados.items() if k in base})
-    return ConfigFiscal(**base)
+    base["p_tot_trib_sn"] = Decimal(base["p_tot_trib_sn"]) if base.get("p_tot_trib_sn") is not None else None
+    cfg = ConfigFiscal(**base)
+    erros += trib_service.coerencia(tributacao_de(cfg))
+    if erros:
+        raise HTTPException(400, {"mensagem": "Configuração fiscal inválida.", "detalhes": erros})
+    return cfg
 
 
 def _aplicar_config(entrada: ConfigEntrada) -> None:
@@ -315,6 +303,9 @@ def opcoes() -> dict[str, Any]:
         "cst_pis_cofins": lista(codes.CST_PIS_COFINS),
         "tp_ret_pis_cofins": lista(codes.TP_RET_PIS_COFINS),
         "tp_emit": lista(codes.TP_EMIT),
+        "ibscbs_c_ind_op": lista(codes.C_IND_OP),
+        "ibscbs_c_class_trib": lista(codes.C_CLASS_TRIB_SUGESTOES),
+        "ibscbs_ind_final": lista(codes.IND_FINAL),
         "ambiente": [{"valor": a.value, "descricao": a.descricao} for a in Ambiente],
     }
 
