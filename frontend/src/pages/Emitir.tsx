@@ -15,7 +15,7 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, baixar, type Aba, type Cliente, type Linha, type Status } from "../api";
+import { api, ApiError, baixar, type Aba, type Cliente, type Linha, type Status } from "../api";
 import { documentoValido, formatarDocumento, moeda, parseTSV, parseValor, soDocumento, STATUS_ROTULO } from "../format";
 import { AbasPlanilha, EditorAba } from "../components/Abas";
 import { EditorNomeCliente } from "../components/EditorNomeCliente";
@@ -273,7 +273,11 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
           toast(`${falhas.length} CNPJ(s) sem dados na Receita: ${falhas[0].erro} Complete o cadastro em Clientes.`, "erro");
         qc.invalidateQueries({ queryKey: ["clientes"] });
       })
-      .catch((e) => toast(`Consulta de CNPJ falhou: ${e.message}`, "erro"))
+      .catch((e) => {
+        // Outra consulta em andamento no servidor: tenta de novo na próxima alteração da tabela.
+        if (e instanceof ApiError && e.status === 429) faltando.forEach((d) => consultados.current.delete(d));
+        else toast(`Consulta de CNPJ falhou: ${e.message}`, "erro");
+      })
       .finally(() => setConsultando(null));
   }, [linhas, carregado, clientes, clientesQ.data, salvando, alterar, qc, toast]);
 

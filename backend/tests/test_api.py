@@ -144,7 +144,8 @@ def test_fluxo_completo(api, sefin, pfx_bytes, nfse_exemplo_bytes):
     r = api.get(f"/api/emissoes/{eid}/pdf")
     assert r.status_code == 200 and r.content.startswith(b"%PDF")
 
-    r = api.post("/api/emissoes/zip", json={"ids": [e["id"] for e in lista["itens"]], "conteudo": "ambos"})
+    ids_zip = [e["id"] for e in lista["itens"]]
+    r = api.post("/api/emissoes/zip", json={"ids": ids_zip + ids_zip, "conteudo": "ambos"})  # repetidos entram 1x
     assert r.status_code == 200
     nomes = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
     assert len([n for n in nomes if n.startswith("xml/")]) == 3

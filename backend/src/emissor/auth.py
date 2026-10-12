@@ -128,7 +128,21 @@ def hash_senha(senha: str) -> str:
     return _hasher.hash(senha)
 
 
+# Cada verificação Argon2 usa 64 MiB: sem limite, logins simultâneos (mesmo com senha errada)
+# passariam da memória de uma instância pequena.
+_verificacoes = threading.BoundedSemaphore(4)
+
+
 def conferir_senha(u: Usuario | None, senha: str) -> bool:
+    if not _verificacoes.acquire(timeout=10):
+        raise AuthError("Muitas tentativas de acesso ao mesmo tempo. Tente de novo em instantes.", 503)
+    try:
+        return _conferir_senha(u, senha)
+    finally:
+        _verificacoes.release()
+
+
+def _conferir_senha(u: Usuario | None, senha: str) -> bool:
     if u is None or not u.senha_hash:
         try:
             _hasher.verify(_HASH_FICTICIO, senha or "")
@@ -502,11 +516,11 @@ def _convite_valido(s: Session, token: str) -> tuple[ConviteUsuario, Usuario]:
 def ver_convite(token: str) -> dict:
     with sessao() as s:
         c, u = _convite_valido(s, token)
-        return {"email": u.email, "nome": u.nome, "finalidade": c.finalidade}
+        return {"email": u.email, "nome": u.nome, "finalidade": c.finalidade, "pede_codigo": u.totp_ativo}
 
 
 def aceitar_convite(
-    token: str, senha: str, nome: str | None, ip: str | None, user_agent: str | None
+    token: str, senha: str, nome: str | None, ip: str | None, user_agent: str | None, codigo: str | None = None
 ) -> tuple[str, Acesso]:
     if _ip_bloqueado(ip):
         raise AuthError("Muitas tentativas erradas a partir deste endereço. Aguarde 15 minutos.", 429)
@@ -517,6 +531,13 @@ def aceitar_convite(
             _registrar_falha_ip(ip)
             raise
         validar_senha(senha, u.email)
+        if u.totp_ativo:
+            # Redefinição que manteve o 2FA: o link sozinho não pode substituir o segundo fator.
+            if not codigo:
+                raise AuthError("Digite o código do aplicativo autenticador.", 401, precisa_codigo=True)
+            if not _usar_segundo_fator(u, codigo):
+                _falhou(s, u, ip, "codigo")
+                raise AuthError("Código de verificação incorreto ou já usado.", 401, precisa_codigo=True)
         u.senha_hash = hash_senha(senha)
         if nome and nome.strip():
             u.nome = nome.strip()[:120]

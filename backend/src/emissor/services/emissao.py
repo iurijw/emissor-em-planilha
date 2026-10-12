@@ -489,7 +489,7 @@ class EmissionWorker:
     def _preparar(self, e: Emissao, cert: Certificado, fiscal, amb: Ambiente) -> tuple[str, bytes] | None:
         with sessao() as s:
             cfg = obter_config(s)
-            n = cfg.proximo_ndps()
+            n = cfg.proximo_ndps(amb)  # numeração do ambiente para onde a DPS vai, não o atual
             serie = cfg.serie
             cli = s.get(Cliente, e.tomador_documento)
         dh = agora_emissao()
@@ -517,9 +517,9 @@ class EmissionWorker:
         caminho.write_bytes(xml)
         with sessao() as s:
             cfg = obter_config(s)
-            if cfg.proximo_ndps() != n:  # não deveria ocorrer com um único worker
+            if cfg.proximo_ndps(amb) != n:  # não deveria ocorrer com um único worker
                 raise _Interromper("Contador de numeração alterado durante a emissão; lote interrompido.")
-            cfg.avancar_ndps(n)
+            cfg.avancar_ndps(n, amb)
             cfg.atualizado_em = agora()
             reg = s.get(Emissao, e.id)
             reg.status = "processando"
@@ -644,6 +644,11 @@ def verificar_na_sefin(emissao_id: int, client_factory: ClientFactory = _client_
         raise LoteError("Emissão não encontrada.")
     if not e.id_dps or e.status not in ("erro", "processando"):
         raise LoteError("Só é possível verificar emissões com erro de comunicação que chegaram a ser enviadas.")
+    if e.status == "processando":
+        with sessao() as s:
+            lote = s.get(Lote, e.lote_id) if e.lote_id else None
+        if lote is not None and lote.status == "em_andamento":
+            raise LoteError("Esta nota ainda está sendo enviada. Aguarde o lote terminar.")
     cert = cert_service.carregar()
     if cert is None:
         raise LoteError("Nenhum certificado carregado.")
@@ -657,6 +662,8 @@ def verificar_na_sefin(emissao_id: int, client_factory: ClientFactory = _client_
             )
     with sessao() as s:
         reg = s.get(Emissao, emissao_id)
+        if reg.status != e.status or reg.id_dps != e.id_dps:
+            return reg  # mudou durante a consulta (ex.: o worker registrou a nota): não sobrescreve
         reg.status = "erro"
         reg.erro_json = json.dumps(
             {

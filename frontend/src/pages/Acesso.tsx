@@ -192,17 +192,18 @@ export function TelaPrimeiroAcesso({ sessao }: { sessao: Sessao }) {
 export function TelaConvite() {
   const aoEntrar = useAoEntrar();
   const [token] = useState(tokenDaUrl);
-  const [info, setInfo] = useState<{ email: string; nome: string; finalidade: string } | null>(null);
+  const [info, setInfo] = useState<{ email: string; nome: string; finalidade: string; pede_codigo?: boolean } | null>(null);
   const [erroInfo, setErroInfo] = useState<unknown>(null);
   const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
   const [confirma, setConfirma] = useState("");
+  const [codigo, setCodigo] = useState("");
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
 
   useEffect(() => {
     api
-      .post<{ email: string; nome: string; finalidade: string }>("/api/auth/convite/ver", { token })
+      .post<{ email: string; nome: string; finalidade: string; pede_codigo?: boolean }>("/api/auth/convite/ver", { token })
       .then((i) => {
         setInfo(i);
         setNome(i.nome);
@@ -216,7 +217,7 @@ export function TelaConvite() {
     setErro(null);
     setOcupado(true);
     try {
-      await api.post("/api/auth/convite", { token, senha, nome });
+      await api.post("/api/auth/convite", { token, senha, nome, codigo: info?.pede_codigo ? codigo : null });
       await aoEntrar();
       limparHash();
     } catch (err) {
@@ -255,6 +256,13 @@ export function TelaConvite() {
         )}
         <input type="email" autoComplete="username" value={info.email} readOnly hidden />
         <CamposSenha senha={senha} setSenha={setSenha} confirma={confirma} setConfirma={setConfirma} />
+        {info.pede_codigo && (
+          <label className="campo">
+            <span>Código do aplicativo autenticador</span>
+            <input className="num" inputMode="numeric" autoComplete="one-time-code" value={codigo} onChange={(e) => setCodigo(e.target.value)} required />
+            <small>A verificação em duas etapas continua ativa. Sem o celular, use um código de recuperação ou peça ao administrador para desativá-la.</small>
+          </label>
+        )}
         <ErroCaixa erro={erro} />
         <button className="btn btn--primario btn--grande" disabled={ocupado || senha !== confirma}>
           {ocupado && <Spinner />} Salvar senha e entrar

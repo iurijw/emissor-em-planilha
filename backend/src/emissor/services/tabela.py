@@ -116,16 +116,38 @@ def _linhas_para_resultado(linhas: list[list]) -> ResultadoImportacao:
             doc_bruto = f"{int(doc_bruto):014d}" if int(doc_bruto) > 99999999999 else f"{int(doc_bruto):011d}"
         res.linhas.append(
             LinhaImportada(
-                nome=str(cel(row, "nome") or "").strip(),
+                nome=_sem_apostrofo(str(cel(row, "nome") or "").strip()),
                 documento=normalizar_documento(str(doc_bruto or "")) or "",
                 valor=valor,
-                descricao=str(cel(row, "descricao") or "").strip(),
+                descricao=_sem_apostrofo(str(cel(row, "descricao") or "").strip()),
             )
         )
     return res
 
 
+def _sem_apostrofo(v: str) -> str:
+    """Desfaz o apóstrofo que o exportar_csv põe antes de =, +, - e @ (reimportar devolve o texto original)."""
+    return v[1:] if v.startswith("'") and v[1:].startswith(_INICIO_FORMULA) else v
+
+
+MAX_LINHAS = 10_000
+MAX_BYTES_IMPORTACAO = 10_000_000
+
+
+def _limitar(linhas) -> list[list]:
+    saida = []
+    for r in linhas:
+        if len(saida) > MAX_LINHAS:  # +1 do cabeçalho
+            raise ImportacaoError(
+                f"A planilha passa de {MAX_LINHAS:,} linhas. Divida em arquivos menores.".replace(",", ".")
+            )
+        saida.append(list(r))
+    return saida
+
+
 def importar(nome_arquivo: str, conteudo: bytes) -> ResultadoImportacao:
+    if len(conteudo) > MAX_BYTES_IMPORTACAO:
+        raise ImportacaoError("Arquivo grande demais (máx. 10 MB).")
     ext = nome_arquivo.lower().rsplit(".", 1)[-1] if "." in nome_arquivo else ""
     if ext in ("xlsx", "xlsm"):
         try:
@@ -133,8 +155,7 @@ def importar(nome_arquivo: str, conteudo: bytes) -> ResultadoImportacao:
         except Exception as exc:  # openpyxl lança vários tipos para arquivo inválido
             raise ImportacaoError(f"Não foi possível ler a planilha: {exc}") from exc
         ws = wb.worksheets[0]
-        linhas = [list(r) for r in ws.iter_rows(values_only=True)]
-        return _linhas_para_resultado(linhas)
+        return _linhas_para_resultado(_limitar(ws.iter_rows(values_only=True)))
     if ext in ("csv", "txt"):
         for enc in ("utf-8-sig", "cp1252"):
             try:
@@ -146,8 +167,17 @@ def importar(nome_arquivo: str, conteudo: bytes) -> ResultadoImportacao:
             dialeto = csv.Sniffer().sniff(texto[:4096], delimiters=";,\t")
         except csv.Error:
             dialeto = _PontoEVirgula
-        return _linhas_para_resultado([list(r) for r in csv.reader(io.StringIO(texto), dialeto)])
+        return _linhas_para_resultado(_limitar(csv.reader(io.StringIO(texto), dialeto)))
     raise ImportacaoError("Formato não suportado. Use .xlsx ou .csv.")
+
+
+_INICIO_FORMULA = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _texto_csv(v: object) -> str:
+    """Texto que o Excel/LibreOffice não executa como fórmula ao abrir o CSV."""
+    v = str(v or "")
+    return "'" + v if v.startswith(_INICIO_FORMULA) else v
 
 
 def exportar_xlsx(linhas: list[dict]) -> bytes:
@@ -162,6 +192,10 @@ def exportar_xlsx(linhas: list[dict]) -> bytes:
     for ln in linhas:
         valor = Decimal(ln["valor"]) if ln.get("valor") else None
         ws.append([ln.get("nome", ""), ln.get("documento", ""), valor, ln.get("descricao", "")])
+        for col in (1, 4):  # texto digitado nunca vira fórmula na planilha exportada
+            c = ws.cell(row=ws.max_row, column=col)
+            if c.data_type == "f":
+                c.data_type = "s"
     for row in ws.iter_rows(min_row=2, min_col=2, max_col=3):
         row[0].number_format = "@"
         row[1].number_format = '"R$" #,##0.00'
@@ -179,5 +213,5 @@ def exportar_csv(linhas: list[dict]) -> bytes:
     w.writerow(COLUNAS)
     for ln in linhas:
         valor = (ln.get("valor") or "").replace(".", ",")
-        w.writerow([ln.get("nome", ""), ln.get("documento", ""), valor, ln.get("descricao", "")])
+        w.writerow([_texto_csv(ln.get("nome")), ln.get("documento", ""), valor, _texto_csv(ln.get("descricao"))])
     return buf.getvalue().encode("utf-8-sig")
