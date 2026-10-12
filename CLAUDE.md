@@ -373,6 +373,8 @@ mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliqu
   alterar chama `POST /api/tributacoes/aliquota-iss` (o operador pode; é o único campo de tributação que ele altera) ou,
   na tributação "só desta nota", muda só o corpo da avulsa. Sem alíquota, `criar_lote`/`criar_avulsa` recusam.
 - Onboarding: alíquotas e retenções da nota mais recente viram percentuais (`_padroes_aliquotas`).
+- CST do PIS/COFINS: os 34 códigos do XSD 1.01 (`TSTipoCST`, 00 a 99, com as descrições do XSD) em
+  `codes.CST_PIS_COFINS`; um teste compara a lista com o XSD. Até 2026-10-12 faltavam 53–56, 60–67, 70–75, 98 e 99.
 
 ### Padrões que o onboarding extrai dos XMLs
 
