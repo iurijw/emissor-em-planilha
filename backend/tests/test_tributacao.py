@@ -250,3 +250,40 @@ def test_cst_pis_cofins_tem_todos_os_codigos_do_xsd(dps_input):
     assert list(codes.CST_PIS_COFINS) == oficiais and "99" in oficiais
     dps = build_dps(replace(dps_input, config=replace(dps_input.config, cst_pis_cofins="99")))
     assert validar_dps(dps) == []
+
+
+# Listas de códigos que a tela oferece x tipo enumerado do XSD 1.01. Uma lista digitada à mão que fique incompleta
+# (como a do CST do PIS/COFINS até 2026-10-12) ou com código a mais falha aqui. C_IND_OP fica de fora: é de propósito
+# só uma parte do Anexo C (ver codes.py).
+LISTAS_DO_XSD = {
+    "TP_AMB": "TSTipoAmbiente",
+    "AMB_GER": "TSAmbGeradorNFSe",
+    "TP_EMIT": "TSEmitenteDPS",
+    "C_STAT": "TStat",
+    "FIN_NFSE": "TSRTCFinNFSe",
+    "OP_SIMP_NAC": "TSOpSimpNac",
+    "REG_AP_TRIB_SN": "TSRegimeApuracaoSimpNac",
+    "REG_ESP_TRIB": "TSRegEspTrib",
+    "TRIB_ISSQN": "TSTribISSQN",
+    "TP_RET_ISSQN": "TSTipoRetISSQN",
+    "TP_IMUNIDADE": "TSTipoImunidadeISSQN",
+    "TP_SUSP": "TSOpExigSuspensa",
+    "TP_BM": "TBMISSQN",
+    "TP_RET_PIS_COFINS": "TSTipoRetPISCofins",
+    "CST_PIS_COFINS": "TSTipoCST",
+    "IND_FINAL": "TSRTCIndFinal",
+}
+
+
+def test_listas_de_codigos_iguais_ao_xsd():
+    import re
+
+    from emissor.config import PACKAGE_DIR
+    from emissor.nfse import codes
+
+    xsd = "".join(p.read_text(encoding="utf-8") for p in (PACKAGE_DIR / "nfse/xsd/v1_01").glob("*.xsd"))
+    for lista, tipo in LISTAS_DO_XSD.items():
+        m = re.search(rf'<xs:simpleType name="{tipo}">(.*?)</xs:simpleType>', xsd, re.S)
+        assert m, f"{tipo} não está no XSD"
+        oficiais = re.findall(r'<xs:enumeration value="([^"]*)"', m.group(1))
+        assert list(getattr(codes, lista)) == oficiais, lista
