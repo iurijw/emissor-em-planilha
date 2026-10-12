@@ -233,3 +233,20 @@ def test_dps_com_aliquotas_e_retencoes(dps_input):
     assert dps.findtext(".//n:pAliq", namespaces=ns) is None and validar_dps(dps) == []
     mei = build_dps(replace(dps_input, config=replace(dps_input.config, op_simp_nac="2", reg_ap_trib_sn=None)))
     assert mei.findtext(".//n:indTotTrib", namespaces=ns) == "0" and validar_dps(mei) == []
+
+
+def test_cst_pis_cofins_tem_todos_os_codigos_do_xsd(dps_input):
+    import re
+    from dataclasses import replace
+
+    from emissor.config import PACKAGE_DIR
+    from emissor.nfse import codes
+    from emissor.nfse.dps_builder import build_dps
+    from emissor.nfse.xsd import validar_dps
+
+    xsd = (PACKAGE_DIR / "nfse/xsd/v1_01/tiposSimples_v1.01.xsd").read_text(encoding="utf-8")
+    tipo = xsd[xsd.index('name="TSTipoCST"') :]
+    oficiais = re.findall(r'value="(\d{2})"', tipo[: tipo.index("</xs:simpleType>")])
+    assert list(codes.CST_PIS_COFINS) == oficiais and "99" in oficiais
+    dps = build_dps(replace(dps_input, config=replace(dps_input.config, cst_pis_cofins="99")))
+    assert validar_dps(dps) == []
