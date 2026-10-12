@@ -178,6 +178,16 @@ export interface Fiscal {
   cst_pis_cofins: string | null;
   tp_ret_pis_cofins: string | null;
   p_tot_trib_sn: string | null;
+  p_aliq_iss: string | null;
+  p_aliq_iss_atualizada_em: string | null;
+  p_aliq_pis: string | null;
+  p_aliq_cofins: string | null;
+  p_ret_irrf: string | null;
+  p_ret_csll: string | null;
+  p_ret_cp: string | null;
+  p_tot_trib_fed: string | null;
+  p_tot_trib_est: string | null;
+  p_tot_trib_mun: string | null;
   ibscbs: boolean;
   ibscbs_c_ind_op: string;
   ibscbs_c_class_trib: string;
@@ -196,6 +206,16 @@ export const CAMPOS_TRIBUTACAO = [
   "cst_pis_cofins",
   "tp_ret_pis_cofins",
   "p_tot_trib_sn",
+  "p_aliq_iss",
+  "p_aliq_iss_atualizada_em",
+  "p_aliq_pis",
+  "p_aliq_cofins",
+  "p_ret_irrf",
+  "p_ret_csll",
+  "p_ret_cp",
+  "p_tot_trib_fed",
+  "p_tot_trib_est",
+  "p_tot_trib_mun",
   "ibscbs",
   "ibscbs_c_ind_op",
   "ibscbs_c_class_trib",
@@ -218,7 +238,25 @@ export interface Tributacao {
 export interface ListaTributacoes {
   padrao: DadosTributacao | null;
   padrao_resumo: string | null;
+  regime: Regime | null;
   itens: Tributacao[];
+}
+
+export type Regime = Pick<Fiscal, "op_simp_nac" | "reg_ap_trib_sn">;
+
+/** A Sefin exige a alíquota do ISS (E0621): ME/EPP com ISS pelo Simples e ISS retido. Nos demais, vale a do município. */
+export function issExigeAliquota(regime: Regime | null | undefined, t: Pick<Fiscal, "tp_ret_issqn">): boolean {
+  return regime?.op_simp_nac === "3" && regime.reg_ap_trib_sn === "1" && ["2", "3"].includes(t.tp_ret_issqn);
+}
+
+/** Tributação que pede a alíquota do ISS retido na emissão (manter ou alterar). */
+export interface AliquotaIss {
+  origem: "tributacao" | "padrao" | "nota";
+  tributacao_id: number | null;
+  nome: string;
+  p_aliq_iss: string | null;
+  atualizada_em: string | null;
+  linhas: number;
 }
 
 export interface Aba {
@@ -280,6 +318,7 @@ export interface Validacao {
   quantidade: number;
   total: string;
   tributacao_nome?: string | null;
+  aliquotas_iss: AliquotaIss[];
 }
 
 export interface Lote {

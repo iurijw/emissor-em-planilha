@@ -77,6 +77,17 @@ _DICAS_CODIGO = {
     "E0010": "A série não pertence à faixa do canal de emissão. Para sistema próprio use série entre 1 e 49999 "
     "(Configurações → Série).",
     # Eventos (cancelamento) — Anexo II do leiaute.
+    "E0621": "Com ISS retido no Simples (ISS apurado pelo Simples), a alíquota é obrigatória: informe a alíquota "
+    "efetiva do mês na tributação da aba (a emissão pergunta antes de enviar).",
+    "E0625": "Sem retenção, a alíquota do ISS não pode ir na nota: confira a retenção do ISS na tributação.",
+    "E0617": "O município define a alíquota do ISS: confira o regime do prestador e a retenção nas configurações.",
+    "E0635": "O município define a alíquota do ISS: confira o regime de apuração do Simples nas configurações.",
+    "E0237": "Com ISS retido pelo tomador, a nota precisa do endereço do cliente: complete o cadastro em Clientes.",
+    "E0712": "Optante do Simples (ME/EPP) precisa do percentual aproximado de tributos do Simples na tributação.",
+    "E0713": "Prestador fora do Simples: informe os tributos aproximados federais, estaduais e municipais (%) na "
+    "tributação, no lugar do percentual do Simples.",
+    "E0720": "A retenção escolhida em PIS/COFINS diz que a CSLL não é retida: apague o percentual de CSLL retida.",
+    "E0724": "A retenção escolhida em PIS/COFINS inclui a CSLL: informe o percentual de CSLL retida na tributação.",
     "E0822": "O prazo que o município dá para cancelar a nota já passou. Fora do prazo, peça a "
     "“Solicitação de Análise Fiscal para Cancelamento” no Portal Nacional da NFS-e ou procure a prefeitura.",
     "E0823": "O valor da nota passa do limite que o município permite cancelar direto. Peça a análise fiscal "

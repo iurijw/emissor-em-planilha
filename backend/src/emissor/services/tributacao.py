@@ -8,6 +8,7 @@ tributação usa os padrões das configurações.
 from __future__ import annotations
 
 import json
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -15,7 +16,16 @@ from sqlmodel import Session, select
 
 from emissor.db import Aba, LinhaTabela, Tributacao, obter_config
 from emissor.nfse import codes
-from emissor.nfse.models import CAMPOS_TRIBUTACAO, ConfigFiscal, aplicar_tributacao, tributacao_de
+from emissor.nfse.models import (
+    CAMPOS_PERCENTUAIS,
+    CAMPOS_TRIBUTACAO,
+    RETENCOES_PIS_COFINS,
+    ConfigFiscal,
+    aplicar_tributacao,
+    iss_exige_aliquota,
+    tributacao_de,
+)
+from emissor.nfse.tributos import ALIQ_ISS_MAX, ALIQ_ISS_MIN, pct
 
 ABA_PADRAO = "Notas"
 
@@ -73,12 +83,46 @@ def normalizar(d: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
             dados["p_tot_trib_sn"] = str(p)
         except InvalidOperation:
             erros.append("Percentual aproximado de tributos inválido.")
+    for campo in CAMPOS_PERCENTUAIS:
+        if dados.get(campo) is None:
+            continue
+        p = pct(dados[campo])
+        if p is None or not Decimal("0") <= p < Decimal("100"):
+            erros.append(f"{_ROTULOS[campo]}: percentual inválido ({dados[campo]}). Use um número entre 0 e 99,99.")
+            continue
+        dados[campo] = f"{p.quantize(Decimal('0.01'))}"
+    if dados.get("p_aliq_iss_atualizada_em") is not None:
+        try:
+            dados["p_aliq_iss_atualizada_em"] = date.fromisoformat(
+                str(dados["p_aliq_iss_atualizada_em"])[:10]
+            ).isoformat()
+        except ValueError:
+            dados["p_aliq_iss_atualizada_em"] = None
     return dados, erros
 
 
-def coerencia(t: dict[str, Any]) -> list[str]:
-    """Regras que dependem de vários campos (recebe uma tributação completa)."""
+_ROTULOS = {
+    "p_aliq_iss": "Alíquota do ISS retido",
+    "p_aliq_pis": "Alíquota do PIS",
+    "p_aliq_cofins": "Alíquota da COFINS",
+    "p_ret_irrf": "IRRF retido",
+    "p_ret_csll": "CSLL retida",
+    "p_ret_cp": "INSS (CP) retido",
+    "p_tot_trib_fed": "Tributos aproximados federais",
+    "p_tot_trib_est": "Tributos aproximados estaduais",
+    "p_tot_trib_mun": "Tributos aproximados municipais",
+}
+
+
+def coerencia(t: dict[str, Any], base: ConfigFiscal | None = None) -> list[str]:
+    """Regras que dependem de vários campos (recebe uma tributação completa).
+
+    Com ``base`` (configurações do prestador) confere também as regras que dependem do regime tributário.
+    """
     erros = []
+    erros += _coerencia_retencoes(t)
+    if base is not None:
+        erros += _coerencia_regime(aplicar_tributacao(base, t))
     c_trib_nac = t.get("c_trib_nac") or ""
     if not c_trib_nac.isdigit() or len(c_trib_nac) != 6:
         erros.append("Código de Tributação Nacional deve ter 6 dígitos.")
@@ -103,12 +147,64 @@ def coerencia(t: dict[str, Any]) -> list[str]:
     return erros
 
 
+def _coerencia_retencoes(t: dict[str, Any]) -> list[str]:
+    erros = []
+    tp_ret_iss = t.get("tp_ret_issqn")
+    if tp_ret_iss == "3":
+        erros.append(
+            "ISS retido pelo intermediário ainda não é suportado (a nota precisaria dos dados do intermediário). "
+            "Use “Retido pelo Tomador” ou “Não Retido”."
+        )
+    if tp_ret_iss in ("2", "3") and t.get("trib_issqn") not in (None, "1"):
+        erros.append("Só há retenção do ISS em operação tributável (E0580): mude a tributação do ISS ou a retenção.")
+    tp_ret = t.get("tp_ret_pis_cofins")
+    if t.get("cst_pis_cofins"):
+        pis, cofins, csll = RETENCOES_PIS_COFINS.get(tp_ret or "", (False, False, None))
+        if pis and pct(t.get("p_aliq_pis")) is None:
+            erros.append("PIS retido: informe a alíquota do PIS.")
+        if cofins and pct(t.get("p_aliq_cofins")) is None:
+            erros.append("COFINS retida: informe a alíquota da COFINS.")
+        if csll and not pct(t.get("p_ret_csll")):
+            erros.append("CSLL retida: informe o percentual da CSLL retida.")
+        if csll is False and pct(t.get("p_ret_csll")):
+            erros.append(
+                "A retenção escolhida em PIS/COFINS diz que a CSLL não é retida, mas há percentual de CSLL retida "
+                "(E0720). Escolha uma opção com CSLL retida ou apague o percentual."
+            )
+    elif pct(t.get("p_aliq_pis")) is not None or pct(t.get("p_aliq_cofins")) is not None:
+        erros.append("Para informar as alíquotas do PIS/COFINS, escolha o CST do PIS/COFINS.")
+    elif pct(t.get("p_ret_csll")):
+        erros.append("Para informar a CSLL retida, escolha o CST e a retenção do PIS/COFINS/CSLL.")
+    return erros
+
+
+def _coerencia_regime(cfg: ConfigFiscal) -> list[str]:
+    """Regras da Sefin que dependem do regime do prestador (Anexo I, RN DPS_NFS-e)."""
+    erros = []
+    retido = cfg.tp_ret_issqn in ("2", "3")
+    if retido and cfg.op_simp_nac == "2":
+        erros.append("MEI não pode ter ISS retido (E0583): use “Não Retido”.")
+    if retido and cfg.reg_esp_trib not in (None, "0"):
+        erros.append("Prestador com regime especial de tributação não pode ter ISS retido (E0588).")
+    if iss_exige_aliquota(cfg):
+        p = pct(cfg.p_aliq_iss)
+        if p is not None and not ALIQ_ISS_MIN <= p <= ALIQ_ISS_MAX:
+            erros.append(
+                f"Alíquota do ISS retido deve estar entre {ALIQ_ISS_MIN:.2f}% e {ALIQ_ISS_MAX:.2f}% (E0621/E0595)."
+            )
+    if cfg.op_simp_nac == "3" and cfg.p_tot_trib_sn is None:
+        erros.append(
+            "Optante do Simples (ME/EPP) precisa do percentual aproximado de tributos do Simples Nacional (E0712)."
+        )
+    return erros
+
+
 def validar_completa(d: dict[str, Any], base: ConfigFiscal) -> dict[str, Any]:
     """Tributação completa: os campos ausentes em ``d`` vêm de ``base`` (normalmente os padrões)."""
     dados, erros = normalizar(d)
     completa = tributacao_de(base)
     completa.update(dados)
-    erros += coerencia(completa)
+    erros += coerencia(completa, base)
     if erros:
         raise TributacaoError("Tributação inválida.", erros)
     return completa
@@ -125,6 +221,15 @@ def resumo(t: dict[str, Any]) -> str:
     """Texto curto para listas: serviço, ISS e IBS/CBS."""
     partes = [f"serviço {t.get('c_trib_nac')}"]
     partes.append(codes.descricao(codes.TP_RET_ISSQN, t.get("tp_ret_issqn")) or "")
+    if t.get("tp_ret_issqn") in ("2", "3") and t.get("p_aliq_iss"):
+        partes[-1] += f" ({str(t['p_aliq_iss']).replace('.', ',')}%)"
+    retencoes = [
+        nome
+        for campo, nome in (("p_ret_irrf", "IRRF"), ("p_ret_csll", "CSLL"), ("p_ret_cp", "INSS"))
+        if pct(t.get(campo))
+    ]
+    if retencoes:
+        partes.append("retém " + "/".join(retencoes))
     partes.append("com IBS/CBS" if t.get("ibscbs") else "sem IBS/CBS")
     return ", ".join(p for p in partes if p)
 

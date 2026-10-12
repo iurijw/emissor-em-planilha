@@ -49,6 +49,18 @@ class ConfigFiscal:
     cst_pis_cofins: str | None = "00"  # None → não envia grupo tribFed
     tp_ret_pis_cofins: str | None = None
     p_tot_trib_sn: Decimal | None = Decimal("11.08")  # None → indTotTrib = 0
+    # Alíquotas e retenções em % (texto "2.50"; None = não informar). Os valores em R$ saem de cada nota.
+    p_aliq_iss: str | None = None  # pAliq: só com ISS retido e ISS apurado pelo Simples (E0621)
+    p_aliq_iss_atualizada_em: str | None = None  # AAAA-MM-DD da última mudança (aviso na emissão)
+    p_aliq_pis: str | None = None  # pAliqPis (base = valor do serviço)
+    p_aliq_cofins: str | None = None  # pAliqCofins
+    p_ret_irrf: str | None = None  # vRetIRRF = valor x %
+    p_ret_csll: str | None = None  # vRetCSLL
+    p_ret_cp: str | None = None  # vRetCP (INSS)
+    # Total aproximado dos tributos (Lei 12.741) para não optante do Simples (pTotTrib)
+    p_tot_trib_fed: str | None = None
+    p_tot_trib_est: str | None = None
+    p_tot_trib_mun: str | None = None
     # IBS/CBS (reforma tributária): grupo infDPS/IBSCBS, com destinatário = tomador (indDest 0)
     ibscbs: bool = False  # False → DPS sem o grupo (aceito sem rejeição até 31/12/2026)
     ibscbs_c_ind_op: str = "100301"
@@ -56,6 +68,44 @@ class ConfigFiscal:
     ibscbs_ind_final: str | None = None  # opcional; será descontinuado pela NT 005
     # Emissão
     tp_emit: str = "1"
+
+
+# Campos de percentual guardados como texto (``Decimal`` só na montagem da DPS).
+CAMPOS_PERCENTUAIS = (
+    "p_aliq_iss",
+    "p_aliq_pis",
+    "p_aliq_cofins",
+    "p_ret_irrf",
+    "p_ret_csll",
+    "p_ret_cp",
+    "p_tot_trib_fed",
+    "p_tot_trib_est",
+    "p_tot_trib_mun",
+)
+
+# tpRetPisCofins → (PIS retido, COFINS retido, CSLL retida); None = o código não diz (CSLL opcional).
+# "1" exige a CSLL: E0724 obriga vRetCSLL para todo código que não seja 0 ou 2.
+RETENCOES_PIS_COFINS: dict[str, tuple[bool, bool, bool | None]] = {
+    "0": (False, False, False),
+    "1": (True, True, True),
+    "2": (False, False, None),
+    "3": (True, True, True),
+    "4": (True, True, False),
+    "5": (True, False, False),
+    "6": (False, True, False),
+    "7": (False, True, True),
+    "8": (False, False, True),
+    "9": (True, False, True),
+}
+
+
+def iss_exige_aliquota(cfg: ConfigFiscal) -> bool:
+    """A Sefin exige ``pAliq`` (E0621/E0628): ME/EPP com ISS pelo Simples e ISS retido.
+
+    Nos demais casos a alíquota é a parametrizada pelo município e informá-la rejeita a nota (E0617/E0625/E0635)
+    — este sistema não trata município de incidência fora do Sistema Nacional.
+    """
+    return cfg.op_simp_nac == "3" and cfg.reg_ap_trib_sn == "1" and cfg.tp_ret_issqn in ("2", "3")
 
 
 # Campos que mudam de uma tributação para outra (abas e nota avulsa). Os demais (prestador, regime,
@@ -70,6 +120,16 @@ CAMPOS_TRIBUTACAO = (
     "cst_pis_cofins",
     "tp_ret_pis_cofins",
     "p_tot_trib_sn",
+    "p_aliq_iss",
+    "p_aliq_iss_atualizada_em",
+    "p_aliq_pis",
+    "p_aliq_cofins",
+    "p_ret_irrf",
+    "p_ret_csll",
+    "p_ret_cp",
+    "p_tot_trib_fed",
+    "p_tot_trib_est",
+    "p_tot_trib_mun",
     "ibscbs",
     "ibscbs_c_ind_op",
     "ibscbs_c_class_trib",

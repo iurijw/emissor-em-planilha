@@ -196,7 +196,7 @@ def _validar_fiscal(d: dict[str, Any]) -> ConfigFiscal:
     base.update({k: v for k, v in dados.items() if k in base})
     base["p_tot_trib_sn"] = Decimal(base["p_tot_trib_sn"]) if base.get("p_tot_trib_sn") is not None else None
     cfg = ConfigFiscal(**base)
-    erros += trib_service.coerencia(tributacao_de(cfg))
+    erros += trib_service.coerencia(tributacao_de(cfg), cfg)
     if erros:
         raise HTTPException(400, {"mensagem": "Configuração fiscal inválida.", "detalhes": erros})
     return cfg
