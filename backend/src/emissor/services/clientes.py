@@ -214,7 +214,7 @@ _CAMPOS_CADASTRO = (
     "inscricao_municipal",
 )
 MAX_ARQUIVO = 5_000_000  # por XML
-MAX_ZIP_DESCOMPACTADO = 200_000_000
+MAX_ZIP_DESCOMPACTADO = 200_000_000  # soma de tudo o que é lido num envio (XMLs soltos e de dentro dos ZIPs)
 
 
 @dataclass
@@ -232,24 +232,39 @@ def _expandir_arquivos(arquivos: list[tuple[str, bytes]], res: ResultadoImportac
     import zipfile
 
     saida = []
+    total = 0  # bytes guardados neste envio: limita a memória mesmo com vários ZIPs
+
+    def cabe(nome: str, tamanho: int) -> bool:
+        if tamanho > MAX_ARQUIVO:
+            res.ignorados.append({"arquivo": nome, "motivo": "Arquivo grande demais para uma NFS-e."})
+            return False
+        if total + tamanho > MAX_ZIP_DESCOMPACTADO:
+            res.ignorados.append({"arquivo": nome, "motivo": "Envio grande demais (máx. 200 MB de XML por vez)."})
+            return False
+        return True
+
     for nome, conteudo in arquivos:
         if nome.lower().endswith(".zip"):
             try:
                 with zipfile.ZipFile(io.BytesIO(conteudo)) as z:
-                    total = sum(i.file_size for i in z.infolist())
-                    if total > MAX_ZIP_DESCOMPACTADO:
-                        res.ignorados.append(
-                            {"arquivo": nome, "motivo": "ZIP grande demais (máx. 200 MB descompactado)."}
-                        )
-                        continue
                     for info in z.infolist():
                         if info.is_dir() or not info.filename.lower().endswith(".xml"):
                             continue
-                        saida.append((f"{nome}/{info.filename}", z.read(info)))
+                        nome_xml = f"{nome}/{info.filename}"
+                        if not cabe(nome_xml, info.file_size):
+                            continue
+                        with z.open(info) as f:
+                            dados = f.read(MAX_ARQUIVO + 1)  # o tamanho declarado no ZIP pode mentir
+                        if not cabe(nome_xml, len(dados)):
+                            continue
+                        total += len(dados)
+                        saida.append((nome_xml, dados))
             except zipfile.BadZipFile:
                 res.ignorados.append({"arquivo": nome, "motivo": "Arquivo ZIP inválido ou corrompido."})
         elif nome.lower().endswith(".xml"):
-            saida.append((nome, conteudo))
+            if cabe(nome, len(conteudo)):
+                total += len(conteudo)
+                saida.append((nome, conteudo))
         else:
             res.ignorados.append({"arquivo": nome, "motivo": "Não é .xml nem .zip."})
     return saida
@@ -269,9 +284,6 @@ def importar_de_xmls(
     res = ResultadoImportacaoXml()
     docs = []
     for nome, conteudo in _expandir_arquivos(arquivos, res):
-        if len(conteudo) > MAX_ARQUIVO:
-            res.ignorados.append({"arquivo": nome, "motivo": "Arquivo grande demais para uma NFS-e."})
-            continue
         try:
             docs.append((nome, NFSeDoc.from_bytes(conteudo)))
         except NfseXmlError as exc:

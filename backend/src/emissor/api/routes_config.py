@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
 import zipfile
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -18,7 +19,7 @@ from sqlmodel import func, select
 from emissor import auth, config
 from emissor.api.deps import AdminAtual
 from emissor.api.serial import CAMPOS_FISCAIS, cliente_dict, fiscal_dict
-from emissor.db import Cliente, Emissao, LinhaTabela, agora, obter_config, sessao
+from emissor.db import Cliente, Emissao, LinhaTabela, Lote, agora, obter_config, sessao
 from emissor.logging_setup import get_context
 from emissor.nfse import codes
 from emissor.nfse.client import SefinClient
@@ -204,6 +205,15 @@ def _validar_fiscal(d: dict[str, Any]) -> ConfigFiscal:
 def _aplicar_config(entrada: ConfigEntrada) -> None:
     with sessao() as s:
         cfg = obter_config(s)
+        muda_numeracao = (entrada.ambiente is not None and entrada.ambiente != cfg.ambiente) or any(
+            getattr(entrada, c) is not None and getattr(entrada, c) != getattr(cfg, c)
+            for c in ("serie", "proximo_ndps_homologacao", "proximo_ndps_producao")
+        )
+        if muda_numeracao and s.exec(select(Lote).where(Lote.status == "em_andamento")).first():
+            raise HTTPException(
+                400,
+                "Há notas sendo emitidas agora. Espere o lote terminar para trocar o ambiente, a série ou a numeração.",
+            )
         if entrada.fiscal is not None:
             cfg.set_config_fiscal(_validar_fiscal(entrada.fiscal))
         if entrada.ambiente is not None:
@@ -345,14 +355,22 @@ class LogCliente(BaseModel):
     contexto: dict[str, Any] | None = None
 
 
+MAX_CONTEXTO_LOG = 8000
+
+
 @router.post("/logs/cliente")
 def log_cliente(entrada: LogCliente) -> dict[str, bool]:
     nivel = {"error": logging.ERROR, "warn": logging.WARNING, "warning": logging.WARNING}.get(
         entrada.nivel.lower(), logging.INFO
     )
-    logging.getLogger("emissor.frontend").log(
-        nivel, entrada.mensagem[:2000], extra={"contexto_frontend": entrada.contexto}
-    )
+    contexto = entrada.contexto
+    if contexto is not None:
+        texto = json.dumps(contexto, ensure_ascii=False, default=str)
+        # Links de convite/primeiro acesso levam o token no endereço: não vão para o log.
+        texto_limpo = re.sub(r"token=[^&\"\s]+", "token=***", texto)
+        if len(texto_limpo) > MAX_CONTEXTO_LOG or texto_limpo != texto:
+            contexto = {"resumo": texto_limpo[:MAX_CONTEXTO_LOG]}
+    logging.getLogger("emissor.frontend").log(nivel, entrada.mensagem[:2000], extra={"contexto_frontend": contexto})
     return {"ok": True}
 
 

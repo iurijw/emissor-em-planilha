@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel
@@ -40,6 +41,10 @@ def _acesso_local(request: Request) -> bool:
     if os.environ.get("EMISSOR_CONVITE_INICIAL", "").strip() or os.environ.get("FLY_APP_NAME"):
         return False
     if any(h in request.headers for h in ("x-forwarded-for", "forwarded", "x-real-ip", "fly-client-ip")):
+        return False
+    # O navegador tem de ter aberto o endereço local: um proxy sem esses cabeçalhos ou uma página
+    # maliciosa com DNS apontado para 127.0.0.1 (DNS rebinding) chegam com outro Host.
+    if urlsplit("//" + request.headers.get("host", "")).hostname not in ("localhost", "127.0.0.1", "::1"):
         return False
     return bool(request.client) and request.client.host in ("127.0.0.1", "::1")
 
@@ -134,11 +139,14 @@ class AceitarConvite(BaseModel):
     token: str
     senha: str
     nome: str | None = None
+    codigo: str | None = None
 
 
 @router.post("/auth/convite")
 def aceitar_convite(entrada: AceitarConvite, request: Request, response: Response) -> dict[str, Any]:
-    token, acesso = auth.aceitar_convite(entrada.token, entrada.senha, entrada.nome, ip_cliente(request), _ua(request))
+    token, acesso = auth.aceitar_convite(
+        entrada.token, entrada.senha, entrada.nome, ip_cliente(request), _ua(request), entrada.codigo
+    )
     _gravar_cookie(request, response, token)
     return {"usuario": acesso.as_dict()}
 

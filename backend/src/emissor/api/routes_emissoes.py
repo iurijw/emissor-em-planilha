@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-import io
 import logging
+import os
+import tempfile
 import zipfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field
 from sqlmodel import func, or_, select
+from starlette.background import BackgroundTask
 
 from emissor import auth
 from emissor.api.deps import UsuarioAtual
@@ -255,8 +257,11 @@ def baixar_pdf(emissao_id: int, inline: bool = False) -> Response:
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'{disp}; filename="{nome}"'})
 
 
+MAX_NOTAS_ZIP = 5000
+
+
 class ZipEntrada(BaseModel):
-    ids: list[int]
+    ids: list[int] = Field(max_length=MAX_NOTAS_ZIP * 2)
     conteudo: str = "ambos"  # xml | pdf | ambos
 
 
@@ -266,24 +271,37 @@ def baixar_zip(entrada: ZipEntrada) -> Response:
         raise HTTPException(400, "Conteúdo deve ser xml, pdf ou ambos.")
     if not entrada.ids:
         raise HTTPException(400, "Selecione ao menos uma nota.")
+    ids = list(dict.fromkeys(entrada.ids))  # cada nota entra uma vez só
+    if len(ids) > MAX_NOTAS_ZIP:
+        raise HTTPException(400, f"Selecione no máximo {MAX_NOTAS_ZIP} notas por download.")
     with sessao() as s:
-        emissoes = [e for e in (s.get(Emissao, i) for i in entrada.ids) if e and e.status in COM_ARQUIVOS]
+        emissoes = [e for e in (s.get(Emissao, i) for i in ids) if e and e.status in COM_ARQUIVOS]
     if not emissoes:
         raise HTTPException(400, "Nenhuma das notas selecionadas foi autorizada.")
-    buf = io.BytesIO()
+    # Montado em arquivo temporário, não na memória: milhares de PDFs passariam da RAM da instância.
+    fd, caminho = tempfile.mkstemp(suffix=".zip")
     falhas = []
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for e in emissoes:
-            try:
-                if entrada.conteudo in ("xml", "ambos"):
-                    for p, xml in [_xml(e), *_xmls_eventos(e)]:
-                        z.writestr(f"xml/{p.name}" if entrada.conteudo == "ambos" else p.name, xml)
-                if entrada.conteudo in ("pdf", "ambos"):
-                    nome, pdf = _pdf(e)
-                    z.writestr(f"pdf/{nome}" if entrada.conteudo == "ambos" else nome, pdf)
-            except HTTPException as exc:
-                falhas.append(f"NFS-e {e.numero_nfse or e.id}: {exc.detail}")
-        if falhas:
-            z.writestr("LEIA-ME_falhas.txt", "\n".join(falhas))
+    try:
+        with os.fdopen(fd, "w+b") as buf, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for e in emissoes:
+                try:
+                    if entrada.conteudo in ("xml", "ambos"):
+                        for p, xml in [_xml(e), *_xmls_eventos(e)]:
+                            z.writestr(f"xml/{p.name}" if entrada.conteudo == "ambos" else p.name, xml)
+                    if entrada.conteudo in ("pdf", "ambos"):
+                        nome, pdf = _pdf(e)
+                        z.writestr(f"pdf/{nome}" if entrada.conteudo == "ambos" else nome, pdf)
+                except HTTPException as exc:
+                    falhas.append(f"NFS-e {e.numero_nfse or e.id}: {exc.detail}")
+            if falhas:
+                z.writestr("LEIA-ME_falhas.txt", "\n".join(falhas))
+    except BaseException:
+        os.unlink(caminho)
+        raise
     log.info("ZIP gerado", extra={"qtd": len(emissoes), "conteudo": entrada.conteudo, "falhas": len(falhas)})
-    return _anexo(f"nfse-{datetime.now():%Y%m%d-%H%M}.zip", buf.getvalue(), "application/zip")
+    return FileResponse(
+        caminho,
+        media_type="application/zip",
+        filename=f"nfse-{datetime.now():%Y%m%d-%H%M}.zip",
+        background=BackgroundTask(os.unlink, caminho),
+    )

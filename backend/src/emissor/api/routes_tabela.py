@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 import unicodedata
 from datetime import datetime
@@ -11,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import select
 
 from emissor.api.serial import cliente_dict, linha_dict
@@ -97,13 +98,14 @@ def salvar_tabela(entrada: TabelaEntrada, aba_id: int | None = None) -> dict[str
 
 
 @router.post("/tabela/importar")
-async def importar_tabela(
+def importar_tabela(
     arquivo: UploadFile = File(...), modo: str = Query("substituir"), aba_id: int | None = None
 ) -> dict[str, Any]:
     if modo not in ("substituir", "acrescentar"):
         raise HTTPException(400, "Modo deve ser 'substituir' ou 'acrescentar'.")
     aba = _aba(aba_id)
-    conteudo = await arquivo.read()
+    # Rota síncrona (roda fora do loop de eventos); lê no máximo 1 byte além do limite.
+    conteudo = arquivo.file.read(tabela_service.MAX_BYTES_IMPORTACAO + 1)
     res = tabela_service.importar(arquivo.filename or "", conteudo)
     with sessao() as s:
         atuais = list(s.exec(select(LinhaTabela).where(LinhaTabela.aba_id == aba.id)))
@@ -274,12 +276,26 @@ def consultar_cliente(documento: str) -> dict[str, Any]:
 
 
 class ConsultarPendentes(BaseModel):
-    documentos: list[str]
+    documentos: list[str] = Field(max_length=20_000)
+
+
+MAX_ARQUIVOS_XML = 2000
+# Uma consulta por vez na instância: cada chamada segura uma thread por até ~15 s ou mais.
+_consulta_em_andamento = threading.Lock()
 
 
 @router.post("/clientes/consultar-pendentes")
 def consultar_pendentes(entrada: ConsultarPendentes) -> dict[str, Any]:
     """Consulta na Receita (BrasilAPI/CNPJá) os CNPJs da tabela ainda sem cadastro."""
+    if not _consulta_em_andamento.acquire(blocking=False):
+        raise HTTPException(429, "Já há uma consulta de CNPJs em andamento. Tente de novo em instantes.")
+    try:
+        return _consultar_pendentes(entrada)
+    finally:
+        _consulta_em_andamento.release()
+
+
+def _consultar_pendentes(entrada: ConsultarPendentes) -> dict[str, Any]:
     resultados = []
     docs = []
     for d in entrada.documentos:
@@ -303,9 +319,11 @@ def consultar_pendentes(entrada: ConsultarPendentes) -> dict[str, Any]:
 
 
 @router.post("/clientes/importar-xmls")
-async def importar_clientes_xmls(arquivos: list[UploadFile] = File(...)) -> dict[str, Any]:
+def importar_clientes_xmls(arquivos: list[UploadFile] = File(...)) -> dict[str, Any]:
     """Cadastro automático de clientes a partir de XMLs de NFS-e (soltos ou em .zip)."""
-    entrada = [(a.filename or "arquivo", await a.read()) for a in arquivos]
+    if len(arquivos) > MAX_ARQUIVOS_XML:
+        raise HTTPException(400, f"Envie no máximo {MAX_ARQUIVOS_XML} arquivos por vez (ou junte-os num .zip).")
+    entrada = [(a.filename or "arquivo", a.file.read()) for a in arquivos]
     with sessao() as s:
         fiscal = obter_config(s).config_fiscal()
         res = cli_service.importar_de_xmls(s, entrada, fiscal.cnpj if fiscal else None)
