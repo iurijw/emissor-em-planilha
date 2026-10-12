@@ -123,8 +123,8 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
       <div className="pagina pagina--estreita">
         <div className="info-caixa">
           <span>
-            O sistema ainda não foi configurado. Peça a um administrador para concluir a configuração inicial (certificado digital e
-            padrões da nota).{" "}
+            O sistema ainda não foi configurado. Peça a um administrador para concluir a configuração inicial (certificado digital,
+            dados da empresa e tributação padrão).{" "}
           </span>
         </div>
         <p><MenuUsuario usuario={usuario} /></p>

@@ -179,7 +179,7 @@ export function EmissaoFluxo(props: {
               </div>
               {(props.tributacao || val.tributacao_nome !== undefined) && (
                 <div>
-                  <div className="tributacao-conferir">{props.tributacao ?? val.tributacao_nome ?? "Padrões da nota"}</div>
+                  <div className="tributacao-conferir">{props.tributacao ?? val.tributacao_nome ?? "Tributação padrão"}</div>
                   <div style={{ color: "var(--grafite)" }}>tributação</div>
                 </div>
               )}
@@ -449,7 +449,7 @@ function PerguntaAliquotaIss(props: { item: AliquotaIss; resposta?: RespostaIss;
   const foraDaFaixa = r?.escolha === "alterar" && valor.trim() !== "" && !(n >= 1.8 && n <= 5);
   const onde =
     a.origem === "padrao"
-      ? "Será salva nos padrões da nota."
+      ? "Será salva na tributação padrão."
       : a.origem === "nota"
         ? "Vale só para esta nota."
         : `Será salva na tributação “${a.nome}” e usada nas próximas emissões.`;

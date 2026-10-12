@@ -20,6 +20,9 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
 - **F6 (2026-10-12):** alíquotas e retenções na tributação (ISS retido, PIS/COFINS, IRRF/CSLL/INSS, totais
   aproximados do não optante) e aviso da alíquota do ISS retido na emissão; ver "Alíquotas e retenções". Testado com
   Sefin simulada; validar em Produção Restrita (principalmente E0621 e o `tpRetPisCofins` 4–9 com CSLL).
+- **F6 (2026-10-12):** configurações reorganizadas: "Dados da empresa" (prestador e regime) separada de
+  "Tributações" (a padrão + as outras numa lista só); retenções federais só aparecem quando marcadas; o onboarding
+  tem os passos "Dados da empresa" e "Tributação padrão". Só tela: a tributação padrão continua em `config.fiscal`.
 - Se a Sefin rejeitar a assinatura da DPS, trocar `C14N` em `backend/src/emissor/nfse/signer.py` para C14N 1.0
   inclusiva e registrar aqui.
 - Ambientes: o sistema alterna entre **Produção Restrita (homologação)** e **Produção** nas configurações.
@@ -604,4 +607,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-11 | Testes ponta a ponta com Sefin/ADN simulados e workflow "Testes" no GitHub Actions a cada PR | Conferir todas as rotas e emissões sem certificado real; Actions é grátis em repositório público |
 | 2026-10-11 | Auditoria de segurança (skill cloudflare/security-audit-skill): link de redefinição pede o 2FA se ele continua ativo; primeiro acesso sem código só com Host local; limites de memória/tempo nas importações, no ZIP em massa, no log do navegador e no Argon2 (4 verificações ao mesmo tempo); nDPS pelo ambiente do lote e troca de ambiente/numeração bloqueada com lote em andamento; "Verificar na Sefin" não sobrescreve nota que mudou durante a consulta; exportação sem fórmulas | Achados confirmados com reprodução local; relatório na thread "Checagem de segurança" |
 | 2026-10-11 | Vídeos em HD com zoom (`docs/video/*-hd.mp4`, 1920x1080, em 1,5x, legendas e cursor desenhados na montagem) gravados com dados fictícios e Sefin/BrasilAPI simuladas; scripts em `/mnt/project-files/ferramentas/videos/` (fora do repo). O site da hospedagem exibe esses arquivos | Mostrar o sistema em detalhe no guia do site; os scripts permitem regravar quando a tela mudar |
+| 2026-10-12 | Tributação padrão listada junto das outras em Configurações → Tributações; dados da empresa em seção própria; retenções federais atrás de um "o tomador retém" | Pedido do Iuri: duas seções de tributação eram confusas; a padrão continua guardada nas configurações (sem migração) |
 | 2026-10-12 | Alíquotas e retenções em % na tributação; pAliq do ISS só onde a Sefin exige; aviso "manter ou alterar" a cada emissão com ISS retido, que o operador pode responder | Pedido do Iuri: a alíquota efetiva do Simples muda todo mês; tributos federais informados mesmo sem retenção |

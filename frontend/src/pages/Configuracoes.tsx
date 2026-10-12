@@ -13,7 +13,7 @@ import {
   type Tributacao,
 } from "../api";
 import { useTributacoes } from "../components/Abas";
-import { CamposTributacao, FiscalForm } from "../components/FiscalForm";
+import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { ImportarClientesXml } from "../components/ImportarClientesXml";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, useToast } from "../ui";
 import { CartaoCertificado, ZonaArquivo } from "./Onboarding";
@@ -21,10 +21,10 @@ import { CartaoCertificado, ZonaArquivo } from "./Onboarding";
 const SECOES = [
   ["ambiente", "Ambiente"],
   ["certificado", "Certificado digital"],
+  ["empresa", "Dados da empresa"],
+  ["tributacoes", "Tributações"],
   ["clientes-xml", "Clientes via XML"],
   ["numeracao", "Numeração"],
-  ["padroes", "Padrões da nota"],
-  ["tributacoes", "Tributações"],
   ["conexao", "Conexão com a Sefin"],
   ["diagnostico", "Diagnóstico"],
 ] as const;
@@ -64,13 +64,13 @@ export function Configuracoes({ status }: { status: Status }) {
           <div>
             <SecaoAmbiente cfg={cfg.data} />
             <SecaoCertificado status={status} />
+            <SecaoEmpresa cfg={cfg.data} />
+            <SecaoTributacoes />
             <section className="folha" id="clientes-xml">
               <h2 className="secao-titulo">Cadastro automático de clientes via XML</h2>
               <ImportarClientesXml />
             </section>
             <SecaoNumeracao cfg={cfg.data} />
-            <SecaoPadroes cfg={cfg.data} />
-            <SecaoTributacoes />
             <SecaoConexao ambiente={cfg.data.ambiente} />
             <SecaoDiagnostico versao={status.versao} />
           </div>
@@ -148,7 +148,7 @@ function SecaoAmbiente({ cfg }: { cfg: Config }) {
           <ul>
             <li>Os testes em homologação foram autorizados e o PDF saiu correto.</li>
             <li>A numeração de produção está certa (próxima DPS nº <b className="num">{cfg.proximo_ndps_producao}</b>, série <b className="num">{cfg.serie}</b>).</li>
-            <li>Os padrões da nota (código de serviço, tributos) estão iguais aos das notas atuais.</li>
+            <li>As tributações (código de serviço, tributos) estão iguais às das notas atuais.</li>
           </ul>
         </Dialogo>
       )}
@@ -255,43 +255,66 @@ function SecaoNumeracao({ cfg }: { cfg: Config }) {
   );
 }
 
-function SecaoPadroes({ cfg }: { cfg: Config }) {
+/** Campos da empresa no `fiscal` das configurações; o resto é a tributação padrão. */
+const CAMPOS_EMPRESA = ["cnpj", "inscricao_municipal", "c_mun_emissor", "fone", "email", "op_simp_nac", "reg_ap_trib_sn", "reg_esp_trib"] as const;
+
+function SecaoEmpresa({ cfg }: { cfg: Config }) {
   const { salvar, erro, ocupado } = useSalvar();
   const [fiscal, setFiscal] = useState<Fiscal | null>(cfg.fiscal);
-  if (!fiscal) return null;
+  if (!fiscal || !cfg.fiscal) return null;
+  const atual = cfg.fiscal;
+  const empresa = Object.fromEntries(CAMPOS_EMPRESA.map((k) => [k, fiscal[k]]));
   return (
-    <section className="folha" id="padroes">
-      <h2 className="secao-titulo">Padrões da nota</h2>
-      <FiscalForm valor={fiscal} onChange={setFiscal} />
-      <div style={{ marginTop: 16 }}><ErroCaixa erro={erro} titulo="Padrões não salvos" /></div>
-      <button className="btn btn--primario" style={{ marginTop: 14 }} disabled={ocupado} onClick={() => salvar({ fiscal }, "Padrões da nota salvos.")}>
-        Salvar padrões
+    <section className="folha" id="empresa">
+      <h2 className="secao-titulo">Dados da empresa</h2>
+      <CamposEmpresa valor={fiscal} onChange={setFiscal} />
+      <div style={{ marginTop: 16 }}><ErroCaixa erro={erro} titulo="Dados da empresa não salvos" /></div>
+      <button
+        className="btn btn--primario"
+        style={{ marginTop: 14 }}
+        disabled={ocupado}
+        // Só os campos da empresa: a tributação padrão pode ter mudado no diálogo enquanto isto estava aberto.
+        onClick={() => salvar({ fiscal: { ...atual, ...empresa } }, "Dados da empresa salvos.")}
+      >
+        Salvar dados da empresa
       </button>
     </section>
   );
 }
 
+type Edicao = { id: number | "padrao" | null; nome: string; dados: DadosTributacao };
+
 function SecaoTributacoes() {
   const lista = useTributacoes();
+  const cfg = useQuery({ queryKey: ["config"], queryFn: () => api.get<Config>("/api/config") });
   const qc = useQueryClient();
   const toast = useToast();
-  const [editando, setEditando] = useState<{ id: number | null; nome: string; dados: DadosTributacao } | null>(null);
+  const [editando, setEditando] = useState<Edicao | null>(null);
   const [excluir, setExcluir] = useState<Tributacao | null>(null);
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
+  const padrao = editando?.id === "padrao";
 
   async function salvar() {
     if (!editando) return;
     setErro(null);
     setOcupado(true);
     try {
-      const corpo = { nome: editando.nome, dados: editando.dados };
-      if (editando.id) await api.put(`/api/tributacoes/${editando.id}`, corpo);
-      else await api.post("/api/tributacoes", corpo);
-      toast(`Tributação “${editando.nome.trim()}” salva.`);
+      if (editando.id === "padrao") {
+        // A tributação padrão mora nas configurações, junto dos dados da empresa.
+        if (!cfg.data?.fiscal) throw new Error("Configurações não carregadas. Recarregue a página.");
+        await api.put("/api/config", { fiscal: { ...cfg.data.fiscal, ...editando.dados } });
+        toast("Tributação padrão salva.");
+        qc.invalidateQueries();
+      } else {
+        const corpo = { nome: editando.nome, dados: editando.dados };
+        if (editando.id) await api.put(`/api/tributacoes/${editando.id}`, corpo);
+        else await api.post("/api/tributacoes", corpo);
+        toast(`Tributação “${editando.nome.trim()}” salva.`);
+        qc.invalidateQueries({ queryKey: ["tributacoes"] });
+        qc.invalidateQueries({ queryKey: ["abas"] });
+      }
       setEditando(null);
-      qc.invalidateQueries({ queryKey: ["tributacoes"] });
-      qc.invalidateQueries({ queryKey: ["abas"] });
     } catch (e) {
       setErro(e);
     } finally {
@@ -316,15 +339,16 @@ function SecaoTributacoes() {
   }
 
   const itens = lista.data?.itens ?? [];
+  const base = lista.data?.padrao;
   return (
     <section className="folha" id="tributacoes">
       <h2 className="secao-titulo">Tributações</h2>
       <p style={{ marginTop: 0, color: "var(--grafite)" }}>
-        Combinações prontas de serviço, ISS, PIS/COFINS e IBS/CBS para notas que não seguem os padrões: cada aba da tabela
-        pode usar uma, e a nota avulsa também. Prestador e regime tributário continuam os dos padrões da nota.
+        Código do serviço, ISS, retenções, PIS/COFINS e IBS/CBS de cada tipo de nota. A padrão vale para toda aba da tabela
+        que não escolher outra; crie mais se alguns clientes têm tributação diferente (por exemplo, ISS retido).
       </p>
       <ErroCaixa erro={lista.error} titulo="Não foi possível carregar as tributações" />
-      {itens.length > 0 && (
+      {base && (
         <div className="tabela-caixa" style={{ marginBottom: 14 }}>
           <table className="tabela">
             <thead>
@@ -336,6 +360,18 @@ function SecaoTributacoes() {
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <td>
+                  <b>Padrão</b>
+                </td>
+                <td>{lista.data?.padrao_resumo}</td>
+                <td style={{ color: "var(--grafite)" }}>as sem tributação própria</td>
+                <td className="dir" style={{ whiteSpace: "nowrap" }}>
+                  <button className="btn btn--pequeno" onClick={() => setEditando({ id: "padrao", nome: "Padrão", dados: dadosTributacao(base) })}>
+                    Editar
+                  </button>
+                </td>
+              </tr>
               {itens.map((t) => (
                 <tr key={t.id}>
                   <td><b>{t.nome}</b></td>
@@ -355,18 +391,14 @@ function SecaoTributacoes() {
           </table>
         </div>
       )}
-      <button
-        className="btn"
-        disabled={!lista.data?.padrao}
-        onClick={() => lista.data?.padrao && setEditando({ id: null, nome: "", dados: dadosTributacao(lista.data.padrao) })}
-      >
+      <button className="btn" disabled={!base} onClick={() => base && setEditando({ id: null, nome: "", dados: dadosTributacao(base) })}>
         Nova tributação
       </button>
       {!editando && !excluir && <div style={{ marginTop: 12 }}><ErroCaixa erro={erro} /></div>}
 
       {editando && (
         <Dialogo
-          titulo={editando.id ? `Tributação “${editando.nome}”` : "Nova tributação"}
+          titulo={padrao ? "Tributação padrão" : editando.id ? `Tributação “${editando.nome}”` : "Nova tributação"}
           fechar={() => setEditando(null)}
           largo
           rodape={
@@ -379,17 +411,23 @@ function SecaoTributacoes() {
           }
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
-            <label className="campo" style={{ maxWidth: 420 }}>
-              <span>Nome</span>
-              <input
-                value={editando.nome}
-                maxLength={60}
-                autoFocus
-                placeholder="Ex.: ISS retido pelo tomador"
-                onChange={(e) => setEditando({ ...editando, nome: e.target.value })}
-              />
-              {!editando.id && <small>Começa com os padrões da nota; mude só o que for diferente.</small>}
-            </label>
+            {padrao ? (
+              <p style={{ margin: 0, color: "var(--grafite)" }}>
+                Usada pelas abas sem tributação própria e pela nota avulsa quando nenhuma outra é escolhida.
+              </p>
+            ) : (
+              <label className="campo" style={{ maxWidth: 420 }}>
+                <span>Nome</span>
+                <input
+                  value={editando.nome}
+                  maxLength={60}
+                  autoFocus
+                  placeholder="Ex.: ISS retido pelo tomador"
+                  onChange={(e) => setEditando({ ...editando, nome: e.target.value })}
+                />
+                {!editando.id && <small>Começa igual à tributação padrão; mude só o que for diferente.</small>}
+              </label>
+            )}
             <CamposTributacao
               valor={editando.dados}
               onChange={(d) => setEditando({ ...editando, dados: d })}
