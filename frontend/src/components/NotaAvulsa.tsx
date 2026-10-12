@@ -162,7 +162,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             )}
             {escolha === "propria" && propria && (
               <div style={{ display: "flex", flexDirection: "column", gap: 22, marginTop: 18 }}>
-                <CamposTributacao valor={propria} onChange={setPropria} />
+                <CamposTributacao valor={propria} onChange={setPropria} regime={trib.data?.regime} />
               </div>
             )}
           </section>

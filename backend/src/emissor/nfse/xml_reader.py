@@ -7,7 +7,7 @@ Usado para: importar padrões fiscais e clientes a partir das notas já emitidas
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from lxml import etree
@@ -148,8 +148,31 @@ def extrair_padroes(docs: list[NFSeDoc]) -> ConfigFiscal:
         tp_ret_pis_cofins=d.dps("valores/trib/tribFed/piscofins/tpRetPisCofins"),
         p_tot_trib_sn=Decimal(p_tot) if p_tot else None,
         tp_emit=d.dps("tpEmit", "1"),
+        **_padroes_aliquotas(d),
         **_padroes_ibscbs(d),
     )
+
+
+def _padroes_aliquotas(d: NFSeDoc) -> dict:
+    """Alíquotas e retenções da nota mais recente; retenções em R$ viram % do valor do serviço."""
+    tf = "valores/trib/tribFed"
+    res = {
+        "p_aliq_iss": d.dps("valores/trib/tribMun/pAliq"),
+        "p_aliq_pis": d.dps(f"{tf}/piscofins/pAliqPis"),
+        "p_aliq_cofins": d.dps(f"{tf}/piscofins/pAliqCofins"),
+        "p_tot_trib_fed": d.dps("valores/trib/totTrib/pTotTrib/pTotTribFed"),
+        "p_tot_trib_est": d.dps("valores/trib/totTrib/pTotTrib/pTotTribEst"),
+        "p_tot_trib_mun": d.dps("valores/trib/totTrib/pTotTrib/pTotTribMun"),
+    }
+    try:
+        v_serv = Decimal(d.dps("valores/vServPrest/vServ") or "0")
+    except InvalidOperation:
+        v_serv = Decimal("0")
+    for campo, tag in (("p_ret_irrf", "vRetIRRF"), ("p_ret_csll", "vRetCSLL"), ("p_ret_cp", "vRetCP")):
+        v = d.dps(f"{tf}/{tag}")
+        if v and v_serv > 0:
+            res[campo] = f"{(Decimal(v) * 100 / v_serv).quantize(Decimal('0.01'))}"
+    return {k: v for k, v in res.items() if v}
 
 
 def _padroes_ibscbs(d: NFSeDoc) -> dict:

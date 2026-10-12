@@ -15,10 +15,17 @@ from emissor import auth
 from emissor.api.deps import AdminAtual, UsuarioAtual
 from emissor.api.routes_emissoes import obter_lote
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, Tributacao, agora, obter_config, sessao
-from emissor.nfse.models import normalizar_documento, tributacao_de
+from emissor.nfse.models import aplicar_tributacao, normalizar_documento, tributacao_de
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
-from emissor.services.emissao import NotaAvulsa, criar_avulsa, validar_avulsa, verificar_prontidao
+from emissor.services.emissao import (
+    NotaAvulsa,
+    aliquotas_iss,
+    criar_avulsa,
+    linha_avulsa,
+    validar_avulsa,
+    verificar_prontidao,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -49,6 +56,8 @@ def listar_tributacoes() -> dict[str, Any]:
     return {
         "padrao": padrao,
         "padrao_resumo": trib_service.resumo(padrao) if padrao else None,
+        # O regime decide quais alíquotas a tela mostra (ex.: a do ISS retido só para ISS apurado pelo Simples).
+        "regime": {"op_simp_nac": fiscal.op_simp_nac, "reg_ap_trib_sn": fiscal.reg_ap_trib_sn} if fiscal else None,
         "itens": [_tributacao_dict(t, abas) for t in itens],
     }
 
@@ -102,6 +111,48 @@ def alterar_tributacao(tributacao_id: int, entrada: TributacaoEntrada, admin: Ad
         abas = trib_service.garantir_abas(s)
     auth.auditar("tributacao_alterada", f"{nome}: {trib_service.resumo(dados)}", admin)
     return _tributacao_dict(t, abas)
+
+
+class AliquotaIssEntrada(BaseModel):
+    tributacao_id: int | None = None  # None = padrões das configurações
+    p_aliq_iss: str
+
+
+@router.post("/tributacoes/aliquota-iss")
+def alterar_aliquota_iss(entrada: AliquotaIssEntrada, acesso: UsuarioAtual) -> dict[str, Any]:
+    """Alíquota do ISS retido de uma tributação (ou dos padrões), pelo aviso da emissão.
+
+    É o único campo de tributação que o operador pode mudar: a alíquota efetiva do Simples muda todo mês.
+    """
+    hoje = agora().date().isoformat()
+    with sessao() as s:
+        base = trib_service.config_base(s)
+        if entrada.tributacao_id is not None:
+            t = s.get(Tributacao, entrada.tributacao_id)
+            if t is None:
+                raise HTTPException(404, "Tributação não encontrada. Recarregue a página.")
+            dados = t.dados()
+            nome = t.nome
+        else:
+            t, dados, nome = None, tributacao_de(base), "padrão"
+        anterior = dados.get("p_aliq_iss")
+        dados = trib_service.validar_completa(
+            {**dados, "p_aliq_iss": entrada.p_aliq_iss, "p_aliq_iss_atualizada_em": hoje}, base
+        )
+        if not dados.get("p_aliq_iss"):
+            raise HTTPException(400, "Informe a alíquota do ISS retido.")
+        if t is not None:
+            t.dados_json = trib_service.dumps(dados)
+            t.atualizado_em = agora()
+            s.add(t)
+        else:
+            cfg = obter_config(s)
+            cfg.set_config_fiscal(aplicar_tributacao(base, dados))
+            cfg.atualizado_em = agora()
+            s.add(cfg)
+        s.commit()
+    auth.auditar("aliquota_iss_alterada", f"tributação {nome}: {anterior or '-'}% → {dados['p_aliq_iss']}%", acesso)
+    return {"tributacao_id": entrada.tributacao_id, "p_aliq_iss": dados["p_aliq_iss"], "atualizada_em": hoje}
 
 
 @router.delete("/tributacoes/{tributacao_id}")
@@ -290,6 +341,7 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
         descricao=entrada.descricao.strip(),
         tributacao_nome=nome_trib,
         tributacao=dados_trib,
+        tributacao_id=entrada.tributacao_id,
     )
 
 
@@ -307,9 +359,12 @@ def validar_nota_avulsa(entrada: AvulsaEntrada) -> dict[str, Any]:
         cfg = obter_config(s)
         nota = _nota(s, entrada)
         v = validar_avulsa(s, nota, cfg.amb)
+        aliquotas = aliquotas_iss(s, [linha_avulsa(nota)], nota.tributacao, nota.tributacao_id)
         problemas = verificar_prontidao(s)
         if nota.tributacao is not None:
-            problemas += [f"Tributação: {e}" for e in trib_service.coerencia(nota.tributacao)]
+            problemas += [
+                f"Tributação: {e}" for e in trib_service.coerencia(nota.tributacao, trib_service.config_base(s))
+            ]
     return {
         "ambiente": cfg.ambiente,
         "ambiente_descricao": cfg.amb.descricao,
@@ -318,6 +373,7 @@ def validar_nota_avulsa(entrada: AvulsaEntrada) -> dict[str, Any]:
         "quantidade": 1,
         "total": _total(nota.valor),
         "tributacao_nome": nota.tributacao_nome or ("Só desta nota" if nota.tributacao else None),
+        "aliquotas_iss": aliquotas,
     }
 
 

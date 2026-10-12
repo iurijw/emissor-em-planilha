@@ -390,7 +390,11 @@ function SecaoTributacoes() {
               />
               {!editando.id && <small>Começa com os padrões da nota; mude só o que for diferente.</small>}
             </label>
-            <CamposTributacao valor={editando.dados} onChange={(d) => setEditando({ ...editando, dados: d })} />
+            <CamposTributacao
+              valor={editando.dados}
+              onChange={(d) => setEditando({ ...editando, dados: d })}
+              regime={lista.data?.regime}
+            />
             <ErroCaixa erro={erro} titulo="Tributação não salva" />
           </div>
         </Dialogo>

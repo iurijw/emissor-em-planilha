@@ -1,7 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
-import { api, type DadosTributacao, type Fiscal, type Municipio, type Opcoes } from "../api";
-import { formatarDocumento } from "../format";
+import {
+  api,
+  type DadosTributacao,
+  type Fiscal,
+  issExigeAliquota,
+  type Municipio,
+  type Opcoes,
+  type Regime,
+} from "../api";
+import { formatarDocumento, moeda } from "../format";
 
 export function useOpcoes() {
   return useQuery({ queryKey: ["opcoes"], queryFn: () => api.get<Opcoes>("/api/config/opcoes"), staleTime: Infinity });
@@ -269,6 +277,7 @@ export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: F
         valor={valor}
         // Quase sempre é o mesmo município: o local da prestação preenche o do prestador se ainda estiver vazio.
         onChange={(t) => onChange({ ...valor, ...t, c_mun_emissor: valor.c_mun_emissor || (t.c_loc_prestacao ?? "") })}
+        regime={valor}
       />
     </div>
   );
@@ -278,8 +287,19 @@ export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: F
  * Serviço, tributos e IBS/CBS: o que muda de uma tributação para outra. Usado nos padrões da nota
  * (Configurações), nas tributações predefinidas e na nota avulsa com tributação própria.
  */
-export function CamposTributacao({ valor, onChange }: { valor: DadosTributacao; onChange: (t: DadosTributacao) => void }) {
+export function CamposTributacao({
+  valor,
+  onChange,
+  regime,
+}: {
+  valor: DadosTributacao;
+  onChange: (t: DadosTributacao) => void;
+  /** Regime do prestador (Configurações): decide quais alíquotas a nota aceita. */
+  regime: Regime | null | undefined;
+}) {
   const op = useOpcoes().data;
+  const retido = ["2", "3"].includes(valor.tp_ret_issqn);
+  const exigeAliquota = issExigeAliquota(regime, valor);
   const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
   const classeConhecida = op?.ibscbs_c_class_trib?.some((o) => o.valor === valor.ibscbs_c_class_trib);
   return (
@@ -318,7 +338,7 @@ export function CamposTributacao({ valor, onChange }: { valor: DadosTributacao; 
       </section>
 
       <section>
-        <h3 className="secao-titulo">Tributos</h3>
+        <h3 className="secao-titulo">ISS</h3>
         <div className="grade-form">
           <Selecao
             rotulo="Tributação do ISSQN"
@@ -329,9 +349,34 @@ export function CamposTributacao({ valor, onChange }: { valor: DadosTributacao; 
           <Selecao
             rotulo="Retenção do ISSQN"
             valor={valor.tp_ret_issqn}
-            opcoes={op?.tp_ret_issqn}
+            // Retenção pelo intermediário exige os dados dele na nota, que o sistema não envia.
+            opcoes={op?.tp_ret_issqn?.filter((o) => o.valor !== "3" || valor.tp_ret_issqn === "3")}
             onChange={(v) => set("tp_ret_issqn", v ?? "1")}
           />
+          {exigeAliquota && (
+            <Texto
+              rotulo="Alíquota do ISS retido (%)"
+              valor={pctTela(valor.p_aliq_iss)}
+              onChange={(v) => onChange({ ...valor, p_aliq_iss: pctDado(v), p_aliq_iss_atualizada_em: hoje() })}
+              ajuda={
+                "Alíquota efetiva do Simples no mês, de 1,80% a 5,00%. A cada emissão o sistema pergunta se ela continua valendo." +
+                (valor.p_aliq_iss_atualizada_em ? ` Atualizada em ${dataTela(valor.p_aliq_iss_atualizada_em)}.` : "")
+              }
+              num
+            />
+          )}
+        </div>
+        {retido && !exigeAliquota && regime && (
+          <p className="dica-grade">
+            Com este regime a alíquota do ISS retido é a que a prefeitura cadastrou no Sistema Nacional: a nota não pode
+            informar outra. Ela só é pedida para optante do Simples com o ISS apurado pelo Simples.
+          </p>
+        )}
+      </section>
+
+      <section>
+        <h3 className="secao-titulo">PIS e COFINS</h3>
+        <div className="grade-form">
           <Selecao
             rotulo="CST do PIS/COFINS"
             valor={valor.cst_pis_cofins}
@@ -339,22 +384,90 @@ export function CamposTributacao({ valor, onChange }: { valor: DadosTributacao; 
             vazio="Não informar"
             onChange={(v) => set("cst_pis_cofins", v)}
           />
-          <Selecao
-            rotulo="Retenção de PIS/COFINS/CSLL"
-            valor={valor.tp_ret_pis_cofins}
-            opcoes={op?.tp_ret_pis_cofins}
-            vazio="Não informar"
-            onChange={(v) => set("tp_ret_pis_cofins", v)}
+          {valor.cst_pis_cofins && (
+            <>
+              <Texto
+                rotulo="Alíquota do PIS (%)"
+                valor={pctTela(valor.p_aliq_pis)}
+                onChange={(v) => set("p_aliq_pis", pctDado(v))}
+                ajuda="Sobre o valor do serviço. Vazio = não informar."
+                num
+              />
+              <Texto
+                rotulo="Alíquota da COFINS (%)"
+                valor={pctTela(valor.p_aliq_cofins)}
+                onChange={(v) => set("p_aliq_cofins", pctDado(v))}
+                ajuda="Sobre o valor do serviço. Vazio = não informar."
+                num
+              />
+              <Selecao
+                rotulo="Retenção de PIS/COFINS/CSLL"
+                valor={valor.tp_ret_pis_cofins}
+                opcoes={op?.tp_ret_pis_cofins}
+                vazio="Não informar"
+                onChange={(v) => set("tp_ret_pis_cofins", v)}
+                ajuda="Informar as alíquotas não obriga a reter: só os retidos saem do valor líquido."
+              />
+            </>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <h3 className="secao-titulo">Retenções federais</h3>
+        <div className="grade-form">
+          <Texto
+            rotulo="IRRF retido (%)"
+            valor={pctTela(valor.p_ret_irrf)}
+            onChange={(v) => set("p_ret_irrf", pctDado(v))}
+            ajuda="Vazio = sem retenção."
+            num
           />
           <Texto
-            rotulo="% aproximado de tributos (Simples)"
-            valor={valor.p_tot_trib_sn}
-            onChange={(v) => set("p_tot_trib_sn", v.replace(",", ".") || null)}
-            ajuda="Lei 12.741/2012. Vazio = não informar."
+            rotulo="CSLL retida (%)"
+            valor={pctTela(valor.p_ret_csll)}
+            onChange={(v) => set("p_ret_csll", pctDado(v))}
+            ajuda="Combine com a retenção de PIS/COFINS/CSLL acima."
+            num
+          />
+          <Texto
+            rotulo="INSS retido (%)"
+            valor={pctTela(valor.p_ret_cp)}
+            onChange={(v) => set("p_ret_cp", pctDado(v))}
+            ajuda="Contribuição previdenciária (CP). Vazio = sem retenção."
             num
           />
         </div>
+        <p className="dica-grade">
+          A nota só tem campo de valor para IRRF, CSLL e INSS, e eles são sempre descontados do valor líquido; o sistema
+          calcula o valor de cada nota com estes percentuais.
+        </p>
       </section>
+
+      <section>
+        <h3 className="secao-titulo">Tributos aproximados (Lei 12.741/2012)</h3>
+        <div className="grade-form">
+          {regime?.op_simp_nac === "1" ? (
+            <>
+              <Texto rotulo="Federais (%)" valor={pctTela(valor.p_tot_trib_fed)} onChange={(v) => set("p_tot_trib_fed", pctDado(v))} num />
+              <Texto rotulo="Estaduais (%)" valor={pctTela(valor.p_tot_trib_est)} onChange={(v) => set("p_tot_trib_est", pctDado(v))} num />
+              <Texto rotulo="Municipais (%)" valor={pctTela(valor.p_tot_trib_mun)} onChange={(v) => set("p_tot_trib_mun", pctDado(v))} num />
+            </>
+          ) : regime?.op_simp_nac === "2" ? (
+            <p className="dica-grade">MEI não informa o percentual aproximado de tributos.</p>
+          ) : (
+            <Texto
+              rotulo="% aproximado de tributos (Simples)"
+              valor={pctTela(valor.p_tot_trib_sn)}
+              onChange={(v) => set("p_tot_trib_sn", pctDado(v))}
+              ajuda="Obrigatório para ME/EPP optante do Simples."
+              num
+            />
+          )}
+        </div>
+      </section>
+
+      <PreviaTributos valor={valor} exigeAliquota={exigeAliquota} />
 
       <section>
         <h3 className="secao-titulo">IBS e CBS</h3>
@@ -400,5 +513,58 @@ export function CamposTributacao({ valor, onChange }: { valor: DadosTributacao; 
         )}
       </section>
     </>
+  );
+}
+
+// Percentuais: a tela usa vírgula, os dados guardam ponto ("2.50"); vazio = não informar.
+const pctTela = (v: string | null) => (v ?? "").replace(".", ",");
+const pctDado = (v: string) => v.replace(/[^\d,.]/g, "").replace(",", ".") || null;
+const hoje = () => new Date().toLocaleDateString("sv-SE"); // AAAA-MM-DD no fuso do navegador
+const dataTela = (iso: string) => iso.split("-").reverse().join("/");
+
+function de(base: number, p: string | null): number {
+  const n = Number(p ?? "");
+  return p && Number.isFinite(n) ? Math.round(base * n) / 100 : 0;
+}
+
+// tpRetPisCofins → [PIS retido, COFINS retido] (igual a RETENCOES_PIS_COFINS no backend).
+const PIS_COFINS_RETIDOS: Record<string, [boolean, boolean]> = {
+  "1": [true, true],
+  "3": [true, true],
+  "4": [true, true],
+  "5": [true, false],
+  "6": [false, true],
+  "7": [false, true],
+  "9": [true, false],
+};
+
+/** Exemplo numa nota de R$ 1.000,00 com os percentuais da tributação. */
+function PreviaTributos({ valor, exigeAliquota }: { valor: DadosTributacao; exigeAliquota: boolean }) {
+  const base = 1000;
+  const [pisRet, cofinsRet] = (valor.cst_pis_cofins && PIS_COFINS_RETIDOS[valor.tp_ret_pis_cofins ?? ""]) || [false, false];
+  const pis = valor.cst_pis_cofins ? de(base, valor.p_aliq_pis) : 0;
+  const cofins = valor.cst_pis_cofins ? de(base, valor.p_aliq_cofins) : 0;
+  const itens: [string, number, boolean][] = [
+    ["ISS retido", exigeAliquota ? de(base, valor.p_aliq_iss) : 0, true],
+    ["IRRF", de(base, valor.p_ret_irrf), true],
+    ["CSLL", de(base, valor.p_ret_csll), true],
+    ["INSS", de(base, valor.p_ret_cp), true],
+    [pisRet ? "PIS retido" : "PIS", pis, pisRet],
+    [cofinsRet ? "COFINS retida" : "COFINS", cofins, cofinsRet],
+  ];
+  const visiveis = itens.filter(([, v]) => v > 0);
+  if (!visiveis.length) return null;
+  const liquido = base - visiveis.filter(([, , r]) => r).reduce((t, [, v]) => t + v, 0);
+  return (
+    <div className="info-caixa" style={{ flexDirection: "column", gap: 4 }}>
+      <strong>Numa nota de {moeda("1000")}</strong>
+      <span>
+        {visiveis.map(([n, v, r]) => `${n} ${moeda(v.toFixed(2))}${r ? "" : " (informado, não retido)"}`).join(" · ")}
+      </span>
+      <span>
+        Valor líquido: <b className="num">{moeda(liquido.toFixed(2))}</b>
+        {!exigeAliquota && ["2", "3"].includes(valor.tp_ret_issqn) ? " menos o ISS retido, calculado pela Sefin com a alíquota do município" : ""}
+      </span>
+    </div>
   );
 }

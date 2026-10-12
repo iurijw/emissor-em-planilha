@@ -189,6 +189,10 @@ def test_papeis_e_convite(admin):
     assert op.get("/api/diagnostico").status_code == 403
     assert op.get("/api/usuarios").status_code == 403
     assert op.get("/api/auditoria").status_code == 403
+    # Tributações: só o admin altera; a alíquota do ISS retido (aviso da emissão) o operador também pode.
+    assert op.post("/api/tributacoes", json={"nome": "X", "dados": {}}).status_code == 403
+    r = op.post("/api/tributacoes/aliquota-iss", json={"p_aliq_iss": "2"})
+    assert r.status_code != 403 and r.status_code < 500
 
 
 def test_ultimo_admin_e_desativacao(admin):

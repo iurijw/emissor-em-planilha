@@ -32,6 +32,7 @@ from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import gzip_b64, ungzip_b64
 from emissor.nfse.constants import NS_DSIG, NS_NFSE
 from emissor.nfse.dps_builder import id_dps
+from emissor.nfse.models import RETENCOES_PIS_COFINS
 from emissor.nfse.signer import assinar, verificar
 from emissor.nfse.xsd import validar_dps, validar_evento, validar_nfse, validar_pedido_evento
 
@@ -210,6 +211,9 @@ class SefinSimulada:
                 return self._rejeitar("E0959", "CST do IBS/CBS incompatível com a classificação tributária.")
             if not t("serv/cServ/cNBS"):
                 return self._rejeitar("E0322", "Código NBS obrigatório quando o grupo IBS/CBS é informado.")
+        rejeicao = _regras_tributos(t)
+        if rejeicao:
+            return self._rejeitar(*rejeicao)
         toma = t("toma/CNPJ") or t("toma/CPF") or ""
         if toma in self.rejeitar_tomador:
             return self._rejeitar(*self.rejeitar_tomador[toma])
@@ -274,9 +278,18 @@ class SefinSimulada:
 
         v_serv = Decimal(t("valores/vServPrest/vServ"))
         tributavel = t("valores/trib/tribMun/tribISSQN") == "1"
-        v_iss = (v_serv * ALIQ_ISS / 100).quantize(DOIS, ROUND_HALF_UP) if tributavel else Decimal(0)
+        aliq = Decimal(t("valores/trib/tribMun/pAliq") or ALIQ_ISS)
+        v_iss = (v_serv * aliq / 100).quantize(DOIS, ROUND_HALF_UP) if tributavel else Decimal(0)
         retido = t("valores/trib/tribMun/tpRetISSQN") in ("2", "3")
-        v_liq = v_serv - (v_iss if retido else 0)
+        fed = sum(Decimal(t(f"valores/trib/tribFed/{c}") or 0) for c in ("vRetCP", "vRetIRRF", "vRetCSLL"))
+        pis_ret, cofins_ret, _ = RETENCOES_PIS_COFINS.get(
+            t("valores/trib/tribFed/piscofins/tpRetPisCofins") or "", (0, 0, 0)
+        )
+        v_pis_cofins = (Decimal(t("valores/trib/tribFed/piscofins/vPis") or 0) if pis_ret else 0) + (
+            Decimal(t("valores/trib/tribFed/piscofins/vCofins") or 0) if cofins_ret else 0
+        )
+        v_total_ret = fed + (v_iss if retido else 0)
+        v_liq = v_serv - v_total_ret - v_pis_cofins
         c_loc = t("serv/locPrest/cLocPrestacao") or c_mun
         nome_mun = (codes.municipio(c_loc) or ("MUNICIPIO",))[0]
 
@@ -319,10 +332,10 @@ class SefinSimulada:
         val = sub(inf, "valores")
         if tributavel:
             sub(val, "vBC", _q(v_serv))
-            sub(val, "pAliqAplic", _q(ALIQ_ISS))
+            sub(val, "pAliqAplic", _q(aliq))
             sub(val, "vISSQN", _q(v_iss))
-        if retido:
-            sub(val, "vTotalRet", _q(v_iss))
+        if v_total_ret:
+            sub(val, "vTotalRet", _q(v_total_ret))
         sub(val, "vLiq", _q(v_liq))
         if inf_dps.find(f"{N}IBSCBS") is not None:
             self._ibscbs(sub(inf, "IBSCBS"), sub, c_loc, nome_mun, v_serv - v_iss, v_liq)
@@ -521,3 +534,51 @@ def brasilapi_simulada(req: httpx.Request) -> httpx.Response:
     if req.url.host == "brasilapi.com.br":
         return httpx.Response(404, json={"message": "CNPJ não encontrado"})
     return httpx.Response(404)
+
+
+def _regras_tributos(t) -> tuple[str, str] | None:
+    """Regras do Anexo I sobre alíquotas, PIS/COFINS, retenções e totais (município de incidência conveniado)."""
+    op, reg_ap = t("prest/regTrib/opSimpNac"), t("prest/regTrib/regApTribSN")
+    retido = t("valores/trib/tribMun/tpRetISSQN") in ("2", "3")
+    p_aliq = t("valores/trib/tribMun/pAliq")
+    v_serv = Decimal(t("valores/vServPrest/vServ"))
+    if p_aliq is not None and Decimal(p_aliq) > 5:
+        return ("E0595", "Não é permitido informar alíquota superior a 5%.")
+    if op == "3" and reg_ap == "1":
+        if retido and p_aliq is None:
+            return ("E0621", "É obrigatório informar alíquota quando há indicação de retenção do ISSQN para ME/EPP.")
+        if retido and Decimal(p_aliq) < Decimal("1.8"):
+            return ("E0621", "Alíquota mínima de 1,8% para retenção do ISSQN de ME/EPP.")
+        if not retido and p_aliq is not None:
+            return ("E0625", "Não é permitido informar alíquota quando não há indicação de retenção do ISSQN.")
+    elif p_aliq is not None:
+        return ("E0617" if op == "1" else "E0635", "Não é permitido informar alíquota: município conveniado.")
+    if retido and op == "2":
+        return ("E0583", "Não é permitido retenção do ISSQN para MEI.")
+    if t("valores/trib/tribMun/tpRetISSQN") == "2" and t("toma/end/endNac/cMun") is None:
+        return ("E0237", "O endereço nacional do tomador deve ser informado quando o ISSQN for retido.")
+    pc = "valores/trib/tribFed/piscofins"
+    base = t(f"{pc}/vBCPisCofins")
+    for aliq, valor, cod in (("pAliqPis", "vPis", "E0694"), ("pAliqCofins", "vCofins", "E0696")):
+        if t(f"{pc}/{aliq}") is not None:
+            esperado = (Decimal(base or 0) * Decimal(t(f"{pc}/{aliq}")) / 100).quantize(DOIS, ROUND_HALF_UP)
+            if Decimal(t(f"{pc}/{valor}") or -1) != esperado:
+                return (cod, f"{valor} não corresponde a BC x {aliq}.")
+    tp_ret = t(f"{pc}/tpRetPisCofins")
+    csll = t("valores/trib/tribFed/vRetCSLL")
+    if tp_ret == "0" and csll is not None:
+        return ("E0720", "Com PIS/COFINS/CSLL não retidos não é permitido informar vRetCSLL.")
+    if tp_ret is not None and RETENCOES_PIS_COFINS[tp_ret][2] and csll is None:
+        return ("E0724", "É obrigatório informar vRetCSLL para o tipo de retenção informado.")
+    for c, cod in (("vRetCP", "E0699"), ("vRetIRRF", "E0700"), ("vRetCSLL", "E0701")):
+        v = t(f"valores/trib/tribFed/{c}")
+        if v is not None and not Decimal(0) < Decimal(v) < v_serv:
+            return (cod, f"{c} deve ser maior que zero e menor que o valor do serviço.")
+    tem_ind, tem_sn = t("valores/trib/totTrib/indTotTrib") is not None, t("valores/trib/totTrib/pTotTribSN") is not None
+    if op == "3" and tem_ind:
+        return ("E0712", "Para ME/EPP indTotTrib nunca poderá ser informado.")
+    if op == "1" and (tem_ind or tem_sn):
+        return ("E0713", "Para Não Optante do SN indTotTrib e pTotTribSN não podem ser informados.")
+    if op == "2" and tem_sn:
+        return ("E0710", "Para MEI pTotTribSN nunca poderá ser informado.")
+    return None

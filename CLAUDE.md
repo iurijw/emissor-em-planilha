@@ -17,6 +17,9 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
 - **F6 (2026-10-11):** grupo IBS/CBS na DPS, tributações predefinidas, abas da tabela (com tributação própria e
   clientes exclusivos) e nota avulsa; ver "Tributações, abas e nota avulsa". Testado com Sefin simulada; validar o
   grupo IBS/CBS em Produção Restrita.
+- **F6 (2026-10-12):** alíquotas e retenções na tributação (ISS retido, PIS/COFINS, IRRF/CSLL/INSS, totais
+  aproximados do não optante) e aviso da alíquota do ISS retido na emissão; ver "Alíquotas e retenções". Testado com
+  Sefin simulada; validar em Produção Restrita (principalmente E0621 e o `tpRetPisCofins` 4–9 com CSLL).
 - Se a Sefin rejeitar a assinatura da DPS, trocar `C14N` em `backend/src/emissor/nfse/signer.py` para C14N 1.0
   inclusiva e registrar aqui.
 - Ambientes: o sistema alterna entre **Produção Restrita (homologação)** e **Produção** nas configurações.
@@ -198,6 +201,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/clientes?q=`, `GET/PUT/DELETE /api/clientes/{doc}`, `POST /api/clientes/{doc}/consultar`, `POST /api/clientes/consultar-pendentes`, `POST /api/clientes/importar-xmls` | clientes |
 | `GET /api/municipios?q=` | busca IBGE |
 | `GET/POST /api/tributacoes`, `PUT/DELETE /api/tributacoes/{id}` (escrita só admin) | tributações predefinidas |
+| `POST /api/tributacoes/aliquota-iss` `{tributacao_id \| null, p_aliq_iss}` (qualquer usuário, auditado) | alíquota do ISS retido pelo aviso da emissão |
 | `GET/POST /api/abas`, `PUT/DELETE /api/abas/{id}`; `aba_id` em `GET/PUT /api/tabela`, importar e exportar | abas da tabela |
 | `POST /api/avulsa/validar`, `POST /api/avulsa` | nota avulsa |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
@@ -342,6 +346,30 @@ PIS/COFINS, pTotTribSN, IBS/CBS). Prestador, regime e tpEmit vêm sempre das con
 - Frontend: abas no rodapé da grade (`components/Abas.tsx`, selo da tributação em Martian Mono), editor de aba,
   `components/NotaAvulsa.tsx` (gaveta + `EmissaoFluxo` com `avulsa`), `CamposTributacao` em `FiscalForm.tsx`,
   Configurações → Tributações. Ao trocar de aba, a edição pendente (debounce) é salva na aba em que foi feita.
+
+### Alíquotas e retenções (F6, 2026-10-12)
+
+Base: Anexo I v1.01 (2026-02-09), abas LEIAUTE e RN DPS_NFS-e, conferido no gov.br em 2026-10-11 (os campos não
+mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliquotas-e-retencoes.md`.
+- Campos novos de tributação (`CAMPOS_PERCENTUAIS`, texto "2.50"): `p_aliq_iss` (+ `p_aliq_iss_atualizada_em`),
+  `p_aliq_pis`, `p_aliq_cofins`, `p_ret_irrf`, `p_ret_csll`, `p_ret_cp`, `p_tot_trib_fed/est/mun`.
+  `nfse/tributos.py` converte em R$ por nota (arredondamento meio para cima); base do PIS/COFINS = valor do serviço.
+- **`pAliq` do ISS só vai quando a Sefin exige** (`iss_exige_aliquota`): ME/EPP (`opSimpNac 3`) com ISS pelo Simples
+  (`regApTribSN 1`) e ISS retido — E0621, faixa 1,80–5,00%. Nos demais casos a alíquota é a do município e informá-la
+  rejeita (E0617/E0625/E0635); município de incidência fora do Sistema Nacional não é tratado.
+- PIS/COFINS podem ir só informados (sem retenção); só os retidos (`tpRetPisCofins`) saem do líquido. IRRF/CSLL/CP só
+  existem como valor retido (sempre descontados). CSLL obrigatória/proibida conforme `RETENCOES_PIS_COFINS` (E0720/E0724;
+  "1" exige CSLL pela regra literal da E0724).
+- Totais aproximados: não optante → `pTotTrib` (fed/est/mun, E0713); ME/EPP → `pTotTribSN` obrigatório (E0712); MEI →
+  `indTotTrib 0`.
+- Bloqueios locais: retido pelo intermediário (o sistema não envia o grupo), MEI/regime especial com retenção
+  (E0583/E0588), retenção fora de operação tributável (E0580), ISS retido sem endereço do tomador (E0237, erro na
+  validação), retenções acima do valor (E0428).
+- **Aviso na emissão:** `/tabela/validar` e `/avulsa/validar` devolvem `aliquotas_iss` (uma por tributação que exige a
+  alíquota). O diálogo pergunta **toda vez** "manter ou alterar" (destaque quando a última mudança foi em outro mês);
+  alterar chama `POST /api/tributacoes/aliquota-iss` (o operador pode; é o único campo de tributação que ele altera) ou,
+  na tributação "só desta nota", muda só o corpo da avulsa. Sem alíquota, `criar_lote`/`criar_avulsa` recusam.
+- Onboarding: alíquotas e retenções da nota mais recente viram percentuais (`_padroes_aliquotas`).
 
 ### Padrões que o onboarding extrai dos XMLs
 
@@ -575,3 +603,4 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-11 | XSD local trocado pelo pacote `esquemas-nfse-rtc-v1-01-20260727` e CNPJ alfanumérico liberado | Conferido no gov.br: é o leiaute em produção desde 10/08/2026; corrige `TSSerieDPS` |
 | 2026-10-11 | Testes ponta a ponta com Sefin/ADN simulados e workflow "Testes" no GitHub Actions a cada PR | Conferir todas as rotas e emissões sem certificado real; Actions é grátis em repositório público |
 | 2026-10-11 | Vídeos em HD com zoom (`docs/video/*-hd.mp4`, 1920x1080, em 1,5x, legendas e cursor desenhados na montagem) gravados com dados fictícios e Sefin/BrasilAPI simuladas; scripts em `/mnt/project-files/ferramentas/videos/` (fora do repo). O site da hospedagem exibe esses arquivos | Mostrar o sistema em detalhe no guia do site; os scripts permitem regravar quando a tela mudar |
+| 2026-10-12 | Alíquotas e retenções em % na tributação; pAliq do ISS só onde a Sefin exige; aviso "manter ou alterar" a cada emissão com ISS retido, que o operador pode responder | Pedido do Iuri: a alíquota efetiva do Simples muda todo mês; tributos federais informados mesmo sem retenção |

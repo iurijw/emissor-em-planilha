@@ -19,10 +19,13 @@ from emissor.nfse.models import (
     DpsInput,
     Tomador,
     formatar_decimal,
+    iss_exige_aliquota,
     limpar_texto,
     normalizar_documento,
     somente_digitos,
 )
+from emissor.nfse.tributos import calcular as calcular_tributos
+from emissor.nfse.tributos import pct
 
 
 class DpsBuildError(ValueError):
@@ -141,19 +144,53 @@ def build_dps(inp: DpsInput) -> etree._Element:
     valores = _sub(inf, "valores")
     v_serv_prest = _sub(valores, "vServPrest")
     _sub(v_serv_prest, "vServ", formatar_decimal(inp.valor))
+    tributos, erros = calcular_tributos(cfg, inp.valor)
+    if iss_exige_aliquota(cfg) and tributos.p_aliq_iss is None:
+        erros.insert(0, "Informe a alíquota do ISS retido na tributação (obrigatória para ISS retido no Simples).")
+    if erros:
+        raise DpsBuildError(" ".join(erros))
     trib = _sub(valores, "trib")
     trib_mun = _sub(trib, "tribMun")
     _sub(trib_mun, "tribISSQN", cfg.trib_issqn)
     _sub(trib_mun, "tpRetISSQN", cfg.tp_ret_issqn)
-    if cfg.cst_pis_cofins:
+    if tributos.p_aliq_iss is not None:
+        _sub(trib_mun, "pAliq", formatar_decimal(tributos.p_aliq_iss))
+    if cfg.cst_pis_cofins or tributos.v_ret_cp or tributos.v_ret_irrf or tributos.v_ret_csll:
         trib_fed = _sub(trib, "tribFed")
-        pc = _sub(trib_fed, "piscofins")
-        _sub(pc, "CST", cfg.cst_pis_cofins)
-        _opt(pc, "tpRetPisCofins", cfg.tp_ret_pis_cofins)
+        if cfg.cst_pis_cofins:
+            pc = _sub(trib_fed, "piscofins")
+            _sub(pc, "CST", cfg.cst_pis_cofins)
+            for tag, v in (
+                ("vBCPisCofins", tributos.v_bc_pis_cofins),
+                ("pAliqPis", tributos.p_aliq_pis),
+                ("pAliqCofins", tributos.p_aliq_cofins),
+                ("vPis", tributos.v_pis),
+                ("vCofins", tributos.v_cofins),
+            ):
+                if v is not None:
+                    _sub(pc, tag, formatar_decimal(v))
+            _opt(pc, "tpRetPisCofins", cfg.tp_ret_pis_cofins)
+        for tag, v in (
+            ("vRetCP", tributos.v_ret_cp),
+            ("vRetIRRF", tributos.v_ret_irrf),
+            ("vRetCSLL", tributos.v_ret_csll),
+        ):
+            if v is not None:
+                _sub(trib_fed, tag, formatar_decimal(v))
     tot = _sub(trib, "totTrib")
-    if cfg.p_tot_trib_sn is not None:
+    if cfg.op_simp_nac == "1":
+        # Não optante: pTotTribSN e indTotTrib são proibidos (E0713).
+        p_tot = _sub(tot, "pTotTrib")
+        for tag, v in (
+            ("pTotTribFed", cfg.p_tot_trib_fed),
+            ("pTotTribEst", cfg.p_tot_trib_est),
+            ("pTotTribMun", cfg.p_tot_trib_mun),
+        ):
+            _sub(p_tot, tag, formatar_decimal(pct(v) or 0))
+    elif cfg.op_simp_nac == "3" and cfg.p_tot_trib_sn is not None:
         _sub(tot, "pTotTribSN", formatar_decimal(cfg.p_tot_trib_sn))
     else:
+        # MEI (pTotTribSN proibido, E0710). ME/EPP sem o percentual é recusado localmente (E0712).
         _sub(tot, "indTotTrib", "0")
 
     if cfg.ibscbs:

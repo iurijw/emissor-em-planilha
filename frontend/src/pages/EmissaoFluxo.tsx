@@ -1,5 +1,6 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { api, baixar, type DadosTributacao, type Emissao, type Lote, type Validacao } from "../api";
+import { type AliquotaIss, api, baixar, type DadosTributacao, type Emissao, type Lote, type Validacao } from "../api";
 import { formatarDocumento, moeda } from "../format";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 
@@ -35,6 +36,9 @@ export function EmissaoFluxo(props: {
   const [loteId, setLoteId] = useState<string | undefined>(props.loteExistente);
   const [lote, setLote] = useState<Lote | null>(null);
   const [parando, setParando] = useState(false);
+  // Alíquota do ISS retido: a cada emissão, manter a última ou informar outra (que fica salva na tributação).
+  const [respostasIss, setRespostasIss] = useState<Record<string, RespostaIss>>({});
+  const qc = useQueryClient();
 
   useEffect(() => {
     if (fase !== "validando") return;
@@ -82,8 +86,22 @@ export function EmissaoFluxo(props: {
     setErro(null);
     setFase("enviando");
     try {
-      const l = props.avulsa
-        ? await api.post<Lote>("/api/avulsa", props.avulsa)
+      let avulsa = props.avulsa;
+      for (const a of val?.aliquotas_iss ?? []) {
+        const r = respostasIss[chaveIss(a)];
+        if (r?.escolha !== "alterar") continue;
+        if (a.origem === "nota" && avulsa?.tributacao) {
+          avulsa = { ...avulsa, tributacao: { ...avulsa.tributacao, p_aliq_iss: r.valor.replace(",", ".") } };
+        } else {
+          await api.post("/api/tributacoes/aliquota-iss", { tributacao_id: a.tributacao_id, p_aliq_iss: r.valor });
+        }
+      }
+      if (val?.aliquotas_iss.some((a) => respostasIss[chaveIss(a)]?.escolha === "alterar")) {
+        qc.invalidateQueries({ queryKey: ["tributacoes"] });
+        qc.invalidateQueries({ queryKey: ["config"] });
+      }
+      const l = avulsa
+        ? await api.post<Lote>("/api/avulsa", avulsa)
         : await api.post<Lote>("/api/lotes", { linha_ids: props.linhaIds });
       setLote(l);
       setLoteId(l.id);
@@ -115,6 +133,8 @@ export function EmissaoFluxo(props: {
     const bloqueado = !val || val.problemas.length > 0 || comErro.length > 0;
     const precisaCiencia = comAviso.length > 0 && !cienteAvisos;
     const precisaConfirmacaoProd = prod && confirmaProd.trim().toUpperCase() !== "EMITIR";
+    const aliquotas = val?.aliquotas_iss ?? [];
+    const issPendente = aliquotas.some((a) => !respostaIssValida(a, respostasIss[chaveIss(a)]));
     return (
       <Dialogo
         titulo="Conferir antes de emitir"
@@ -127,7 +147,7 @@ export function EmissaoFluxo(props: {
             </button>
             <button
               className={`btn btn--grande ${prod ? "btn--escuro" : "btn--primario"}`}
-              disabled={bloqueado || precisaCiencia || precisaConfirmacaoProd || fase !== "conferir"}
+              disabled={bloqueado || precisaCiencia || precisaConfirmacaoProd || issPendente || fase !== "conferir"}
               onClick={emitir}
             >
               {fase === "enviando" && <Spinner />} Emitir {val?.quantidade ?? ""} nota(s) em {prod ? "Produção" : "Homologação"}
@@ -186,6 +206,15 @@ export function EmissaoFluxo(props: {
                 </div>
               </div>
             )}
+            {!bloqueado &&
+              aliquotas.map((a) => (
+                <PerguntaAliquotaIss
+                  key={chaveIss(a)}
+                  item={a}
+                  resposta={respostasIss[chaveIss(a)]}
+                  onChange={(r) => setRespostasIss((atual) => ({ ...atual, [chaveIss(a)]: r }))}
+                />
+              ))}
             {comAviso.length > 0 && (
               <div className="aviso">
                 <div>
@@ -381,5 +410,97 @@ function ListaResumo({ emissoes }: { emissoes: Emissao[] }) {
         </table>
       </div>
     </details>
+  );
+}
+
+
+// ---------- alíquota do ISS retido ----------
+
+interface RespostaIss {
+  escolha: "manter" | "alterar";
+  valor: string;
+}
+
+const chaveIss = (a: AliquotaIss) => `${a.origem}:${a.tributacao_id ?? ""}`;
+const pct = (v: string) => `${v.replace(".", ",")}%`;
+
+function respostaIssValida(a: AliquotaIss, r: RespostaIss | undefined): boolean {
+  if (!r) return false;
+  if (r.escolha === "manter") return !!a.p_aliq_iss;
+  const n = Number(r.valor.replace(",", "."));
+  return r.valor.trim() !== "" && n >= 1.8 && n <= 5;
+}
+
+function mesAno(iso: string | null): string | null {
+  if (!iso) return null;
+  const [ano, mes] = iso.split("-");
+  return `${mes}/${ano}`;
+}
+
+/** Pergunta, a cada emissão com ISS retido no Simples, se a alíquota da última vez continua valendo. */
+function PerguntaAliquotaIss(props: { item: AliquotaIss; resposta?: RespostaIss; onChange: (r: RespostaIss) => void }) {
+  const { item: a, resposta: r } = props;
+  const quando = mesAno(a.atualizada_em);
+  const hoje = new Date();
+  const mesAtual = `${String(hoje.getMonth() + 1).padStart(2, "0")}/${hoje.getFullYear()}`;
+  const antiga = !!quando && quando !== mesAtual;
+  const valor = r?.valor ?? "";
+  const n = Number(valor.replace(",", "."));
+  const foraDaFaixa = r?.escolha === "alterar" && valor.trim() !== "" && !(n >= 1.8 && n <= 5);
+  const onde =
+    a.origem === "padrao"
+      ? "Será salva nos padrões da nota."
+      : a.origem === "nota"
+        ? "Vale só para esta nota."
+        : `Será salva na tributação “${a.nome}” e usada nas próximas emissões.`;
+  return (
+    <div className={antiga || !a.p_aliq_iss ? "aviso" : "info-caixa"} style={{ flexDirection: "column", gap: 10 }}>
+      <div>
+        <strong>Alíquota do ISS retido{a.origem === "tributacao" ? ` · ${a.nome}` : ""}</strong>
+        <span>
+          {a.p_aliq_iss
+            ? <>A última foi <b className="num">{pct(a.p_aliq_iss)}</b>{quando ? <> (atualizada em <span className="num">{quando}</span>{antiga ? ", em outro mês" : ""})</> : null}. Ela continua valendo para estas notas?</>
+            : "Esta tributação ainda não tem alíquota. Informe a alíquota efetiva do Simples Nacional deste mês."}
+        </span>
+      </div>
+      <div className="escolha-tributacao" role="radiogroup" aria-label="Alíquota do ISS retido">
+        {a.p_aliq_iss && (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={r?.escolha === "manter"}
+            className="escolha-tributacao__op"
+            onClick={() => props.onChange({ escolha: "manter", valor })}
+          >
+            <strong>Manter {pct(a.p_aliq_iss)}</strong>
+            <span>{a.linhas} nota(s) com esta alíquota</span>
+          </button>
+        )}
+        <button
+          type="button"
+          role="radio"
+          aria-checked={r?.escolha === "alterar"}
+          className="escolha-tributacao__op"
+          onClick={() => props.onChange({ escolha: "alterar", valor })}
+        >
+          <strong>{a.p_aliq_iss ? "Alterar a alíquota" : "Informar a alíquota"}</strong>
+          <span>{onde}</span>
+        </button>
+      </div>
+      {r?.escolha === "alterar" && (
+        <label className={`campo${foraDaFaixa ? " campo--erro" : ""}`} style={{ maxWidth: 220 }}>
+          <span>Nova alíquota (%)</span>
+          <input
+            className="num"
+            inputMode="decimal"
+            autoFocus
+            value={valor}
+            placeholder="2,50"
+            onChange={(e) => props.onChange({ escolha: "alterar", valor: e.target.value })}
+          />
+          <small className={foraDaFaixa ? "campo__erro" : undefined}>Entre 1,80% e 5,00% (regra da Sefin).</small>
+        </label>
+      )}
+    </div>
   );
 }

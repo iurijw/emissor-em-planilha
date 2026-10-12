@@ -246,6 +246,108 @@ def test_aba_com_tributacao_e_nota_avulsa(api, sim, pfx_bytes, nfse_exemplo_byte
     assert len(sim.notas) == 3
 
 
+def _regime(api, **campos) -> None:
+    fiscal = api.get("/api/config").json()["fiscal"] | campos
+    r = api.put("/api/config", json={"fiscal": fiscal})
+    assert r.status_code == 200, r.text
+
+
+def test_iss_retido_no_simples_e_tributos_federais(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """ME/EPP com ISS pelo Simples e ISS retido: a alíquota é obrigatória e é pedida na emissão (E0621)."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    _regime(api, reg_ap_trib_sn="1")
+    dados = {
+        "tp_ret_issqn": "2",
+        "cst_pis_cofins": "01",
+        "p_aliq_pis": "0,65",
+        "p_aliq_cofins": "3",
+        "tp_ret_pis_cofins": "3",
+        "p_ret_csll": "1",
+        "p_ret_irrf": "1,5",
+    }
+    t = api.post("/api/tributacoes", json={"nome": "Retido SN", "dados": dados}).json()
+    assert t["dados"]["p_aliq_pis"] == "0.65" and t["dados"]["p_aliq_iss"] is None
+    aba = api.post("/api/abas", json={"nome": "Retenção", "tributacao_id": t["id"]}).json()
+    ids = _linhas(api, [{"nome": "X", "documento": TOMADOR_CNPJ, "valor": "1000", "descricao": "servico"}], aba["id"])
+
+    v = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()
+    assert v["linhas"][0]["erros"] == []
+    assert v["aliquotas_iss"] == [
+        {
+            "origem": "tributacao",
+            "tributacao_id": t["id"],
+            "nome": "Retido SN",
+            "p_aliq_iss": None,
+            "atualizada_em": None,
+            "linhas": 1,
+        }
+    ]
+    r = api.post("/api/lotes", json={"linha_ids": ids})
+    assert r.status_code == 400 and "alíquota do ISS" in r.json()["mensagem"]
+
+    assert (
+        api.post("/api/tributacoes/aliquota-iss", json={"tributacao_id": t["id"], "p_aliq_iss": "9"}).status_code == 400
+    )
+    r = api.post("/api/tributacoes/aliquota-iss", json={"tributacao_id": t["id"], "p_aliq_iss": "2,5"})
+    assert r.status_code == 200, r.text
+    item = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["aliquotas_iss"][0]
+    assert item["p_aliq_iss"] == "2.50" and item["atualizada_em"]
+
+    doc = _conferir_nota(api, sim, _emitir(api, ids)["emissoes"][0], documento=TOMADOR_CNPJ, valor="1000.00")
+    tf = "valores/trib/tribFed"
+    assert doc.dps("valores/trib/tribMun/pAliq") == "2.50"
+    assert (doc.dps(f"{tf}/piscofins/vPis"), doc.dps(f"{tf}/piscofins/vCofins")) == ("6.50", "30.00")
+    assert (doc.dps(f"{tf}/vRetIRRF"), doc.dps(f"{tf}/vRetCSLL"), doc.dps(f"{tf}/vRetCP")) == ("15.00", "10.00", None)
+    assert doc.t("valores/vTotalRet") == "50.00" and doc.t("valores/vLiq") == "913.50"
+
+    # Retenções que passam do valor da nota bloqueiam a linha antes do envio.
+    api.put(f"/api/tributacoes/{t['id']}", json={"nome": "Retido SN", "dados": t["dados"] | {"p_ret_cp": "99"}})
+    erros = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["linhas"][0]["erros"]
+    assert any("passam do valor" in e for e in erros)
+
+
+def test_padroes_com_iss_retido_e_prestador_nao_optante(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    _regime(api, reg_ap_trib_sn="1", tp_ret_issqn="2")
+    nota = {"nome": "X", "documento": TOMADOR_CNPJ, "valor": "200", "descricao": "avulsa"}
+    v = api.post("/api/avulsa/validar", json=nota).json()
+    assert [i["origem"] for i in v["aliquotas_iss"]] == ["padrao"]
+    assert api.post("/api/tributacoes/aliquota-iss", json={"p_aliq_iss": "3.1"}).status_code == 200
+    assert api.get("/api/config").json()["fiscal"]["p_aliq_iss"] == "3.10"
+    # Tributação só desta nota: a alíquota vem junto com ela (nada é salvo).
+    v = api.post("/api/avulsa/validar", json=nota | {"tributacao": {"p_aliq_iss": "4"}}).json()
+    assert v["aliquotas_iss"][0]["origem"] == "nota" and v["aliquotas_iss"][0]["p_aliq_iss"] == "4.00"
+    r = api.post("/api/avulsa", json=nota | {"tributacao": {"p_aliq_iss": "4"}})
+    api.worker.processar_lote(r.json()["id"])
+    doc = _conferir_nota(
+        api, sim, api.get(f"/api/lotes/{r.json()['id']}").json()["emissoes"][0], documento=TOMADOR_CNPJ, valor="200.00"
+    )
+    assert doc.dps("valores/trib/tribMun/pAliq") == "4.00" and doc.t("valores/vLiq") == "192.00"
+
+    # Não optante: alíquota do ISS não vai (a do município vale) e os totais aproximados vão por esfera (E0713).
+    _regime(
+        api,
+        op_simp_nac="1",
+        reg_ap_trib_sn=None,
+        tp_ret_issqn="1",
+        p_tot_trib_sn=None,
+        p_tot_trib_fed="13,45",
+        p_tot_trib_mun="2",
+    )
+    r = api.post("/api/avulsa", json=nota)
+    api.worker.processar_lote(r.json()["id"])
+    doc = _conferir_nota(
+        api, sim, api.get(f"/api/lotes/{r.json()['id']}").json()["emissoes"][0], documento=TOMADOR_CNPJ, valor="200.00"
+    )
+    tot = "valores/trib/totTrib/pTotTrib"
+    assert (doc.dps(f"{tot}/pTotTribFed"), doc.dps(f"{tot}/pTotTribEst"), doc.dps(f"{tot}/pTotTribMun")) == (
+        "13.45",
+        "0.00",
+        "2.00",
+    )
+    assert doc.dps("valores/trib/tribMun/pAliq") is None and doc.dps("valores/trib/totTrib/indTotTrib") is None
+
+
 def test_cancelamento_e_situacao_pelo_adn(api, sim, pfx_bytes, nfse_exemplo_bytes):
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
     ids = _linhas(
@@ -382,6 +484,7 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     t = ok(api.post("/api/tributacoes", json={"nome": "Outra", "dados": {"c_trib_nac": "010101"}})).json()
     ok(api.put(f"/api/tributacoes/{t['id']}", json={"nome": "Outra 2", "dados": {"c_trib_nac": "010101"}}))
     ok(api.get("/api/tributacoes"))
+    ok(api.post("/api/tributacoes/aliquota-iss", json={"tributacao_id": t["id"], "p_aliq_iss": "2"}))
     aba = ok(api.post("/api/abas", json={"nome": "Extra", "tributacao_id": t["id"]})).json()
     ok(api.put(f"/api/abas/{aba['id']}", json={"nome": "Extra 2", "tributacao_id": t["id"]}))
     ok(api.get("/api/abas"))

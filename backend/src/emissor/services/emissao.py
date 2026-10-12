@@ -38,7 +38,15 @@ from emissor.nfse.documentos import documento_valido, formatar_documento
 from emissor.nfse.dps_builder import DpsBuildError
 from emissor.nfse.emissao import ResultadoEmissao, agora_emissao, enviar_dps, preparar_dps
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
-from emissor.nfse.models import DpsInput, aplicar_tributacao, normalizar_documento, tributacao_de
+from emissor.nfse.models import (
+    ConfigFiscal,
+    DpsInput,
+    aplicar_tributacao,
+    iss_exige_aliquota,
+    normalizar_documento,
+    tributacao_de,
+)
+from emissor.nfse.tributos import calcular as calcular_tributos
 from emissor.nfse.xml_reader import NFSeDoc
 from emissor.services import arquivos
 from emissor.services import certificado as cert_service
@@ -77,17 +85,35 @@ def _valor(v: str) -> Decimal | None:
     return d if d > 0 else None
 
 
-def validar_linhas(s: Session, linhas: list[LinhaTabela], ambiente: Ambiente) -> list[ValidacaoLinha]:
+def validar_linhas(
+    s: Session, linhas: list[LinhaTabela], ambiente: Ambiente, tributacao_avulsa: dict | None = None
+) -> list[ValidacaoLinha]:
+    """Erros e avisos de cada linha. Linhas sem aba (nota avulsa) usam ``tributacao_avulsa`` (None = padrões)."""
     res = []
     inicio_mes = agora().replace(day=1, hour=0, minute=0, second=0)
     abas = {a.id: a for a in trib_service.garantir_abas(s)}
     exclusivos = trib_service.clientes_exclusivos(list(abas.values()))
     erros_aba = _erros_tributacao_abas(s, list(abas.values()))
+    base = obter_config(s).config_fiscal()
+    efetivas: dict[int | None, ConfigFiscal | None] = {}
+
+    def efetiva(aba) -> ConfigFiscal | None:
+        chave = aba.id if aba is not None else None
+        if chave not in efetivas:
+            try:
+                dados = trib_service.tributacao_da_aba(s, aba)[1] if aba is not None else tributacao_avulsa
+            except trib_service.TributacaoError:
+                dados = None
+            efetivas[chave] = aplicar_tributacao(base, dados) if base else None
+        return efetivas[chave]
+
     for ln in linhas:
         v = ValidacaoLinha(ln.id)
         aba = abas.get(ln.aba_id) if ln.aba_id is not None else None
         if aba is not None:
             v.erros.extend(erros_aba.get(aba.id, []))
+        cfg_ef = efetiva(aba)
+        iss_retido = cfg_ef is not None and cfg_ef.tp_ret_issqn in ("2", "3")
         doc = normalizar_documento(ln.documento) or ""
         cli = s.get(Cliente, doc) if doc else None
         if not doc:
@@ -114,6 +140,12 @@ def validar_linhas(s: Session, linhas: list[LinhaTabela], ambiente: Ambiente) ->
                 v.avisos.append(
                     f"Este cliente tem aba própria (“{dona.nome}”); aqui a nota sai com a tributação desta aba."
                 )
+        if cfg_ef is not None and valor is not None:
+            v.erros.extend(calcular_tributos(cfg_ef, valor)[1])
+        if doc and iss_retido and not (cli and cli.endereco_completo):
+            v.erros.append(
+                "Com ISS retido a nota precisa do endereço do tomador (E0237): complete o cadastro do cliente."
+            )
         if doc and not v.erros:
             if cli is None:
                 v.avisos.append("Cliente sem cadastro: a nota sairá sem o endereço do tomador.")
@@ -157,11 +189,62 @@ def _erros_tributacao_abas(s: Session, abas: list) -> dict[int, list[str]]:
             continue
         if base is None:
             continue
-        erros = trib_service.coerencia(tributacao_de(aplicar_tributacao(base, dados)))
+        erros = trib_service.coerencia(tributacao_de(aplicar_tributacao(base, dados)), base)
         if erros:
             origem = f"tributação “{nome}”" if nome else "padrões da nota (Configurações)"
             res[aba.id] = [f"{origem}: {e}" for e in erros]
     return res
+
+
+def aliquotas_iss(
+    s: Session, linhas: list[LinhaTabela], tributacao_avulsa: dict | None = None, tributacao_id: int | None = None
+) -> list[dict]:
+    """Tributações das linhas que exigem a alíquota do ISS retido (a emissão pergunta se mantém ou altera).
+
+    ``origem``: ``tributacao`` (predefinida, ``tributacao_id``), ``padrao`` (Configurações) ou ``nota`` (tributação
+    só desta nota avulsa, alterada só na tela).
+    """
+    base = obter_config(s).config_fiscal()
+    if base is None:
+        return []
+    abas = {a.id: a for a in trib_service.garantir_abas(s)}
+    grupos: dict[tuple, dict] = {}
+    for ln in linhas:
+        if ln.aba_id is not None:
+            aba = abas.get(ln.aba_id)
+            try:
+                nome, dados = trib_service.tributacao_da_aba(s, aba)
+            except trib_service.TributacaoError:
+                continue
+            tid = aba.tributacao_id if aba is not None and dados is not None else None
+            origem = "tributacao" if tid is not None else "padrao"
+        else:
+            nome, dados, tid = None, tributacao_avulsa, tributacao_id
+            origem = "tributacao" if tid is not None else ("nota" if dados is not None else "padrao")
+        cfg = aplicar_tributacao(base, dados)
+        if not iss_exige_aliquota(cfg):
+            continue
+        chave = (origem, tid)
+        if chave not in grupos:
+            grupos[chave] = {
+                "origem": origem,
+                "tributacao_id": tid,
+                "nome": nome if origem == "tributacao" else ("Só desta nota" if origem == "nota" else "Padrão"),
+                "p_aliq_iss": cfg.p_aliq_iss,
+                "atualizada_em": cfg.p_aliq_iss_atualizada_em,
+                "linhas": 0,
+            }
+        grupos[chave]["linhas"] += 1
+    return list(grupos.values())
+
+
+def _exigir_aliquotas(itens: list[dict]) -> None:
+    faltando = [i["nome"] for i in itens if not i["p_aliq_iss"]]
+    if faltando:
+        raise LoteError(
+            "Informe a alíquota do ISS retido antes de emitir.",
+            [f"Tributação “{n}”: sem alíquota do ISS retido." for n in faltando],
+        )
 
 
 def verificar_prontidao(s: Session) -> list[str]:
@@ -201,6 +284,7 @@ def criar_lote(linha_ids: list[int]) -> Lote:
         com_erro = [asdict(v) for v in validacoes if v.erros]
         if com_erro:
             raise LoteError(f"{len(com_erro)} linha(s) com erro. Corrija antes de emitir.", com_erro)
+        _exigir_aliquotas(aliquotas_iss(s, linhas))
         abas = {a.id: a for a in trib_service.garantir_abas(s)}
         itens = []
         for ln in linhas:
@@ -219,9 +303,10 @@ class NotaAvulsa:
     descricao: str
     tributacao_nome: str | None = None  # None com dados = tributação só desta nota
     tributacao: dict | None = None  # None = padrões das configurações
+    tributacao_id: int | None = None  # tributação predefinida de onde vieram os dados
 
 
-def _linha_avulsa(n: NotaAvulsa) -> LinhaTabela:
+def linha_avulsa(n: NotaAvulsa) -> LinhaTabela:
     """Linha transitória (fora do banco) para reaproveitar a validação da tabela."""
     return LinhaTabela(
         id=None,
@@ -234,7 +319,7 @@ def _linha_avulsa(n: NotaAvulsa) -> LinhaTabela:
 
 
 def validar_avulsa(s: Session, n: NotaAvulsa, ambiente: Ambiente) -> ValidacaoLinha:
-    return validar_linhas(s, [_linha_avulsa(n)], ambiente)[0]
+    return validar_linhas(s, [linha_avulsa(n)], ambiente, n.tributacao)[0]
 
 
 def criar_avulsa(n: NotaAvulsa) -> Lote:
@@ -247,7 +332,8 @@ def criar_avulsa(n: NotaAvulsa) -> Lote:
         v = validar_avulsa(s, n, cfg.amb)
         if v.erros:
             raise LoteError("A nota tem erros. Corrija antes de emitir.", v.erros)
-        ln = _linha_avulsa(n)
+        ln = linha_avulsa(n)
+        _exigir_aliquotas(aliquotas_iss(s, [ln], n.tributacao, n.tributacao_id))
         lote = _gravar_lote(
             s, cfg.ambiente, [(None, ln.nome, ln.documento, ln.valor, ln.descricao, n.tributacao_nome, n.tributacao)]
         )

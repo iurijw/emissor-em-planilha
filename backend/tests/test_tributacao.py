@@ -177,3 +177,59 @@ def test_migracao_acrescenta_colunas_em_banco_antigo():
         abas = garantir_abas(s)
         ln = s.get(db.LinhaTabela, 1)
         assert ln.aba_id == abas[0].id
+
+
+def test_coerencia_de_aliquotas_e_retencoes(config_fiscal):
+    from dataclasses import replace
+
+    from emissor.services.tributacao import coerencia, normalizar
+
+    def erros(base=config_fiscal, **t):
+        return coerencia(normalizar(t)[0] | {"c_trib_nac": "171901"}, base)
+
+    assert erros(tp_ret_issqn="2") == []
+    assert any("intermediário" in e for e in erros(tp_ret_issqn="3"))
+    assert any("MEI" in e for e in erros(replace(config_fiscal, op_simp_nac="2"), tp_ret_issqn="2"))
+    simples_iss = replace(config_fiscal, reg_ap_trib_sn="1")
+    assert any("1.80%" in e for e in erros(simples_iss, tp_ret_issqn="2", p_aliq_iss="1,5"))
+    assert erros(simples_iss, tp_ret_issqn="2", p_aliq_iss="2,5") == []
+    assert any("CST" in e for e in erros(cst_pis_cofins=None, p_aliq_pis="0.65"))
+    assert any("alíquota do PIS" in e for e in erros(cst_pis_cofins="01", tp_ret_pis_cofins="5"))
+    assert any("CSLL retida" in e for e in erros(cst_pis_cofins="01", tp_ret_pis_cofins="8"))
+    assert any("E0720" in e for e in erros(cst_pis_cofins="01", tp_ret_pis_cofins="0", p_ret_csll="1"))
+    assert any("E0712" in e for e in erros(replace(config_fiscal, p_tot_trib_sn=None)))
+    assert normalizar({"p_ret_irrf": "abc"})[1]
+
+
+def test_dps_com_aliquotas_e_retencoes(dps_input):
+    from dataclasses import replace
+
+    import pytest
+
+    from emissor.nfse.dps_builder import DpsBuildError, build_dps
+    from emissor.nfse.xsd import validar_dps
+
+    cfg = replace(
+        dps_input.config,
+        reg_ap_trib_sn="1",
+        tp_ret_issqn="2",
+        cst_pis_cofins="01",
+        p_aliq_pis="0.65",
+        p_aliq_cofins="3.00",
+        tp_ret_pis_cofins="2",
+        p_ret_irrf="1.50",
+        p_ret_cp="11.00",
+    )
+    with pytest.raises(DpsBuildError, match="alíquota do ISS"):
+        build_dps(replace(dps_input, config=cfg))
+    dps = build_dps(replace(dps_input, config=replace(cfg, p_aliq_iss="2.01")))
+    assert validar_dps(dps) == []
+    ns = {"n": "http://www.sped.fazenda.gov.br/nfse"}
+    val = lambda c: dps.findtext(f".//n:{c}", namespaces=ns)  # noqa: E731
+    assert (val("pAliq"), val("vBCPisCofins"), val("vPis"), val("vCofins")) == ("2.01", "450.00", "2.93", "13.50")
+    assert (val("vRetCP"), val("vRetIRRF"), val("vRetCSLL"), val("tpRetPisCofins")) == ("49.50", "6.75", None, "2")
+    # Sem retenção, a alíquota guardada não vai (o município define; E0625).
+    dps = build_dps(replace(dps_input, config=replace(cfg, tp_ret_issqn="1", p_aliq_iss="2.01")))
+    assert dps.findtext(".//n:pAliq", namespaces=ns) is None and validar_dps(dps) == []
+    mei = build_dps(replace(dps_input, config=replace(dps_input.config, op_simp_nac="2", reg_ap_trib_sn=None)))
+    assert mei.findtext(".//n:indTotTrib", namespaces=ns) == "0" and validar_dps(mei) == []

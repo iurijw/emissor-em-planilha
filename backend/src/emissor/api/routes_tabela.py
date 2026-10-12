@@ -20,7 +20,7 @@ from emissor.nfse.models import limpar_texto, normalizar_documento, somente_digi
 from emissor.services import clientes as cli_service
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
-from emissor.services.emissao import validar_linhas, verificar_prontidao
+from emissor.services.emissao import aliquotas_iss, validar_linhas, verificar_prontidao
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -161,6 +161,7 @@ def validar(entrada: ValidarEntrada) -> dict[str, Any]:
         cfg = obter_config(s)
         linhas = [ln for ln in (s.get(LinhaTabela, i) for i in entrada.linha_ids) if ln is not None]
         res = validar_linhas(s, linhas, cfg.amb)
+        aliquotas = aliquotas_iss(s, linhas)
         problemas = verificar_prontidao(s)
         total = sum((float(ln.valor) for ln in linhas if _eh_numero(ln.valor)), 0.0)
     return {
@@ -170,6 +171,7 @@ def validar(entrada: ValidarEntrada) -> dict[str, Any]:
         "linhas": [{"linha_id": v.linha_id, "erros": v.erros, "avisos": v.avisos} for v in res],
         "quantidade": len(linhas),
         "total": f"{total:.2f}",
+        "aliquotas_iss": aliquotas,
     }
 
 
