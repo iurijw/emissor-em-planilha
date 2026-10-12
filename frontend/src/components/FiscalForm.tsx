@@ -216,7 +216,8 @@ function Texto(props: {
   );
 }
 
-export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: Fiscal) => void }) {
+/** Dados da empresa (prestador) e regime tributário: valem para todas as tributações. */
+export function CamposEmpresa({ valor, onChange }: { valor: Fiscal; onChange: (f: Fiscal) => void }) {
   const op = useOpcoes().data;
   const set = <K extends keyof Fiscal>(k: K, v: Fiscal[K]) => onChange({ ...valor, [k]: v });
   return (
@@ -271,21 +272,15 @@ export function FiscalForm({ valor, onChange }: { valor: Fiscal; onChange: (f: F
             onChange={(v) => set("reg_esp_trib", v ?? "0")}
           />
         </div>
+        <p className="dica-grade">O regime vale para todas as tributações e decide quais alíquotas cada uma pede.</p>
       </section>
-
-      <CamposTributacao
-        valor={valor}
-        // Quase sempre é o mesmo município: o local da prestação preenche o do prestador se ainda estiver vazio.
-        onChange={(t) => onChange({ ...valor, ...t, c_mun_emissor: valor.c_mun_emissor || (t.c_loc_prestacao ?? "") })}
-        regime={valor}
-      />
     </div>
   );
 }
 
 /**
- * Serviço, tributos e IBS/CBS: o que muda de uma tributação para outra. Usado nos padrões da nota
- * (Configurações), nas tributações predefinidas e na nota avulsa com tributação própria.
+ * Serviço, tributos e IBS/CBS: o que muda de uma tributação para outra. Usado na tributação padrão e nas
+ * outras tributações (Configurações e onboarding) e na nota avulsa com tributação própria.
  */
 export function CamposTributacao({
   valor,
@@ -302,6 +297,23 @@ export function CamposTributacao({
   const exigeAliquota = issExigeAliquota(regime, valor);
   const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
   const classeConhecida = op?.ibscbs_c_class_trib?.some((o) => o.valor === valor.ibscbs_c_class_trib);
+  // Retenções federais só aparecem quando marcadas; já abertas se a tributação tem alguma.
+  const temRetencao =
+    RETEM_PIS_COFINS_CSLL.has(valor.tp_ret_pis_cofins ?? "") || [valor.p_ret_irrf, valor.p_ret_csll, valor.p_ret_cp].some((p) => Number(p ?? 0) > 0);
+  const [marcada, setMarcada] = useState(temRetencao);
+  const retemFederais = marcada || temRetencao;
+  const retemCsll = !!valor.cst_pis_cofins && !!RETENCOES[valor.tp_ret_pis_cofins ?? ""]?.[2];
+  const marcarRetencao = (sim: boolean) => {
+    setMarcada(sim);
+    if (!sim)
+      onChange({
+        ...valor,
+        p_ret_irrf: null,
+        p_ret_csll: null,
+        p_ret_cp: null,
+        tp_ret_pis_cofins: RETEM_PIS_COFINS_CSLL.has(valor.tp_ret_pis_cofins ?? "") ? null : valor.tp_ret_pis_cofins,
+      });
+  };
   return (
     <>
       <section>
@@ -382,7 +394,10 @@ export function CamposTributacao({
             valor={valor.cst_pis_cofins}
             opcoes={op?.cst_pis_cofins}
             vazio="Não informar"
-            onChange={(v) => set("cst_pis_cofins", v)}
+            onChange={(v) =>
+              // Sem CST não há PIS/COFINS na nota, nem retenção deles.
+              onChange(v ? { ...valor, cst_pis_cofins: v } : { ...valor, cst_pis_cofins: null, p_aliq_pis: null, p_aliq_cofins: null, tp_ret_pis_cofins: null })
+            }
           />
           {valor.cst_pis_cofins && (
             <>
@@ -400,48 +415,69 @@ export function CamposTributacao({
                 ajuda="Sobre o valor do serviço. Vazio = não informar."
                 num
               />
-              <Selecao
-                rotulo="Retenção de PIS/COFINS/CSLL"
-                valor={valor.tp_ret_pis_cofins}
-                opcoes={op?.tp_ret_pis_cofins}
-                vazio="Não informar"
-                onChange={(v) => set("tp_ret_pis_cofins", v)}
-                ajuda="Informar as alíquotas não obriga a reter: só os retidos saem do valor líquido."
-              />
             </>
           )}
         </div>
+        {valor.cst_pis_cofins && !retemFederais && (
+          <p className="dica-grade">Informados na nota sem retenção: não saem do valor líquido.</p>
+        )}
       </section>
 
       <section>
         <h3 className="secao-titulo">Retenções federais</h3>
-        <div className="grade-form">
-          <Texto
-            rotulo="IRRF retido (%)"
-            valor={pctTela(valor.p_ret_irrf)}
-            onChange={(v) => set("p_ret_irrf", pctDado(v))}
-            ajuda="Vazio = sem retenção."
-            num
-          />
-          <Texto
-            rotulo="CSLL retida (%)"
-            valor={pctTela(valor.p_ret_csll)}
-            onChange={(v) => set("p_ret_csll", pctDado(v))}
-            ajuda="Combine com a retenção de PIS/COFINS/CSLL acima."
-            num
-          />
-          <Texto
-            rotulo="INSS retido (%)"
-            valor={pctTela(valor.p_ret_cp)}
-            onChange={(v) => set("p_ret_cp", pctDado(v))}
-            ajuda="Contribuição previdenciária (CP). Vazio = sem retenção."
-            num
-          />
-        </div>
-        <p className="dica-grade">
-          A nota só tem campo de valor para IRRF, CSLL e INSS, e eles são sempre descontados do valor líquido; o sistema
-          calcula o valor de cada nota com estes percentuais.
-        </p>
+        <label className="interruptor">
+          <input type="checkbox" checked={retemFederais} onChange={(e) => marcarRetencao(e.target.checked)} />
+          <span>
+            <strong>O tomador retém tributos federais</strong>
+            <small>PIS, COFINS, CSLL, IRRF ou INSS descontados do valor da nota.</small>
+          </span>
+        </label>
+        {retemFederais && (
+          <>
+            <div className="grade-form" style={{ marginTop: 14 }}>
+              {valor.cst_pis_cofins && (
+                <Selecao
+                  rotulo="PIS, COFINS e CSLL retidos"
+                  valor={RETEM_PIS_COFINS_CSLL.has(valor.tp_ret_pis_cofins ?? "") ? valor.tp_ret_pis_cofins : null}
+                  opcoes={op?.tp_ret_pis_cofins?.filter((o) => RETEM_PIS_COFINS_CSLL.has(o.valor))}
+                  vazio="Nenhum deles"
+                  onChange={(v) =>
+                    onChange({ ...valor, tp_ret_pis_cofins: v, p_ret_csll: v && RETENCOES[v]?.[2] ? valor.p_ret_csll : null })
+                  }
+                  ajuda="O PIS e a COFINS retidos usam as alíquotas acima."
+                />
+              )}
+              <Texto
+                rotulo="IRRF retido (%)"
+                valor={pctTela(valor.p_ret_irrf)}
+                onChange={(v) => set("p_ret_irrf", pctDado(v))}
+                ajuda="Vazio = sem retenção."
+                num
+              />
+              {(retemCsll || valor.p_ret_csll) && (
+                <Texto
+                  rotulo="CSLL retida (%)"
+                  valor={pctTela(valor.p_ret_csll)}
+                  onChange={(v) => set("p_ret_csll", pctDado(v))}
+                  num
+                />
+              )}
+              <Texto
+                rotulo="INSS retido (%)"
+                valor={pctTela(valor.p_ret_cp)}
+                onChange={(v) => set("p_ret_cp", pctDado(v))}
+                ajuda="Contribuição previdenciária (CP). Vazio = sem retenção."
+                num
+              />
+            </div>
+            {!valor.cst_pis_cofins && (
+              <p className="dica-grade">Para reter PIS, COFINS ou CSLL, escolha antes o CST do PIS/COFINS.</p>
+            )}
+            <p className="dica-grade">
+              O sistema calcula o valor de cada retenção com estes percentuais e desconta do valor líquido.
+            </p>
+          </>
+        )}
       </section>
 
       <section>
@@ -527,21 +563,26 @@ function de(base: number, p: string | null): number {
   return p && Number.isFinite(n) ? Math.round(base * n) / 100 : 0;
 }
 
-// tpRetPisCofins → [PIS retido, COFINS retido] (igual a RETENCOES_PIS_COFINS no backend).
-const PIS_COFINS_RETIDOS: Record<string, [boolean, boolean]> = {
-  "1": [true, true],
-  "3": [true, true],
-  "4": [true, true],
-  "5": [true, false],
-  "6": [false, true],
-  "7": [false, true],
-  "9": [true, false],
+// tpRetPisCofins → [PIS, COFINS, CSLL] retidos (igual a RETENCOES_PIS_COFINS no backend).
+const RETENCOES: Record<string, [boolean, boolean, boolean]> = {
+  "0": [false, false, false],
+  "1": [true, true, true],
+  "2": [false, false, false],
+  "3": [true, true, true],
+  "4": [true, true, false],
+  "5": [true, false, false],
+  "6": [false, true, false],
+  "7": [false, true, true],
+  "8": [false, false, true],
+  "9": [true, false, true],
 };
+/** Opções de tpRetPisCofins que retêm alguma coisa. */
+const RETEM_PIS_COFINS_CSLL = new Set(Object.keys(RETENCOES).filter((k) => RETENCOES[k].some(Boolean)));
 
 /** Exemplo numa nota de R$ 1.000,00 com os percentuais da tributação. */
 function PreviaTributos({ valor, exigeAliquota }: { valor: DadosTributacao; exigeAliquota: boolean }) {
   const base = 1000;
-  const [pisRet, cofinsRet] = (valor.cst_pis_cofins && PIS_COFINS_RETIDOS[valor.tp_ret_pis_cofins ?? ""]) || [false, false];
+  const [pisRet, cofinsRet] = (valor.cst_pis_cofins && RETENCOES[valor.tp_ret_pis_cofins ?? ""]) || [false, false];
   const pis = valor.cst_pis_cofins ? de(base, valor.p_aliq_pis) : 0;
   const cofins = valor.cst_pis_cofins ? de(base, valor.p_aliq_cofins) : 0;
   const itens: [string, number, boolean][] = [

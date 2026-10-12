@@ -48,9 +48,9 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   }
 
   const opcoes: { id: Escolha; titulo: string; detalhe: string | null }[] = [
-    { id: "padrao", titulo: "Padrões da nota", detalhe: trib.data?.padrao_resumo ?? null },
+    { id: "padrao", titulo: "Tributação padrão", detalhe: trib.data?.padrao_resumo ?? null },
     ...(trib.data?.itens ?? []).map((t) => ({ id: t.id as Escolha, titulo: t.nome, detalhe: t.resumo })),
-    { id: "propria", titulo: "Só para esta nota", detalhe: "Parte dos padrões; ajuste o que mudar." },
+    { id: "propria", titulo: "Só para esta nota", detalhe: "Parte da tributação padrão; ajuste o que mudar." },
   ];
 
   return (

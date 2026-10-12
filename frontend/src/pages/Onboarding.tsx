@@ -1,11 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { api, type CertificadoInfo, type Cliente, type Fiscal, type Linha, type Status } from "../api";
-import { FiscalForm } from "../components/FiscalForm";
+import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
 import { ErroCaixa, Spinner } from "../ui";
 
-const PASSOS = ["Certificado digital", "Notas anteriores", "Padrões da nota", "Ambiente e numeração", "Revisão"];
+const PASSOS = ["Certificado digital", "Notas anteriores", "Dados da empresa", "Tributação padrão", "Ambiente e numeração", "Revisão"];
 
 export function ZonaArquivo(props: {
   aceitar: string;
@@ -151,7 +151,7 @@ export function Onboarding({ status }: { status: Status }) {
     executar(async () => {
       // Valida no servidor sem concluir: reaproveita PUT /api/config.
       await api.put("/api/config", { fiscal });
-      setPasso(3);
+      setPasso(4);
     });
 
   return (
@@ -232,7 +232,7 @@ export function Onboarding({ status }: { status: Status }) {
           <>
             <h1 className="titulo">Notas já emitidas</h1>
             <p className="subtitulo">
-              Envie os XMLs das NFS-e que a empresa já emitiu. Deles saem os padrões da nota (código do serviço, regime,
+              Envie os XMLs das NFS-e que a empresa já emitiu. Deles saem os dados da empresa, a tributação padrão (código do serviço,
               tributos) e o cadastro dos clientes com endereço. Pode pular se preferir preencher à mão.
             </p>
             <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -288,19 +288,50 @@ export function Onboarding({ status }: { status: Status }) {
 
         {passo === 2 && fiscal && (
           <>
-            <h1 className="titulo">Padrões da nota</h1>
+            <h1 className="titulo">Dados da empresa</h1>
             <p className="subtitulo">
-              Estes dados vão em toda nota emitida. {importacao ? "Vieram da nota mais recente enviada; confira." : ""} Tomador,
-              valor e descrição vêm de cada linha da tabela; a data de competência é sempre a data da emissão.
+              Vão em toda nota como prestador do serviço. {importacao ? "Vieram da nota mais recente enviada; confira." : ""}
             </p>
             <div className="folha" style={{ marginTop: 24 }}>
-              <FiscalForm valor={fiscal} onChange={setFiscal} />
+              <CamposEmpresa valor={fiscal} onChange={setFiscal} />
+            </div>
+            <div className="onb__acoes">
+              <button className="btn btn--grande" onClick={() => setPasso(1)}>
+                Voltar
+              </button>
+              <button
+                className="btn btn--primario btn--grande"
+                disabled={!fiscal.cnpj || !fiscal.c_mun_emissor}
+                onClick={() => {
+                  // Quase sempre o serviço é prestado no município da empresa.
+                  setFiscal({ ...fiscal, c_loc_prestacao: fiscal.c_loc_prestacao || fiscal.c_mun_emissor });
+                  setPasso(3);
+                }}
+              >
+                Continuar
+              </button>
+            </div>
+          </>
+        )}
+
+        {passo === 3 && fiscal && (
+          <>
+            <h1 className="titulo">Tributação padrão</h1>
+            <p className="subtitulo">
+              Serviço e tributos das notas. {importacao ? "Vieram da nota mais recente enviada; confira." : ""} Tomador, valor
+              e descrição vêm de cada linha da tabela. Depois, em Configurações, dá para criar outras tributações para
+              clientes com tributação diferente.
+            </p>
+            <div className="folha" style={{ marginTop: 24 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
+                <CamposTributacao valor={fiscal} onChange={(t) => setFiscal({ ...fiscal, ...t })} regime={fiscal} />
+              </div>
             </div>
             <div style={{ marginTop: 16 }}>
               <ErroCaixa erro={erro} />
             </div>
             <div className="onb__acoes">
-              <button className="btn btn--grande" onClick={() => setPasso(1)}>
+              <button className="btn btn--grande" onClick={() => setPasso(2)}>
                 Voltar
               </button>
               <button className="btn btn--primario btn--grande" disabled={ocupado} onClick={validarPadroes}>
@@ -310,7 +341,7 @@ export function Onboarding({ status }: { status: Status }) {
           </>
         )}
 
-        {passo === 3 && (
+        {passo === 4 && (
           <>
             <h1 className="titulo">Ambiente e numeração</h1>
             <p className="subtitulo">
@@ -340,13 +371,13 @@ export function Onboarding({ status }: { status: Status }) {
             </div>
             <ErroCaixa erro={erro} />
             <div className="onb__acoes">
-              <button className="btn btn--grande" onClick={() => setPasso(2)}>
+              <button className="btn btn--grande" onClick={() => setPasso(3)}>
                 Voltar
               </button>
               <button
                 className="btn btn--primario btn--grande"
                 disabled={!serie || Number(serie) < 1 || Number(serie) > 49999 || !proximo || Number(proximo) < 1}
-                onClick={() => setPasso(4)}
+                onClick={() => setPasso(5)}
               >
                 Continuar
               </button>
@@ -354,7 +385,7 @@ export function Onboarding({ status }: { status: Status }) {
           </>
         )}
 
-        {passo === 4 && fiscal && (
+        {passo === 5 && fiscal && (
           <>
             <h1 className="titulo">Tudo pronto para emitir</h1>
             <p className="subtitulo">Revise e conclua. Tudo pode ser alterado depois em Configurações.</p>
@@ -366,7 +397,7 @@ export function Onboarding({ status }: { status: Status }) {
                 </dd>
                 <dt>Prestador</dt>
                 <dd className="num">{formatarDocumento(fiscal.cnpj)}</dd>
-                <dt>Serviço</dt>
+                <dt>Tributação padrão</dt>
                 <dd>
                   <span className="num">{fiscal.c_trib_nac}</span> · NBS <span className="num">{fiscal.c_nbs ?? "—"}</span>
                 </dd>
@@ -388,7 +419,7 @@ export function Onboarding({ status }: { status: Status }) {
               <ErroCaixa erro={erro} titulo="Não foi possível concluir" />
             </div>
             <div className="onb__acoes">
-              <button className="btn btn--grande" onClick={() => setPasso(3)}>
+              <button className="btn btn--grande" onClick={() => setPasso(4)}>
                 Voltar
               </button>
               <button className="btn btn--primario btn--grande" disabled={ocupado} onClick={concluir}>

@@ -679,7 +679,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       {emitindo && (
         <EmissaoFluxo
           linhaIds={emitindo.ids}
-          tributacao={aba ? aba.tributacao_nome ?? "Padrões da nota" : undefined}
+          tributacao={aba ? aba.tributacao_nome ?? "Tributação padrão" : undefined}
           loteExistente={emitindo.loteId}
           nomes={new Map(linhas.filter((l) => l.id).map((l) => [l.id!, l.nome || formatarDocumento(l.documento)]))}
           fechar={() => {

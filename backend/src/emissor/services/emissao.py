@@ -191,7 +191,7 @@ def _erros_tributacao_abas(s: Session, abas: list) -> dict[int, list[str]]:
             continue
         erros = trib_service.coerencia(tributacao_de(aplicar_tributacao(base, dados)), base)
         if erros:
-            origem = f"tributação “{nome}”" if nome else "padrões da nota (Configurações)"
+            origem = f"tributação “{nome}”" if nome else "tributação padrão"
             res[aba.id] = [f"{origem}: {e}" for e in erros]
     return res
 

@@ -143,7 +143,7 @@ export function EditorAba(props: {
         <label className="campo">
           <span>Tributação das notas desta aba</span>
           <select value={tributacao ?? ""} onChange={(e) => setTributacao(e.target.value ? Number(e.target.value) : null)}>
-            <option value="">Padrões da nota (Configurações)</option>
+            <option value="">Tributação padrão</option>
             {trib.data?.itens.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.nome}
@@ -151,7 +151,7 @@ export function EditorAba(props: {
             ))}
           </select>
           <small>
-            {escolhida ? escolhida.resumo : trib.data?.padrao_resumo ? `Padrões: ${trib.data.padrao_resumo}` : null}
+            {escolhida ? escolhida.resumo : trib.data?.padrao_resumo ? `Padrão: ${trib.data.padrao_resumo}` : null}
             {props.admin ? (
               <>
                 {" "}
