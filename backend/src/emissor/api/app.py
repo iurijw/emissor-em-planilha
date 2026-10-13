@@ -179,7 +179,8 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
                 return JSONResponse({"mensagem": "Rota da API não encontrada."}, status_code=404)
             alvo = (FRONTEND_DIST / caminho).resolve()
             if caminho and alvo.is_file() and FRONTEND_DIST.resolve() in alvo.parents:
-                return FileResponse(alvo)
+                # O service worker (aviso "ligando o sistema") também nunca em cache: troca junto com a versão.
+                return FileResponse(alvo, headers={"Cache-Control": "no-cache"} if caminho == "sw.js" else None)
             # index.html nunca em cache: assim uma atualização do sistema chega aos navegadores
             # (os arquivos em /assets têm hash no nome e podem ficar em cache).
             return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})
