@@ -240,6 +240,11 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 - Tabela salva sozinha (debounce 500 ms, fila sequencial de PUTs); CNPJs novos são consultados automaticamente
   (uma vez por sessão) e preenchem o nome só se estiver vazio — **o nome da tabela prevalece** sobre o da Receita.
 - `index.html` servido com `Cache-Control: no-cache` (atualizações chegam aos navegadores; `/assets` tem hash).
+- **Aviso "ligando o sistema"** (`public/sw.js`, 2026-10-13): service worker registrado só no build de produção em
+  HTTPS/localhost. Se a abertura da página não responde em 1,2 s (ou volta 5xx/sem conexão), mostra uma página própria
+  que consulta `/api/saude` e recarrega sozinha. Não guarda nada do app (a página sempre vem do servidor); 60 s depois
+  de `/api/saude` responder, as aberturas vão direto ao servidor. Na rede local por HTTP não faz nada. `sw.js` sai com
+  `no-cache`. Para a máquina da hospedagem acordar, que com autostop `suspend` leva < 1 s (≈ 6 s ligando do zero).
 - Erros: servidor devolve `{mensagem, detalhes}`; tela mostra mensagem, lista de detalhes/linhas e "Código para
   suporte" (= `request_id` do log). Erros de JS/promises vão para `/api/logs/cliente`.
 - Página HTML de erro da Sefin (IIS 403 com certificado não aceito) é convertida em texto (`texto_de_html`)
@@ -613,3 +618,4 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-11 | Vídeos em HD com zoom (`docs/video/*-hd.mp4`, 1920x1080, em 1,5x, legendas e cursor desenhados na montagem) gravados com dados fictícios e Sefin/BrasilAPI simuladas; scripts em `/mnt/project-files/ferramentas/videos/` (fora do repo). O site da hospedagem exibe esses arquivos | Mostrar o sistema em detalhe no guia do site; os scripts permitem regravar quando a tela mudar |
 | 2026-10-12 | Tributação padrão listada junto das outras em Configurações → Tributações; dados da empresa em seção própria; retenções federais atrás de um "o tomador retém" | Pedido do Iuri: duas seções de tributação eram confusas; a padrão continua guardada nas configurações (sem migração) |
 | 2026-10-12 | Alíquotas e retenções em % na tributação; pAliq do ISS só onde a Sefin exige; aviso "manter ou alterar" a cada emissão com ISS retido, que o operador pode responder | Pedido do Iuri: a alíquota efetiva do Simples muda todo mês; tributos federais informados mesmo sem retenção |
+| 2026-10-13 | Página "ligando o sistema" por service worker, sem guardar o app em cache | Pedido do Iuri: na hospedagem a máquina dorme sem uso e o primeiro acesso ficava em branco; o service worker é o único jeito grátis de mostrar algo antes de o servidor responder |
