@@ -181,7 +181,12 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
 | `EMISSOR_FONT_DIR` | | Pasta extra com Arial/Microsoft Sans Serif para o DANFSe |
 | `EMISSOR_SECRET_KEY` | _(arquivo `data/secret.key`)_ | Chave que criptografa o certificado e os segredos de 2FA; defina para guardá-la fora de `data/` |
 | `EMISSOR_CONVITE_INICIAL` | _(gerado em `data/primeiro-acesso.txt`)_ | Código para criar o primeiro administrador (hospedagem) |
-| `EMISSOR_URL_PUBLICA` | | Endereço do sistema, usado nos links do `emissor-admin` |
+| `EMISSOR_URL_PUBLICA` | | Endereço do sistema (ex.: `https://emissor.empresa.com.br`), usado nos links do `emissor-admin` e do e-mail de recuperação de senha |
+| `EMISSOR_SMTP_HOST` | | Servidor SMTP para o "Esqueci minha senha" (sem ele, e sem `EMISSOR_URL_PUBLICA`, a opção não aparece) |
+| `EMISSOR_SMTP_PORTA` | `587` (`465` com `ssl`) | Porta do SMTP |
+| `EMISSOR_SMTP_SEGURANCA` | `starttls` | `starttls`, `ssl` ou `nenhuma` |
+| `EMISSOR_SMTP_USUARIO`, `EMISSOR_SMTP_SENHA` | | Login no SMTP (vazio = sem login) |
+| `EMISSOR_SMTP_REMETENTE` | | Endereço que envia, ex.: `nao-responda@empresa.com.br` |
 | `EMISSOR_COOKIE_SECURE` | _(automático)_ | `1` força o cookie de sessão só em HTTPS; `0` desliga |
 | `EMISSOR_SUSPENSO` | | `1` deixa o sistema só para consulta e download (assinatura da hospedagem suspensa) |
 | `EMISSOR_URL_ASSINATURA` | | Link para regularizar a assinatura, mostrado quando suspenso |
@@ -195,8 +200,10 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
   certificado da empresa.
 - **Auditoria** em **Usuários**: entradas, tentativas recusadas, lotes emitidos, notas canceladas, mudanças de
   configuração, de certificado e de usuários.
-- Sem envio de e-mail: senha esquecida é redefinida por um administrador (gera um link novo). Se ninguém consegue
-  entrar, use a linha de comando no servidor:
+- **Esqueci minha senha:** com o SMTP configurado (variáveis acima), a tela de login manda um link de uso único, válido
+  por 1 hora, para o e-mail do usuário. A senha atual continua valendo até ele criar a nova, e a verificação em duas
+  etapas, se ativa, continua sendo pedida. Sem SMTP, um administrador redefine a senha (gera um link novo). Se
+  ninguém consegue entrar, use a linha de comando no servidor:
   `uv run emissor-admin redefinir admin@empresa.com.br [--remover-2fa]` na pasta `backend`
   (Docker: `docker compose exec emissor emissor-admin redefinir ...`).
 - Mesmo com login, prefira a rede local: restrinja com `EMISSOR_IPS_PERMITIDOS` (ou pelo firewall). Para acessar

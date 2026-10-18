@@ -15,7 +15,10 @@ quanto para a hospedagem (uma instância por cliente).
   variável, com um token gerado e gravado em ``data/primeiro-acesso.txt`` (e mostrado no log).
   Acessos pelo próprio servidor (127.0.0.1) dispensam o token.
 - Convites e redefinição de senha: link de uso único criado pelo administrador (ou pela linha de
-  comando ``emissor-admin``), válido por ``VALIDADE_CONVITE``. Não há envio de e-mail.
+  comando ``emissor-admin``), válido por ``VALIDADE_CONVITE``.
+- "Esqueci minha senha": com e-mail configurado (``correio.py``), o próprio usuário recebe um link de uso único
+  válido por ``VALIDADE_RECUPERACAO``. A senha atual continua valendo até ele definir a nova (pedir a
+  recuperação de outra pessoa não a tranca fora), e o 2FA, se ativo, continua sendo pedido.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from sqlmodel import Session, func, select
 
-from emissor import config, security
+from emissor import config, correio, security
 from emissor.db import Auditoria, ConviteUsuario, SessaoUsuario, Usuario, agora, sessao
 
 log = logging.getLogger(__name__)
@@ -51,6 +54,10 @@ MAX_FALHAS = 10
 MAX_FALHAS_IP = 30
 BLOQUEIO = timedelta(minutes=15)
 VALIDADE_CONVITE = timedelta(days=7)
+VALIDADE_RECUPERACAO = timedelta(hours=1)
+RECUPERACAO_INTERVALO = timedelta(minutes=2)  # entre dois e-mails para o mesmo usuário
+RECUPERACAO_POR_DIA = 5  # e-mails por usuário em 24 h
+MAX_RECUPERACOES_IP = 5  # pedidos por IP na janela BLOQUEIO
 SENHA_MIN = 10
 SENHA_MAX = 256
 PAPEIS = ("admin", "operador")
@@ -264,6 +271,7 @@ def limpar_limites() -> None:
     """Para testes."""
     with _lock_ip:
         _falhas_ip.clear()
+        _pedidos_ip.clear()
 
 
 # --- auditoria -----------------------------------------------------------------------------------
@@ -481,15 +489,13 @@ def criar_primeiro_admin(
 # --- convites e redefinição de senha -------------------------------------------------------------
 
 
-def criar_convite(s: Session, u: Usuario, finalidade: str) -> str:
+def criar_convite(s: Session, u: Usuario, finalidade: str, validade: timedelta = VALIDADE_CONVITE) -> str:
     # Um convite novo invalida os anteriores do mesmo usuário.
     for c in s.exec(select(ConviteUsuario).where(ConviteUsuario.usuario_id == u.id, ConviteUsuario.usado_em == None)):  # noqa: E711
         c.usado_em = agora()
         s.add(c)
     token = secrets.token_urlsafe(32)
-    s.add(
-        ConviteUsuario(id=_sha256(token), usuario_id=u.id, finalidade=finalidade, expira_em=agora() + VALIDADE_CONVITE)
-    )
+    s.add(ConviteUsuario(id=_sha256(token), usuario_id=u.id, finalidade=finalidade, expira_em=agora() + validade))
     return token
 
 
@@ -506,7 +512,7 @@ def link_convite(token: str) -> str:
 def _convite_valido(s: Session, token: str) -> tuple[ConviteUsuario, Usuario]:
     c = s.get(ConviteUsuario, _sha256(token or ""))
     if c is None or c.usado_em is not None or c.expira_em < agora():
-        raise AuthError("Este link não vale mais (já foi usado ou expirou). Peça um novo ao administrador.", 410)
+        raise AuthError("Este link não vale mais (já foi usado ou expirou). Peça um novo.", 410)
     u = s.get(Usuario, c.usuario_id)
     if u is None or not u.ativo:
         raise AuthError("Este usuário foi desativado.", 410)
@@ -548,9 +554,99 @@ def aceitar_convite(
         _encerrar_sessoes(s, u.id)
         s.add_all([u, c])
         tok = _criar_sessao(s, u, ip, user_agent)
-        auditar("convite_aceito" if c.finalidade == "convite" else "senha_redefinida", None, usuario=u, ip=ip, s=s)
+        acao = {"convite": "convite_aceito", "recuperacao": "senha_recuperada"}.get(c.finalidade, "senha_redefinida")
+        auditar(acao, None, usuario=u, ip=ip, s=s)
         s.commit()
         return tok, Acesso(u.id, u.email, u.nome, u.papel, u.totp_ativo, _sha256(tok), ip)
+
+
+# --- recuperação de senha por e-mail ------------------------------------------------------------
+
+_pedidos_ip: dict[str, deque[float]] = {}
+
+
+def _limite_pedidos_ip(ip: str | None) -> bool:
+    """Registra o pedido e diz se o IP passou do limite (em memória, como o do login)."""
+    if not ip:
+        return False
+    agora_m = time.monotonic()
+    with _lock_ip:
+        fila = _pedidos_ip.setdefault(ip, deque())
+        while fila and fila[0] < agora_m - BLOQUEIO.total_seconds():
+            fila.popleft()
+        if len(fila) >= MAX_RECUPERACOES_IP:
+            return True
+        fila.append(agora_m)
+        return False
+
+
+def recuperacao_por_email() -> bool:
+    return correio.configurado()
+
+
+def solicitar_recuperacao(email: str, ip: str | None) -> None:
+    """Manda o link de recuperação se o e-mail for de um usuário ativo com senha.
+
+    A resposta é sempre a mesma (não revela quem tem acesso); o envio vai numa thread para o tempo de resposta
+    também não revelar. Limites: por IP, e por usuário (intervalo mínimo e máximo por dia).
+    """
+    if not correio.configurado():
+        raise AuthError(
+            "A recuperação por e-mail não está ligada neste sistema. Peça a um administrador para redefinir o seu acesso.",
+            404,
+        )
+    if _limite_pedidos_ip(ip) or _ip_bloqueado(ip):
+        raise AuthError("Muitos pedidos a partir deste endereço. Aguarde 15 minutos e tente de novo.", 429)
+    email_n = normalizar_email(email)
+    if not email_n or len(email_n) > 254:
+        return
+    with sessao() as s:
+        u = s.exec(select(Usuario).where(Usuario.email == email_n)).first()
+        if u is None or not u.ativo or not u.senha_hash:
+            log.info("recuperação pedida para e-mail sem acesso", extra={"ip": ip})
+            return
+        recentes = s.exec(
+            select(ConviteUsuario.criado_em).where(
+                ConviteUsuario.usuario_id == u.id,
+                ConviteUsuario.finalidade == "recuperacao",
+                ConviteUsuario.criado_em > agora() - timedelta(days=1),
+            )
+        ).all()
+        if len(recentes) >= RECUPERACAO_POR_DIA or any(c > agora() - RECUPERACAO_INTERVALO for c in recentes):
+            auditar("recuperacao_limitada", None, usuario=u, ip=ip, s=s)
+            s.commit()
+            return
+        token = criar_convite(s, u, "recuperacao", VALIDADE_RECUPERACAO)
+        auditar("recuperacao_solicitada", None, usuario=u, ip=ip, s=s)
+        s.commit()
+        para, nome, uid = u.email, u.nome, u.id
+    link = correio.url_publica() + caminho_convite(token)
+    minutos = int(VALIDADE_RECUPERACAO.total_seconds() // 60)
+    threading.Thread(target=_enviar_recuperacao, args=(para, nome, link, minutos, uid, ip), daemon=True).start()
+
+
+def _enviar_recuperacao(para: str, nome: str, link: str, minutos: int, usuario_id: int, ip: str | None) -> None:
+    try:
+        correio.enviar_recuperacao(para, nome, link, minutos)
+        log.info("e-mail de recuperação enviado", extra={"usuario": para})
+    except Exception as e:  # noqa: BLE001 - qualquer falha vai para o log e para a auditoria
+        log.error("falha ao enviar o e-mail de recuperação", extra={"usuario": para, "erro": str(e)})
+        with sessao() as s:
+            u = s.get(Usuario, usuario_id)
+            auditar("recuperacao_falhou", str(e)[:300], usuario=u, ip=ip, s=s)
+            s.commit()
+
+
+def _invalidar_recuperacoes(s: Session, usuario_id: int) -> None:
+    for c in s.exec(
+        select(ConviteUsuario).where(
+            ConviteUsuario.usuario_id == usuario_id,
+            ConviteUsuario.finalidade == "recuperacao",
+            ConviteUsuario.usado_em == None,  # noqa: E711
+        )
+    ):
+        c.usado_em = agora()
+        s.add(c)
 
 
 # --- conta do próprio usuário --------------------------------------------------------------------
@@ -572,6 +668,7 @@ def trocar_senha(acesso: Acesso, atual: str, nova: str) -> None:
         u.senha_hash = hash_senha(nova)
         s.add(u)
         _encerrar_sessoes(s, u.id, exceto=acesso.sessao_id)  # desconecta os outros navegadores
+        _invalidar_recuperacoes(s, u.id)
         auditar("senha_alterada", None, acesso, s=s)
         s.commit()
 

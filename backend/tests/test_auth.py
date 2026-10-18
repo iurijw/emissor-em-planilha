@@ -325,3 +325,157 @@ def test_redefinicao_que_mantem_2fa_pede_o_codigo(admin):
         "/api/auth/convite", json={"token": novo, "senha": "outra-senha-boa", "codigo": auth.totp_agora(segredo)}
     )
     assert r.status_code == 200, r.text
+
+
+# --- recuperação de senha por e-mail ------------------------------------------------------------
+
+
+@pytest.fixture
+def correio_falso(monkeypatch):
+    """Liga o envio pelo painel e guarda os e-mails em vez de enviá-los."""
+    import time as _time
+
+    from emissor import correio
+
+    monkeypatch.setenv("EMISSOR_URL_PUBLICA", "https://empresa.exemplo.com.br")
+    monkeypatch.setenv("EMISSOR_EMAIL_URL", "https://painel.exemplo.com.br/api/email")
+    monkeypatch.setenv("EMISSOR_EMAIL_TOKEN", "t" * 64)
+    enviados: list[dict] = []
+    monkeypatch.setattr(
+        correio,
+        "enviar_recuperacao",
+        lambda para, nome, link, minutos: enviados.append({"para": para, "link": link, "minutos": minutos}),
+    )
+
+    def esperar(n: int) -> list[dict]:
+        for _ in range(100):
+            if len(enviados) >= n:
+                break
+            _time.sleep(0.02)
+        return enviados
+
+    return esperar
+
+
+def test_recuperacao_desligada_sem_email_configurado(client):
+    assert client.get("/api/auth/sessao").json()["recuperacao_email"] is False
+    r = client.post("/api/auth/esqueci", json={"email": ADMIN_EMAIL})
+    assert r.status_code == 404 and "administrador" in r.json()["mensagem"]
+
+
+def test_recuperacao_por_email(admin, correio_falso):
+    assert admin.get("/api/auth/sessao").json()["recuperacao_email"] is True
+    c = _novo_cliente()
+    # Mesma resposta para e-mail que existe e que não existe.
+    r1 = c.post("/api/auth/esqueci", json={"email": "ninguem@exemplo.com.br"})
+    r2 = c.post("/api/auth/esqueci", json={"email": ADMIN_EMAIL.upper()})
+    assert r1.status_code == r2.status_code == 200 and r1.json() == r2.json()
+    enviados = correio_falso(1)
+    assert len(enviados) == 1 and enviados[0]["para"] == ADMIN_EMAIL and enviados[0]["minutos"] == 60
+    assert enviados[0]["link"].startswith("https://empresa.exemplo.com.br/#/convite?token=")
+    token = enviados[0]["link"].split("token=")[1]
+
+    # Pedir a recuperação não tranca o dono fora: a senha atual continua valendo.
+    assert (
+        _novo_cliente().post("/api/auth/entrar", json={"email": ADMIN_EMAIL, "senha": ADMIN_SENHA}).status_code == 200
+    )
+    # Segundo pedido logo em seguida não manda outro e-mail.
+    c.post("/api/auth/esqueci", json={"email": ADMIN_EMAIL})
+    assert len(correio_falso(2)) == 1
+
+    assert c.post("/api/auth/convite/ver", json={"token": token}).json()["finalidade"] == "recuperacao"
+    r = c.post("/api/auth/convite", json={"token": token, "senha": "senha-recuperada-1"})
+    assert r.status_code == 200, r.text
+    assert admin.get("/api/status").status_code == 401  # as outras sessões caíram
+    assert c.post("/api/auth/convite", json={"token": token, "senha": "outra-senha-boa"}).status_code == 410
+    acoes = [a["acao"] for a in auth.listar_auditoria()["itens"]]
+    assert "recuperacao_solicitada" in acoes and "senha_recuperada" in acoes and "recuperacao_limitada" in acoes
+
+
+def test_recuperacao_expira_e_cai_ao_trocar_a_senha(admin, correio_falso):
+    from emissor.db import ConviteUsuario
+
+    _novo_cliente().post("/api/auth/esqueci", json={"email": ADMIN_EMAIL})
+    token = correio_falso(1)[0]["link"].split("token=")[1]
+    assert (
+        admin.post("/api/auth/senha", json={"senha_atual": ADMIN_SENHA, "nova_senha": "nova-senha-boa"}).status_code
+        == 200
+    )
+    assert _novo_cliente().post("/api/auth/convite/ver", json={"token": token}).status_code == 410
+    with sessao() as s:
+        for conv in s.exec(select(ConviteUsuario)):
+            assert conv.expira_em - conv.criado_em <= timedelta(hours=1, seconds=5)
+
+
+def test_recuperacao_ignora_usuario_desativado_e_limita_por_ip(admin, correio_falso):
+    _convidar(admin, "op@exemplo.com.br")  # convite pendente: sem senha, não recebe recuperação
+    c = _novo_cliente()
+    for _ in range(auth.MAX_RECUPERACOES_IP):
+        assert c.post("/api/auth/esqueci", json={"email": "op@exemplo.com.br"}).status_code == 200
+    assert c.post("/api/auth/esqueci", json={"email": ADMIN_EMAIL}).status_code == 429
+    assert correio_falso(1) == []
+
+
+def test_recuperacao_com_2fa_pede_o_codigo(admin, correio_falso):
+    segredo = admin.post("/api/auth/2fa/iniciar", json={"senha": ADMIN_SENHA}).json()["segredo"]
+    assert admin.post("/api/auth/2fa/ativar", json={"codigo": auth.totp_agora(segredo)}).status_code == 200
+    _novo_cliente().post("/api/auth/esqueci", json={"email": ADMIN_EMAIL})
+    token = correio_falso(1)[0]["link"].split("token=")[1]
+    r = _novo_cliente().post("/api/auth/convite", json={"token": token, "senha": "senha-recuperada-1"})
+    assert r.status_code == 401 and r.json()["precisa_codigo"] is True
+
+
+def test_correio_pelo_painel_e_por_smtp(monkeypatch):
+    from emissor import correio
+
+    monkeypatch.setenv("EMISSOR_URL_PUBLICA", "https://empresa.exemplo.com.br")
+    assert correio.configurado() is False
+    chamadas = []
+
+    class Resposta:
+        status_code = 200
+        text = "{}"
+
+    monkeypatch.setattr(correio.httpx, "post", lambda url, **kw: chamadas.append((url, kw)) or Resposta())
+    monkeypatch.setenv("EMISSOR_EMAIL_URL", "https://painel.exemplo.com.br/api/email")
+    monkeypatch.setenv("EMISSOR_EMAIL_TOKEN", "segredo")
+    assert correio.configurado() is True
+    correio.enviar_recuperacao("a@b.com", "A", "https://empresa.exemplo.com.br/#/convite?token=x", 60)
+    url, kw = chamadas[0]
+    assert url.endswith("/api/email") and kw["headers"]["Authorization"] == "Bearer segredo"
+    assert kw["json"]["tipo"] == "recuperacao_senha" and kw["json"]["para"] == "a@b.com"
+    Resposta.status_code = 429
+    with pytest.raises(correio.CorreioError):
+        correio.enviar_recuperacao("a@b.com", "A", "https://empresa.exemplo.com.br/#/convite?token=x", 60)
+
+    monkeypatch.delenv("EMISSOR_EMAIL_URL")
+    monkeypatch.setenv("EMISSOR_SMTP_HOST", "smtp.exemplo.com.br")
+    monkeypatch.setenv("EMISSOR_SMTP_REMETENTE", "nao-responda@exemplo.com.br")
+    monkeypatch.setenv("EMISSOR_SMTP_USUARIO", "u")
+    monkeypatch.setenv("EMISSOR_SMTP_SENHA", "p")
+    eventos = []
+
+    class SmtpFalso:
+        def __init__(self, host, porta, timeout):
+            eventos.append(("conectar", host, porta))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def starttls(self, context):
+            eventos.append(("starttls",))
+
+        def login(self, u, p):
+            eventos.append(("login", u))
+
+        def send_message(self, msg):
+            eventos.append(("enviar", msg["To"], msg["Subject"], msg.get_body(("plain",)).get_content()))
+
+    monkeypatch.setattr(correio.smtplib, "SMTP", SmtpFalso)
+    assert correio.configurado() is True
+    correio.enviar_recuperacao("a@b.com", "Ana", "https://empresa.exemplo.com.br/#/convite?token=x", 60)
+    assert eventos[:3] == [("conectar", "smtp.exemplo.com.br", 587), ("starttls",), ("login", "u")]
+    assert eventos[3][1] == "a@b.com" and "#/convite?token=x" in eventos[3][3] and "Olá, Ana." in eventos[3][3]

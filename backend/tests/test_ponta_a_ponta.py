@@ -435,6 +435,7 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     ok(api.get("/api/status"), 401)
     ok(api.post("/api/auth/entrar", json={"email": ADMIN_EMAIL, "senha": ADMIN_SENHA}))
     ok(api.post("/api/auth/primeiro-acesso", json={"email": "x@x.com", "senha": "outra-senha-123"}), 409)
+    ok(api.post("/api/auth/esqueci", json={"email": ADMIN_EMAIL}), 404)  # sem e-mail configurado
 
     # Conta: senha e 2FA
     nova = ADMIN_SENHA + "-nova"

@@ -137,6 +137,7 @@ export interface Sessao {
   primeiro_acesso_sem_codigo: boolean;
   suspenso: boolean;
   url_assinatura: string | null;
+  recuperacao_email: boolean;
 }
 
 export interface Usuario {

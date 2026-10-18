@@ -1,4 +1,5 @@
-// Telas de acesso: login (com 2FA), primeiro acesso (cria o administrador) e convite/redefinição de senha.
+// Telas de acesso: login (com 2FA), "esqueci minha senha", primeiro acesso (cria o administrador) e
+// convite/redefinição de senha.
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, type Sessao } from "../api";
@@ -48,6 +49,7 @@ export function TelaLogin({ sessao }: { sessao: Sessao }) {
   const [pedeCodigo, setPedeCodigo] = useState(false);
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [esqueci, setEsqueci] = useState(false);
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
@@ -67,6 +69,8 @@ export function TelaLogin({ sessao }: { sessao: Sessao }) {
       setOcupado(false);
     }
   }
+
+  if (esqueci) return <TelaEsqueci emailInicial={email} voltar={() => setEsqueci(false)} />;
 
   return (
     <Moldura titulo="Entrar" subtitulo={sessao.suspenso ? <AvisoSuspenso sessao={sessao} /> : undefined}>
@@ -103,7 +107,72 @@ export function TelaLogin({ sessao }: { sessao: Sessao }) {
             Voltar
           </button>
         )}
-        <p className="acesso__dica">Esqueceu a senha? Peça a um administrador para redefinir o seu acesso.</p>
+        {!pedeCodigo &&
+          (sessao.recuperacao_email ? (
+            <p className="acesso__dica">
+              <button type="button" className="link" onClick={() => { setErro(null); setEsqueci(true); }}>
+                Esqueci minha senha
+              </button>
+            </p>
+          ) : (
+            <p className="acesso__dica">Esqueceu a senha? Peça a um administrador para redefinir o seu acesso.</p>
+          ))}
+      </form>
+    </Moldura>
+  );
+}
+
+function TelaEsqueci({ emailInicial, voltar }: { emailInicial: string; voltar: () => void }) {
+  const [email, setEmail] = useState(emailInicial);
+  const [enviado, setEnviado] = useState<string | null>(null);
+  const [erro, setErro] = useState<unknown>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  async function enviar(e: FormEvent) {
+    e.preventDefault();
+    setErro(null);
+    setOcupado(true);
+    try {
+      const r = await api.post<{ mensagem: string }>("/api/auth/esqueci", { email });
+      setEnviado(r.mensagem);
+    } catch (err) {
+      setErro(err);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  if (enviado)
+    return (
+      <Moldura titulo="Confira o seu e-mail">
+        <div className="acesso__form">
+          <div className="info-caixa" role="status">
+            <span>{enviado}</span>
+          </div>
+          <p className="acesso__dica">
+            O link vale por 1 hora. Se usar a verificação em duas etapas, o código do aplicativo também será pedido.
+          </p>
+          <button type="button" className="btn btn--grande" onClick={voltar}>
+            Voltar para o login
+          </button>
+        </div>
+      </Moldura>
+    );
+
+  return (
+    <Moldura titulo="Redefinir a senha" subtitulo="Informe o e-mail do seu acesso para receber um link. A senha atual continua valendo até você criar a nova.">
+      <form className="acesso__form" onSubmit={enviar}>
+        <label className="campo">
+          <span>E-mail</span>
+          <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+        </label>
+        <ErroCaixa erro={erro} />
+        <button className="btn btn--primario btn--grande" disabled={ocupado}>
+          {ocupado && <Spinner />} Enviar link
+        </button>
+        <button type="button" className="btn btn--fantasma" onClick={voltar}>
+          Voltar
+        </button>
       </form>
     </Moldura>
   );
@@ -237,13 +306,19 @@ export function TelaConvite() {
       </Moldura>
     );
   if (!info) return <div className="carregando">Carregando…</div>;
-  const redefinicao = info.finalidade === "redefinicao";
+  const recuperacao = info.finalidade === "recuperacao";
+  const redefinicao = recuperacao || info.finalidade === "redefinicao";
+  const aviso = recuperacao
+    ? "A senha anterior deixa de valer quando você salvar a nova."
+    : redefinicao
+      ? "A senha anterior não vale mais."
+      : "Este link só pode ser usado uma vez.";
   return (
     <Moldura
       titulo={redefinicao ? "Definir nova senha" : "Criar sua senha"}
       subtitulo={
         <>
-          Acesso de <strong>{info.email}</strong>. {redefinicao ? "A senha anterior não vale mais." : "Este link só pode ser usado uma vez."}
+          Acesso de <strong>{info.email}</strong>. {aviso}
         </>
       }
     >
