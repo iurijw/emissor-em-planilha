@@ -212,7 +212,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
-| `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|primeiro-acesso\|convite\|convite/ver` | acesso |
+| `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
 | `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}`, `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
 
@@ -506,6 +506,13 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   `data/primeiro-acesso.txt` e mostrado no log da subida; acesso de 127.0.0.1 sem cabeçalho de proxy dispensa o token
   (nunca com `EMISSOR_CONVITE_INICIAL` ou no Fly). Link da hospedagem: `https://<sub>/#/primeiro-acesso?token=<t>`.
 - Convites e redefinição: link `/#/convite?token=` de uso único (7 dias) gerado pelo admin, copiado e enviado por ele.
+- **Esqueci minha senha** (2026-10-18, `correio.py`): `POST /api/auth/esqueci` manda um link `finalidade=recuperacao` de
+  1 h. A senha atual continua valendo até o uso (pedir a recuperação de outro não o tranca fora) e o 2FA continua
+  sendo pedido; trocar a senha invalida os links pendentes. Resposta igual para e-mail com ou sem acesso, envio numa
+  thread; limites: 5 pedidos por IP em 15 min, 1 e-mail por usuário a cada 2 min e 5 por dia. Envio pelo painel da
+  hospedagem (`EMISSOR_EMAIL_URL` + `EMISSOR_EMAIL_TOKEN`; o painel monta o e-mail e manda pelo Resend, só com link do
+  subdomínio do token) ou por SMTP (`EMISSOR_SMTP_*`). Exige `EMISSOR_URL_PUBLICA`: o link nunca usa o `Host` da
+  requisição. Sem configuração, a tela diz para pedir ao administrador (`recuperacao_email` em `/api/auth/sessao`).
   Recuperação sem nenhum admin: `emissor-admin redefinir <email> [--remover-2fa]` / `convidar` / `usuarios`.
 - Auditoria (`auditoria`): login/falha/bloqueio, senha, 2FA, usuários, certificado, configurações (com ambiente),
   lote criado/interrompido, nota cancelada/cancelamento recusado. Não há coluna nova em tabelas antigas (o
@@ -603,6 +610,7 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-10 | Login próprio (Argon2id, sessão em cookie, TOTP, papéis admin/operador, auditoria), sem serviço externo | Hospedagem paga expõe cada instância na internet; custo zero; a versão instalada localmente também fica protegida |
 | 2026-10-10 | Login separado em cada instância (subdomínio), sem login central | Isolamento por cliente; o app continua independente da hospedagem |
 | 2026-10-10 | Sem e-mail: convites e redefinição por link copiado pelo admin; recuperação total por `emissor-admin` | Envio de e-mail custaria um serviço; não é essencial |
+| 2026-10-18 | "Esqueci minha senha" por e-mail: na hospedagem pelo painel (Resend, plano grátis), na instalação própria por SMTP opcional | Pedido do Iuri; o Resend grátis cobre o volume (100/dia) e o app continua sem depender de serviço pago |
 | 2026-10-10 | Operador pode emitir e cancelar; só admin mexe em certificado, configurações e usuários | Cancelar é do dia a dia de quem emite; fica registrado na auditoria |
 | 2026-10-10 | Suspensão da hospedagem por `EMISSOR_SUSPENSO` (consulta e download continuam) | O cliente precisa conseguir baixar os XMLs fiscais mesmo inadimplente |
 | 2026-10-10 | Imagem Docker publicada em `ghcr.io/iurijw/emissor-em-planilha` por GitHub Actions (`latest` e `sha-<commit>` a cada push na main; `X.Y.Z` nas tags `v*`) | A hospedagem cria uma máquina Fly por cliente a partir dela; quem roda sozinho continua com `iniciar.bat`/`docker compose` |

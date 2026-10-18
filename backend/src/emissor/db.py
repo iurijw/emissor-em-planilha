@@ -283,7 +283,7 @@ class ConviteUsuario(SQLModel, table=True):
     __tablename__ = "convite_usuario"
     id: str = Field(primary_key=True)  # SHA-256 do token
     usuario_id: int = Field(index=True)
-    finalidade: str = "convite"  # convite | redefinicao
+    finalidade: str = "convite"  # convite | redefinicao (pelo administrador) | recuperacao (pelo e-mail)
     criado_em: NaiveDatetime = Field(default_factory=agora)
     expira_em: NaiveDatetime
     usado_em: NaiveDatetime | None = None

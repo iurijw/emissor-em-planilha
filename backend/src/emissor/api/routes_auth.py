@@ -78,6 +78,7 @@ def sessao_atual(request: Request) -> dict[str, Any]:
         "primeiro_acesso_sem_codigo": (not existe) and _acesso_local(request),
         "suspenso": auth.suspenso(),
         "url_assinatura": auth.url_assinatura(),
+        "recuperacao_email": auth.recuperacao_por_email(),
     }
 
 
@@ -102,6 +103,20 @@ def sair(request: Request, response: Response) -> dict[str, bool]:
         auth.auditar("logout", None, acesso)
     response.delete_cookie(auth.COOKIE, path="/")
     return {"ok": True}
+
+
+class Esqueci(BaseModel):
+    email: str
+
+
+@router.post("/auth/esqueci")
+def esqueci(entrada: Esqueci, request: Request) -> dict[str, Any]:
+    auth.solicitar_recuperacao(entrada.email, ip_cliente(request))
+    return {
+        "ok": True,
+        "mensagem": "Se este e-mail tiver acesso ao sistema, chega em instantes um link para criar uma senha nova. "
+        "Confira também a caixa de spam.",
+    }
 
 
 class PrimeiroAcesso(BaseModel):
