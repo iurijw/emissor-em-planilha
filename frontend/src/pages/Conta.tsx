@@ -1,7 +1,8 @@
-// Minha conta: trocar a senha e ligar/desligar a verificação em duas etapas (aplicativo autenticador).
+// Minha conta: trocar a senha, ligar/desligar a verificação em duas etapas (aplicativo autenticador) e, na versão
+// hospedada, o link do portal da assinatura para o administrador.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { api, type UsuarioSessao } from "../api";
+import { api, type Sessao, type UsuarioSessao } from "../api";
 import { copiar, Dialogo, ErroCaixa, Spinner, useToast } from "../ui";
 import { SENHA_MIN } from "./Acesso";
 
@@ -9,6 +10,8 @@ type Conta = UsuarioSessao & { codigos_recuperacao_restantes: number };
 
 export function MinhaConta() {
   const conta = useQuery({ queryKey: ["conta"], queryFn: () => api.get<Conta>("/api/auth/conta") });
+  const sessao = useQuery({ queryKey: ["sessao"], queryFn: () => api.get<Sessao>("/api/auth/sessao"), staleTime: 60_000 });
+  const urlAssinatura = sessao.data?.url_assinatura;
   return (
     <div className="pagina pagina--estreita">
       <div className="cabecalho-pagina">
@@ -26,9 +29,33 @@ export function MinhaConta() {
         <>
           <DoisFatores conta={conta.data} />
           <TrocarSenha />
+          {conta.data.papel === "admin" && urlAssinatura && <Assinatura url={urlAssinatura} />}
         </>
       )}
     </div>
+  );
+}
+
+/** Só na versão hospedada (o painel define EMISSOR_URL_ASSINATURA): o portal do Stripe cuida de cartão, faturas e cancelamento. */
+function Assinatura({ url }: { url: string }) {
+  return (
+    <section className="folha">
+      <h2 className="secao-titulo">Assinatura</h2>
+      <p>
+        Troque o cartão, veja as faturas ou cancele a assinatura no portal da assinatura, no Stripe. Para entrar, use o e-mail
+        informado ao assinar: o Stripe manda para ele um e-mail de acesso.
+      </p>
+      <p className="acesso__dica" style={{ marginBottom: 12 }}>
+        Ao cancelar, o emissor funciona até o fim do período já pago e depois fica 15 dias só para consulta e download das
+        notas.{" "}
+        <a href="https://emissoremplanilha.com/guia/cancelar-assinatura" target="_blank" rel="noreferrer">
+          Como cancelar a assinatura
+        </a>
+      </p>
+      <a className="btn" href={url} target="_blank" rel="noreferrer">
+        Gerenciar assinatura
+      </a>
+    </section>
   );
 }
 

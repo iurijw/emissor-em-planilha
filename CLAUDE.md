@@ -525,6 +525,8 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   `pages/Conta.tsx`, `pages/Usuarios.tsx`; 401 com `login: true` dispara `emissor:sessao-expirada`. Operador não vê
   Configurações nem Usuários. `copiar()` em `ui.tsx` funciona em HTTP (sem `navigator.clipboard`).
 - Aviso no app quando o certificado estiver a ≤ 30 dias do vencimento.
+- Hospedagem: com `EMISSOR_URL_ASSINATURA`, o administrador vê o link "Assinatura" no topo e a seção "Assinatura" em
+  Minha conta (portal do Stripe: cartão, faturas, cancelamento); sem a variável (instalação própria) nada aparece.
 
 ## Plano de implementação (fases)
 
