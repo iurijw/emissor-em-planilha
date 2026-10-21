@@ -83,7 +83,7 @@ export function FaixaAmbiente({ status, admin = true }: { status: Status; admin?
   );
 }
 
-function MenuUsuario({ usuario }: { usuario: UsuarioSessao }) {
+function MenuUsuario({ usuario, urlAssinatura }: { usuario: UsuarioSessao; urlAssinatura?: string | null }) {
   const qc = useQueryClient();
   async function sair() {
     await api.post("/api/auth/sair").catch(() => undefined);
@@ -92,6 +92,11 @@ function MenuUsuario({ usuario }: { usuario: UsuarioSessao }) {
   }
   return (
     <span className="topo__usuario">
+      {urlAssinatura && usuario.papel === "admin" && (
+        <a className="topo__assinatura" href={urlAssinatura} target="_blank" rel="noreferrer" title="Cartão, faturas e cancelamento">
+          Assinatura
+        </a>
+      )}
       <a href="#/conta" title={usuario.email}>{usuario.nome || usuario.email}</a>
       <button className="btn btn--pequeno btn--fantasma" onClick={sair}>Sair</button>
     </span>
@@ -127,7 +132,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             dados da empresa e tributação padrão).{" "}
           </span>
         </div>
-        <p><MenuUsuario usuario={usuario} /></p>
+        <p><MenuUsuario usuario={usuario} urlAssinatura={sessao.url_assinatura} /></p>
       </div>
     );
   }
@@ -167,7 +172,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </span>
           )}
         </div>
-        <MenuUsuario usuario={usuario} />
+        <MenuUsuario usuario={usuario} urlAssinatura={sessao.url_assinatura} />
       </header>
       {(s.avisos.length > 0 || s.problemas.length > 0) && rotaVisivel !== "configuracoes" && (
         <div style={{ padding: "12px 24px 0", maxWidth: 1480, margin: "0 auto" }}>
