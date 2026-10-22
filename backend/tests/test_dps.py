@@ -216,3 +216,27 @@ def test_padroes_do_xml_trazem_ibscbs(nfse_exemplo_bytes):
     xml = nfse_exemplo_bytes.replace(b"</infDPS>", grupo, 1)
     cfg = extrair_padroes([NFSeDoc.from_bytes(xml)])
     assert cfg.ibscbs is True and cfg.ibscbs_c_ind_op == "100301" and cfg.ibscbs_c_class_trib == "200052"
+
+
+def test_producao_passa_a_nt009_em_01_12_2026(dps_input):
+    """Comunicado do CGNFS-e de 20/10/2026: o leiaute atual vale em Produção até 30/11/2026."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from emissor.nfse.constants import leiaute
+
+    sp = ZoneInfo("America/Sao_Paulo")
+    antes = datetime(2026, 11, 30, 23, 59, 59, tzinfo=sp)
+    depois = datetime(2026, 12, 1, 0, 0, 0, tzinfo=sp)
+    assert leiaute(Ambiente.PRODUCAO, antes) == "v1_01"
+    assert leiaute(Ambiente.PRODUCAO, depois) == "v1_01_nt009"
+    assert leiaute(Ambiente.HOMOLOGACAO, antes) == "v1_01_nt009"
+
+    inp = replace(dps_input, ambiente=Ambiente.PRODUCAO)
+    velha = build_dps(replace(inp, dh_emi=antes))
+    nova = build_dps(replace(inp, dh_emi=depois))
+    assert velha.find(f"{N}infDPS/{N}finNFSe") is None
+    assert nova.find(f"{N}infDPS/{N}finNFSe") is not None
+    # cada DPS valida no XSD da sua data (o leiaute sai do tpAmb + dhEmi do próprio documento)
+    assert [e for e in validar_dps(velha) if "Signature" not in e.mensagem] == []
+    assert [e for e in validar_dps(nova) if "Signature" not in e.mensagem] == []

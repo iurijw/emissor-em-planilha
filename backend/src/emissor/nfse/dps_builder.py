@@ -15,11 +15,11 @@ from emissor.config import VER_APLIC
 from emissor.nfse.codes import SUBITENS_EXIGEM_TP_OPER
 from emissor.nfse.constants import (
     LEIAUTE_NT009,
-    LEIAUTE_POR_AMBIENTE,
     NS_NFSE,
     SERIE_API_MAX,
     SERIE_API_MIN,
     VERSAO_LEIAUTE,
+    leiaute,
 )
 from emissor.nfse.models import (
     ConfigFiscal,
@@ -118,7 +118,7 @@ def build_dps(inp: DpsInput) -> etree._Element:
     # Competência = data da emissão (requisito do usuário).
     _sub(inf, "dCompet", inp.dh_emi.date().isoformat())
     _sub(inf, "tpEmit", cfg.tp_emit)
-    nt009 = LEIAUTE_POR_AMBIENTE[inp.ambiente] == LEIAUTE_NT009
+    nt009 = leiaute(inp.ambiente, inp.dh_emi) == LEIAUTE_NT009
     if nt009:
         _sub(inf, "finNFSe", "0")  # NT 009: obrigatório em infDPS (antes ficava no grupo IBSCBS)
     _sub(inf, "cLocEmi", cfg.c_mun_emissor)

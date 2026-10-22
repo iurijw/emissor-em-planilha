@@ -1,18 +1,20 @@
 """Validação local contra os XSD oficiais v1.01 (ver ``xsd/*/LEIAME.txt``).
 
-Desde 20/10/2026 a Produção Restrita usa o leiaute da NT 009 (``xsd/v1_01_nt009``) e a Produção continua no anterior
-(``xsd/v1_01``). O leiaute de cada documento sai do seu ``tpAmb`` (``LEIAUTE_POR_AMBIENTE``).
+A NT 009 (``xsd/v1_01_nt009``) vale na Produção Restrita desde 20/10/2026 e na Produção a partir de 01/12/2026; antes
+disso vale o leiaute anterior (``xsd/v1_01``). O leiaute de cada documento sai do seu ``tpAmb`` e da sua data
+(``leiaute()``).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 
 from lxml import etree
 
-from emissor.nfse.constants import LEIAUTE_POR_AMBIENTE, NS_NFSE, Ambiente
+from emissor.nfse.constants import NS_NFSE, Ambiente, leiaute
 
 XSD_BASE = Path(__file__).parent / "xsd"
 XSD_DIR = XSD_BASE / "v1_01"
@@ -34,12 +36,25 @@ def _schema(leiaute: str, nome: str) -> etree.XMLSchema:
 
 
 def leiaute_do_documento(root: etree._Element) -> str:
-    """Pasta do XSD pelo primeiro ``tpAmb`` do documento (sem ``tpAmb``: o leiaute de produção)."""
-    tp_amb = root.findtext(f".//{{{NS_NFSE}}}tpAmb")
+    """Pasta do XSD pelo primeiro ``tpAmb`` do documento (sem ``tpAmb``: produção) e pela sua data (``dhEmi`` da DPS
+    ou ``dhEvento`` do pedido de evento; sem data: agora)."""
     try:
-        return LEIAUTE_POR_AMBIENTE[Ambiente(tp_amb)]
+        ambiente = Ambiente(root.findtext(f".//{{{NS_NFSE}}}tpAmb"))
     except ValueError:
-        return LEIAUTE_POR_AMBIENTE[Ambiente.PRODUCAO]
+        ambiente = Ambiente.PRODUCAO
+    quando = None
+    for campo in ("dhEmi", "dhEvento"):
+        texto = root.findtext(f".//{{{NS_NFSE}}}{campo}")
+        if texto:
+            try:
+                quando = datetime.fromisoformat(texto)
+            except ValueError:
+                continue
+            if quando.tzinfo is None:
+                quando = None
+                continue
+            break
+    return leiaute(ambiente, quando)
 
 
 def _validar(nome: str, doc: etree._Element | bytes, leiaute: str | None) -> list[XsdErro]:
