@@ -398,7 +398,12 @@ class GeradorDanfse:
                 d("valores/trib/tribMun/cPaisResult") or "BR",
             )
             calc_bm = v("valores/vCalcBM") or d("valores/trib/tribMun/BM/vRedBCBM")
-            ded = v("valores/vCalcDR") or d("valores/vDedRed/vDR")
+            ded = (  # vDedRed/vCalcDR até a NT 009; vAjusteBC/vCalcAjusteBCISSQN depois
+                v("valores/vCalcDR")
+                or d("valores/vDedRed/vDR")
+                or v("valores/vCalcAjusteBCISSQN")
+                or d("valores/vAjusteBC/vAjusteBCISSQN")
+            )
             blocos.append(
                 Bloco(
                     "TRIBUTAÇÃO MUNICIPAL (ISSQN)",
@@ -534,12 +539,14 @@ class GeradorDanfse:
         # IBS / CBS
         ib = "IBSCBS"
         g = "DPS/infDPS/IBSCBS/valores/trib/gIBSCBS"
+        if self.doc.t(f"{g}/CST") is None:  # NT 009: CST/cClassTrib direto em trib
+            g = "DPS/infDPS/IBSCBS/valores/trib"
         tem_ibs = self.doc.el(ib) is not None
         excl = None
         if tem_ibs:
             parts = [
                 _dec(d("valores/vDescCondIncond/vDescIncond")),
-                _dec(v(f"{ib}/valores/vCalcReeRepRes")),
+                _dec(v(f"{ib}/valores/vCalcReeRepRes") or v(f"{ib}/valores/vCalcAjusteBCIBSCBS")),
                 _dec(v("valores/vISSQN")),
                 _dec(d(f"{pc}/vPis")),
                 _dec(d(f"{pc}/vCofins")),
@@ -800,7 +807,7 @@ class GeradorDanfse:
                 [
                     ("Emitente da NFS-e", codes.descricao(codes.TP_EMIT, d("tpEmit"))),
                     ("Situação da NFS-e", codes.descricao(codes.C_STAT, v("cStat"))),
-                    ("Finalidade", codes.descricao(codes.FIN_NFSE, d("IBSCBS/finNFSe"))),
+                    ("Finalidade", codes.descricao(codes.FIN_NFSE, d("IBSCBS/finNFSe") or d("finNFSe"))),
                 ],
             ),
         ]

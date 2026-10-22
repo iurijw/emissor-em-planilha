@@ -1,6 +1,6 @@
 [project]
 name = "emissor"
-version = "0.5.1"
+version = "0.5.2"
 description = "Emissor em Planilha: emissão de NFS-e Nacional (Sefin) em lote a partir de uma planilha"
 authors = [
     { name = "Iuri JW", email = "iuriwissmann@gmail.com" }

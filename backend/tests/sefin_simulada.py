@@ -206,7 +206,9 @@ class SefinSimulada:
         if t("dCompet") != dh_emi.date().isoformat():
             return self._rejeitar("SIM-DCOMPET", "Data de competência diferente da data de emissão.")
         if inf.find(f"{N}IBSCBS") is not None:
-            cst, cclass = t("IBSCBS/valores/trib/gIBSCBS/CST"), t("IBSCBS/valores/trib/gIBSCBS/cClassTrib")
+            # até a NT 009 em trib/gIBSCBS; depois (Produção Restrita desde 20/10/2026) direto em trib
+            sit = "IBSCBS/valores/trib/gIBSCBS" if t("IBSCBS/valores/trib/gIBSCBS/CST") else "IBSCBS/valores/trib"
+            cst, cclass = t(f"{sit}/CST"), t(f"{sit}/cClassTrib")
             if cst != cclass[:3]:
                 return self._rejeitar("E0959", "CST do IBS/CBS incompatível com a classificação tributária.")
             if not t("serv/cServ/cNBS"):

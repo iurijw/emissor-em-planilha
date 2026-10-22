@@ -1,0 +1,18 @@
+Fonte: https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/esquemas_prod_restrita_20261020.zip
+(pacote "NFSe-ESQUEMAS_XSD-PRODREST-v1.01-20261020"; Nota Tecnica SE/CGNFS-e 009 implantada em Producao Restrita
+em 20/10/2026, segundo https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/atualizacoes-e-implantacoes;
+em Producao ainda sem data). Usado so nas DPS de homologacao (tpAmb=2); producao continua com ../v1_01.
+
+Em relacao ao pacote esquemas-nfse-rtc-v1-01-20260727 (../v1_01), so mudam tiposSimples e tiposComplexos:
+- xDescServ passa a ser o ultimo elemento de cServ (depois de cNBS e cIntContrib);
+- finNFSe sai do grupo IBSCBS e vira obrigatorio em infDPS (depois de tpEmit/cMotivoEmisTI, antes de cLocEmi);
+- CST e cClassTrib sobem de IBSCBS/valores/trib/gIBSCBS para IBSCBS/valores/trib (gIBSCBS fica opcional);
+- vDedRed e gReeRepRes viram vAjusteBC (valores) e, na NFS-e, vCalcDR/vCalcReeRepRes viram vCalcAjusteBCISSQN e
+  vCalcAjusteBCIBSCBS/vCalcAjusteBCLocImoveis;
+- cIndOp fica opcional; xNome de TCInfoPessoa fica opcional; na NFS-e, cLocalidadeIncid, valores, vBC, gIBS e
+  gCBS de infNFSe/IBSCBS ficam opcionais; grupos novos de imovel (locacao, unidades) e bens moveis (NCM).
+Os demais arquivos sao identicos aos de ../v1_01. Finais de linha convertidos para LF.
+
+Unico patch local, o mesmo de ../v1_01 (TSChaveNFSe em tiposSimples_v1.01.xsd): o padrao oficial
+'[0-9]{6}([0-9A-Z]{14})[0-9]{30}' poe as letras nas posicoes 7-20 da chave, mas a inscricao federal fica nas
+posicoes 10-23. Trocado por '[0-9]{9}[0-9A-Z]{14}[0-9]{27}'.

@@ -23,6 +23,10 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
 - **F6 (2026-10-12):** configurações reorganizadas: "Dados da empresa" (prestador e regime) separada de
   "Tributações" (a padrão + as outras numa lista só); retenções federais só aparecem quando marcadas; o onboarding
   tem os passos "Dados da empresa" e "Tributação padrão". Só tela: a tributação padrão continua em `config.fiscal`.
+- **Leiaute da NT 009 na Produção Restrita (2026-10-22):** desde 20/10/2026 a Produção Restrita usa o pacote
+  `esquemas_prod_restrita_20261020` (NT 009). A DPS de homologação sai nesse leiaute (XSD em `nfse/xsd/v1_01_nt009/`)
+  e a de produção continua no anterior (`nfse/xsd/v1_01/`); a tabela `LEIAUTE_POR_AMBIENTE` em `nfse/constants.py`
+  decide. Quando a NT 009 entrar em Produção, trocar ali a Produção para `v1_01_nt009`.
 - Se a Sefin rejeitar a assinatura da DPS, trocar `C14N` em `backend/src/emissor/nfse/signer.py` para C14N 1.0
   inclusiva e registrar aqui.
 - Ambientes: o sistema alterna entre **Produção Restrita (homologação)** e **Produção** nas configurações.
@@ -139,7 +143,7 @@ Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base 
 | `certificate.py` | PFX → chave/cert, info (titular, CNPJ via OID 2.16.76.1.3.3), `ssl_context()` p/ mTLS |
 | `dps_builder.py` | `build_dps`, `id_dps` (ordem do XSD, igual às notas do Emissor Web) |
 | `signer.py` | `assinar` / `verificar` (signxml) |
-| `xsd.py` | `validar_dps` / `validar_nfse` / `validar_pedido_evento` / `validar_evento` |
+| `xsd.py` | `validar_dps` / `validar_nfse` / `validar_pedido_evento` / `validar_evento` (leiaute pelo `tpAmb` do documento) |
 | `client.py` | `SefinClient`: `emitir`, `consultar_dps`, `consultar_nfse`, `registrar_evento`, `consultar_evento`; ADN: `distribuicao_dfe`, `eventos_nfse`; log de cada troca em `data/logs/sefin/` |
 | `eventos.py` | pedido de cancelamento (`preparar_cancelamento`, `enviar_cancelamento` com a mesma lógica anti-duplicidade da emissão), `EventoDoc` (leitura de `<evento>`), tipos de evento e efeito na situação |
 | `errors.py` | `SefinError` (`tipo`: validacao_local/rejeicao/autenticacao/indisponivel/ambiguo), mensagens + dicas |
@@ -276,10 +280,12 @@ Pendências conhecidas:
   feitas no portal, aparecem aqui pela sincronização.
 - Grupo IBS/CBS enviado só no caso simples (ver "Tributações, abas e nota avulsa"); validar em Produção Restrita
   e conferir o `cClassTrib` certo para optantes do Simples com a contabilidade.
-- NT 009 v1.01 (11/09/2026, cronograma ainda não publicado) muda o leiaute: `finNFSe` sai do grupo IBSCBS para
-  `infDPS`, `CST`/`cClassTrib` sobem para `IBSCBS/valores/trib`, `indDest`/`dest` vão para `infDPS`, `vDedRed` e
-  `gReeRepRes` viram `vAjusteBC`, e o Simples ganha `regApIBSCBSSN`, `cAtvSN` e `opSimpNac=4`. Quando entrar em
-  produção, ajustar `dps_builder._ibscbs` e o XSD local (Anexo VI v1.04.01 na página "RTC" do gov.br).
+- NT 009: implantada na Produção Restrita em 20/10/2026 (pacote `esquemas_prod_restrita_20261020`); em Produção ainda
+  sem data. O que o pacote mudou e o sistema já trata na homologação: `finNFSe` obrigatório em `infDPS` (sai do grupo
+  IBSCBS), `CST`/`cClassTrib` em `IBSCBS/valores/trib`, `xDescServ` no fim de `cServ`, `vDedRed`/`gReeRepRes` →
+  `vAjusteBC` (e `vCalcDR`/`vCalcReeRepRes` → `vCalcAjusteBCISSQN`/`vCalcAjusteBCIBSCBS` na NFS-e). `indDest`/`dest`
+  continuaram no grupo IBSCBS, e `regApIBSCBSSN`, `cAtvSN` e `opSimpNac=4` ainda não estão no XSD. Quando entrar em
+  Produção: trocar `LEIAUTE_POR_AMBIENTE` (ver Status) e conferir o pacote de produção contra `v1_01_nt009`.
 - Frontend sem testes automatizados (verificado manualmente no navegador); backend com testes pytest.
 
 ### Eventos: cancelamento e situação pelo ADN (F6, 2026-10-09)
@@ -629,3 +635,4 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-12 | Tributação padrão listada junto das outras em Configurações → Tributações; dados da empresa em seção própria; retenções federais atrás de um "o tomador retém" | Pedido do Iuri: duas seções de tributação eram confusas; a padrão continua guardada nas configurações (sem migração) |
 | 2026-10-12 | Alíquotas e retenções em % na tributação; pAliq do ISS só onde a Sefin exige; aviso "manter ou alterar" a cada emissão com ISS retido, que o operador pode responder | Pedido do Iuri: a alíquota efetiva do Simples muda todo mês; tributos federais informados mesmo sem retenção |
 | 2026-10-13 | Página "ligando o sistema" por service worker, sem guardar o app em cache | Pedido do Iuri: na hospedagem a máquina dorme sem uso e o primeiro acesso ficava em branco; o service worker é o único jeito grátis de mostrar algo antes de o servidor responder |
+| 2026-10-22 | Dois leiautes ao mesmo tempo: NT 009 (`xsd/v1_01_nt009`) na homologação e o anterior (`xsd/v1_01`) na produção, escolhidos por `LEIAUTE_POR_AMBIENTE` | A Produção Restrita passou à NT 009 em 20/10/2026 (finNFSe obrigatório em infDPS: a DPS antiga é recusada no XSD) e a Produção ainda não tem data |
