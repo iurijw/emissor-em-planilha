@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 from lxml import etree
 
-from emissor.nfse.constants import NS_NFSE
+from emissor.nfse.constants import NS_NFSE, Ambiente
 from emissor.nfse.dps_builder import DpsBuildError, build_dps, id_dps, to_bytes
 from emissor.nfse.emissao import preparar_dps
 from emissor.nfse.signer import verificar
@@ -47,10 +47,25 @@ def test_dps_valida_no_xsd(dps_input):
 
 
 def test_dps_mesma_estrutura_das_notas_atuais(dps_input, nfse_exemplo_bytes):
-    """A DPS gerada deve ter exatamente os mesmos campos da DPS das notas emitidas pelo Emissor Web."""
+    """A DPS de produção deve ter exatamente os mesmos campos da DPS das notas emitidas pelo Emissor Web."""
     real = etree.fromstring(nfse_exemplo_bytes).find(f"{N}infNFSe/{N}DPS/{N}infDPS")
-    gerada = build_dps(dps_input).find(f"{N}infDPS")
+    gerada = build_dps(replace(dps_input, ambiente=Ambiente.PRODUCAO)).find(f"{N}infDPS")
     assert _estrutura(gerada) == _estrutura(real)
+
+
+def test_dps_de_homologacao_segue_a_nt009(dps_input, nfse_exemplo_bytes):
+    """Produção Restrita no leiaute da NT 009 (20/10/2026): finNFSe em infDPS e xDescServ no fim de cServ."""
+    real = _estrutura(etree.fromstring(nfse_exemplo_bytes).find(f"{N}infNFSe/{N}DPS/{N}infDPS"))
+    esperado = [c for c in real if c != "serv/cServ/xDescServ"]
+    esperado.insert(esperado.index("cLocEmi"), "finNFSe")
+    esperado.insert(esperado.index("serv/cServ/cNBS") + 1, "serv/cServ/xDescServ")
+    gerada = build_dps(dps_input)
+    assert _estrutura(gerada.find(f"{N}infDPS")) == esperado
+    assert [e for e in validar_dps(gerada) if "Signature" not in e.mensagem] == []
+    # o mesmo XML não passa no XSD de produção, e a DPS de produção não passa no da Produção Restrita
+    assert validar_dps(gerada, leiaute="v1_01")
+    producao = build_dps(replace(dps_input, ambiente=Ambiente.PRODUCAO))
+    assert validar_dps(producao, leiaute="v1_01_nt009")
 
 
 def test_assinatura_valida_sem_prefixo(dps_input, certificado):
@@ -137,7 +152,7 @@ def _com_ibscbs(dps_input, **kw):
 
 def test_dps_com_ibscbs_valida_no_xsd(dps_input, certificado):
     inp = _com_ibscbs(dps_input, ibscbs_c_ind_op="100301", ibscbs_c_class_trib="000001", ibscbs_ind_final="0")
-    _, xml = preparar_dps(inp, certificado)
+    _, xml = preparar_dps(replace(inp, ambiente=Ambiente.PRODUCAO), certificado)
     root = etree.fromstring(xml)
     assert validar_dps(root) == []
     inf = root.find(f"{N}infDPS")
@@ -148,6 +163,20 @@ def test_dps_com_ibscbs_valida_no_xsd(dps_input, certificado):
     assert g.findtext(f"{N}finNFSe") == "0" and g.findtext(f"{N}indDest") == "0"
     trib = g.find(f"{N}valores/{N}trib/{N}gIBSCBS")
     assert trib.findtext(f"{N}CST") == "000" and trib.findtext(f"{N}cClassTrib") == "000001"
+
+
+def test_dps_com_ibscbs_na_nt009(dps_input, certificado):
+    inp = _com_ibscbs(dps_input, ibscbs_c_ind_op="100301", ibscbs_c_class_trib="200052", ibscbs_ind_final="0")
+    _, xml = preparar_dps(inp, certificado)  # homologação
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}finNFSe") == "0"
+    g = inf.find(f"{N}IBSCBS")
+    assert [etree.QName(c).localname for c in g] == ["indFinal", "cIndOp", "indDest", "valores"]
+    trib = g.find(f"{N}valores/{N}trib")
+    assert [etree.QName(c).localname for c in trib] == ["CST", "cClassTrib"]
+    assert trib.findtext(f"{N}CST") == "200" and trib.findtext(f"{N}cClassTrib") == "200052"
 
 
 def test_dps_sem_ibscbs_por_padrao(dps_input):

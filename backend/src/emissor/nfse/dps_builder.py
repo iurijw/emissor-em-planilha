@@ -13,7 +13,14 @@ from lxml import etree
 
 from emissor.config import VER_APLIC
 from emissor.nfse.codes import SUBITENS_EXIGEM_TP_OPER
-from emissor.nfse.constants import NS_NFSE, SERIE_API_MAX, SERIE_API_MIN, VERSAO_LEIAUTE
+from emissor.nfse.constants import (
+    LEIAUTE_NT009,
+    LEIAUTE_POR_AMBIENTE,
+    NS_NFSE,
+    SERIE_API_MAX,
+    SERIE_API_MIN,
+    VERSAO_LEIAUTE,
+)
 from emissor.nfse.models import (
     ConfigFiscal,
     DpsInput,
@@ -111,6 +118,9 @@ def build_dps(inp: DpsInput) -> etree._Element:
     # Competência = data da emissão (requisito do usuário).
     _sub(inf, "dCompet", inp.dh_emi.date().isoformat())
     _sub(inf, "tpEmit", cfg.tp_emit)
+    nt009 = LEIAUTE_POR_AMBIENTE[inp.ambiente] == LEIAUTE_NT009
+    if nt009:
+        _sub(inf, "finNFSe", "0")  # NT 009: obrigatório em infDPS (antes ficava no grupo IBSCBS)
     _sub(inf, "cLocEmi", cfg.c_mun_emissor)
 
     # Prestador
@@ -137,8 +147,12 @@ def build_dps(inp: DpsInput) -> etree._Element:
     c_serv = _sub(serv, "cServ")
     _sub(c_serv, "cTribNac", cfg.c_trib_nac)
     _opt(c_serv, "cTribMun", cfg.c_trib_mun)
-    _sub(c_serv, "xDescServ", descricao)
-    _opt(c_serv, "cNBS", cfg.c_nbs)
+    if nt009:  # NT 009: xDescServ passa a ser o último de cServ
+        _opt(c_serv, "cNBS", cfg.c_nbs)
+        _sub(c_serv, "xDescServ", descricao)
+    else:
+        _sub(c_serv, "xDescServ", descricao)
+        _opt(c_serv, "cNBS", cfg.c_nbs)
 
     # Valores
     valores = _sub(inf, "valores")
@@ -194,15 +208,16 @@ def build_dps(inp: DpsInput) -> etree._Element:
         _sub(tot, "indTotTrib", "0")
 
     if cfg.ibscbs:
-        _ibscbs(inf, cfg)
+        _ibscbs(inf, cfg, nt009)
 
     return dps
 
 
-def _ibscbs(inf: etree._Element, cfg: ConfigFiscal) -> None:
+def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool) -> None:
     """Grupo IBS/CBS (``TCRTCInfoIBSCBS``): NFS-e regular, destinatário = tomador.
 
-    Os valores e alíquotas não vão na DPS: a Sefin calcula e devolve em ``infNFSe/IBSCBS``.
+    Os valores e alíquotas não vão na DPS: a Sefin calcula e devolve em ``infNFSe/IBSCBS``. No leiaute da NT 009
+    ``finNFSe`` sai daqui (vai para infDPS) e ``CST``/``cClassTrib`` sobem de ``trib/gIBSCBS`` para ``trib``.
     """
     if not cfg.c_nbs:
         raise DpsBuildError("Com IBS/CBS informado, o código NBS do serviço é obrigatório (regra E0322).")
@@ -216,14 +231,15 @@ def _ibscbs(inf: etree._Element, cfg: ConfigFiscal) -> None:
             "envia. Emita esta nota sem o grupo IBS/CBS ou pelo Emissor Nacional."
         )
     g = _sub(inf, "IBSCBS")
-    _sub(g, "finNFSe", "0")
+    if not nt009:
+        _sub(g, "finNFSe", "0")
     _opt(g, "indFinal", cfg.ibscbs_ind_final)
     _sub(g, "cIndOp", cfg.ibscbs_c_ind_op)
     _sub(g, "indDest", "0")
     trib = _sub(_sub(g, "valores"), "trib")
-    gibscbs = _sub(trib, "gIBSCBS")
-    _sub(gibscbs, "CST", cfg.ibscbs_c_class_trib[:3])
-    _sub(gibscbs, "cClassTrib", cfg.ibscbs_c_class_trib)
+    sit = trib if nt009 else _sub(trib, "gIBSCBS")
+    _sub(sit, "CST", cfg.ibscbs_c_class_trib[:3])
+    _sub(sit, "cClassTrib", cfg.ibscbs_c_class_trib)
 
 
 def to_bytes(el: etree._Element) -> bytes:

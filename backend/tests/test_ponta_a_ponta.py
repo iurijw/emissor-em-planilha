@@ -215,8 +215,10 @@ def test_lote_com_ibscbs_desligado_e_ligado(api, sim, pfx_bytes, nfse_exemplo_by
     lote = _emitir(api, ids[:1])
     assert lote["contagem"] == {"autorizada": 1}, lote
     d3 = _conferir_nota(api, sim, lote["emissoes"][0], documento=TOMADOR_CNPJ, valor="490.00")
-    assert d3.dps("IBSCBS/valores/trib/gIBSCBS/CST") == "200"
-    assert d3.dps("IBSCBS/valores/trib/gIBSCBS/cClassTrib") == "200052"
+    # homologação = leiaute da NT 009: finNFSe em infDPS e CST/cClassTrib direto em IBSCBS/valores/trib
+    assert d3.dps("finNFSe") == "0" and d3.dps("IBSCBS/finNFSe") is None
+    assert d3.dps("IBSCBS/valores/trib/CST") == "200"
+    assert d3.dps("IBSCBS/valores/trib/cClassTrib") == "200052"
     assert d3.t("IBSCBS/totCIBS/gCBS/vCBS") == "4.32"  # (490 - ISS 9,80) x 0,9% calculado pela "Sefin"
     assert d3.dps("nDPS") == "3"
 
@@ -233,7 +235,7 @@ def test_aba_com_tributacao_e_nota_avulsa(api, sim, pfx_bytes, nfse_exemplo_byte
     doc = _conferir_nota(api, sim, lote["emissoes"][0], documento=TOMADOR_CNPJ, valor="1000.00")
     assert doc.dps("serv/cServ/cTribNac") == "010101" and doc.dps("valores/trib/tribMun/tpRetISSQN") == "2"
     assert doc.t("valores/vTotalRet") == "20.00" and doc.t("valores/vLiq") == "980.00"
-    assert doc.dps("IBSCBS/valores/trib/gIBSCBS/cClassTrib") == "000001"
+    assert doc.dps("IBSCBS/valores/trib/cClassTrib") == "000001"
 
     nota = {"nome": "PESSOA FISICA", "documento": "529.982.247-25", "valor": "77,10", "descricao": "parecer avulso"}
     for extra, c_trib in (({}, "171901"), ({"tributacao": {"c_trib_nac": "020101"}}, "020101")):

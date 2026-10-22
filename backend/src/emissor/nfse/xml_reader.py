@@ -180,7 +180,7 @@ def _padroes_ibscbs(d: NFSeDoc) -> dict:
     if d.dps("IBSCBS/cIndOp") is None:
         return {}
     padroes = {"ibscbs": True, "ibscbs_c_ind_op": d.dps("IBSCBS/cIndOp"), "ibscbs_ind_final": d.dps("IBSCBS/indFinal")}
-    c_class = d.dps("IBSCBS/valores/trib/gIBSCBS/cClassTrib")
+    c_class = d.dps("IBSCBS/valores/trib/gIBSCBS/cClassTrib") or d.dps("IBSCBS/valores/trib/cClassTrib")
     if c_class:
         padroes["ibscbs_c_class_trib"] = c_class
     return padroes
