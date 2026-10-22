@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
+from zoneinfo import ZoneInfo
 
 NS_NFSE = "http://www.sped.fazenda.gov.br/nfse"
 NS_DSIG = "http://www.w3.org/2000/09/xmldsig#"
@@ -41,7 +43,16 @@ class Ambiente(StrEnum):
 
 
 # Pasta do XSD (``xsd/<pasta>``) usada em cada ambiente. A NT 009 (finNFSe em infDPS, CST/cClassTrib em
-# IBSCBS/valores/trib, vAjusteBC) entrou na Produção Restrita em 20/10/2026; na Produção ainda não tem data. Quando
-# entrar, trocar a Produção para "v1_01_nt009" (o builder e o XSD seguem esta tabela).
-LEIAUTE_POR_AMBIENTE = {Ambiente.PRODUCAO: "v1_01", Ambiente.HOMOLOGACAO: "v1_01_nt009"}
+# IBSCBS/valores/trib, vAjusteBC) entrou na Produção Restrita em 20/10/2026 e entra na Produção em 01/12/2026
+# (comunicado do CGNFS-e de 20/10/2026: o leiaute atual vale até 30/11/2026). O builder e o XSD seguem ``leiaute()``.
+LEIAUTE_ANTERIOR = "v1_01"
 LEIAUTE_NT009 = "v1_01_nt009"
+INICIO_NT009_PRODUCAO = datetime(2026, 12, 1, tzinfo=ZoneInfo("America/Sao_Paulo"))
+
+
+def leiaute(ambiente: Ambiente, quando: datetime | None = None) -> str:
+    """Pasta do XSD do ambiente na data ``quando`` (com fuso; sem ela, agora). A homologação já está toda na NT 009."""
+    if ambiente is Ambiente.HOMOLOGACAO:
+        return LEIAUTE_NT009
+    quando = quando or datetime.now(ZoneInfo("America/Sao_Paulo"))
+    return LEIAUTE_NT009 if quando >= INICIO_NT009_PRODUCAO else LEIAUTE_ANTERIOR

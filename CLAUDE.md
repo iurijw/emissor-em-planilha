@@ -25,8 +25,9 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
   tem os passos "Dados da empresa" e "Tributação padrão". Só tela: a tributação padrão continua em `config.fiscal`.
 - **Leiaute da NT 009 na Produção Restrita (2026-10-22):** desde 20/10/2026 a Produção Restrita usa o pacote
   `esquemas_prod_restrita_20261020` (NT 009). A DPS de homologação sai nesse leiaute (XSD em `nfse/xsd/v1_01_nt009/`)
-  e a de produção continua no anterior (`nfse/xsd/v1_01/`); a tabela `LEIAUTE_POR_AMBIENTE` em `nfse/constants.py`
-  decide. Quando a NT 009 entrar em Produção, trocar ali a Produção para `v1_01_nt009`.
+  e a de produção continua no anterior (`nfse/xsd/v1_01/`) até 30/11/2026. A Produção passa **sozinha** à NT 009 em
+  01/12/2026 00:00 (comunicado do CGNFS-e de 20/10/2026): `leiaute(ambiente, quando)` em `nfse/constants.py` decide pelo
+  `dhEmi` da DPS (`INICIO_NT009_PRODUCAO`). Antes de 01/12, conferir o pacote de produção contra `v1_01_nt009`.
 - Se a Sefin rejeitar a assinatura da DPS, trocar `C14N` em `backend/src/emissor/nfse/signer.py` para C14N 1.0
   inclusiva e registrar aqui.
 - Ambientes: o sistema alterna entre **Produção Restrita (homologação)** e **Produção** nas configurações.
@@ -284,8 +285,8 @@ Pendências conhecidas:
   sem data. O que o pacote mudou e o sistema já trata na homologação: `finNFSe` obrigatório em `infDPS` (sai do grupo
   IBSCBS), `CST`/`cClassTrib` em `IBSCBS/valores/trib`, `xDescServ` no fim de `cServ`, `vDedRed`/`gReeRepRes` →
   `vAjusteBC` (e `vCalcDR`/`vCalcReeRepRes` → `vCalcAjusteBCISSQN`/`vCalcAjusteBCIBSCBS` na NFS-e). `indDest`/`dest`
-  continuaram no grupo IBSCBS, e `regApIBSCBSSN`, `cAtvSN` e `opSimpNac=4` ainda não estão no XSD. Quando entrar em
-  Produção: trocar `LEIAUTE_POR_AMBIENTE` (ver Status) e conferir o pacote de produção contra `v1_01_nt009`.
+  continuaram no grupo IBSCBS, e `regApIBSCBSSN`, `cAtvSN` e `opSimpNac=4` ainda não estão no XSD. Produção em
+  01/12/2026 (troca automática, ver Status); conferir antes o pacote de produção contra `v1_01_nt009`.
 - Frontend sem testes automatizados (verificado manualmente no navegador); backend com testes pytest.
 
 ### Eventos: cancelamento e situação pelo ADN (F6, 2026-10-09)
@@ -636,3 +637,4 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-12 | Alíquotas e retenções em % na tributação; pAliq do ISS só onde a Sefin exige; aviso "manter ou alterar" a cada emissão com ISS retido, que o operador pode responder | Pedido do Iuri: a alíquota efetiva do Simples muda todo mês; tributos federais informados mesmo sem retenção |
 | 2026-10-13 | Página "ligando o sistema" por service worker, sem guardar o app em cache | Pedido do Iuri: na hospedagem a máquina dorme sem uso e o primeiro acesso ficava em branco; o service worker é o único jeito grátis de mostrar algo antes de o servidor responder |
 | 2026-10-22 | Dois leiautes ao mesmo tempo: NT 009 (`xsd/v1_01_nt009`) na homologação e o anterior (`xsd/v1_01`) na produção, escolhidos por `LEIAUTE_POR_AMBIENTE` | A Produção Restrita passou à NT 009 em 20/10/2026 (finNFSe obrigatório em infDPS: a DPS antiga é recusada no XSD) e a Produção ainda não tem data |
+| 2026-10-22 | Produção troca sozinha para a NT 009 em 01/12/2026 00:00 (pelo `dhEmi` da DPS; `leiaute()` substitui `LEIAUTE_POR_AMBIENTE`), publicada antes da data | Data do comunicado do CGNFS-e de 20/10/2026; não depender de uma versão publicada na noite da troca |
