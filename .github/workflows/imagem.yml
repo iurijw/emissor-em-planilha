@@ -1,12 +1,15 @@
 # Publica a imagem Docker do Emissor em Planilha no GitHub Container Registry.
 # Usada pela hospedagem (uma instância por cliente) e por quem preferir baixar a imagem pronta:
 #   docker pull ghcr.io/iurijw/emissor-em-planilha:latest
+# PRs geram a imagem :pr-N e movem a :dev, que a instância de testes da hospedagem (canal dev) segue para conferir
+# a mudança antes da release; cada release também move a :dev. A :latest continua saindo só da main.
 name: Imagem Docker
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -19,6 +22,8 @@ concurrency:
 
 jobs:
   publicar:
+    # PR de fork não publica (o token não escreve no ghcr.io e o código não foi revisado).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,9 +37,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
-          # main -> latest e sha-<commit>; tag v1.2.3 -> 1.2.3 e 1.2
+          # main -> latest e sha-<commit>; tag v1.2.3 -> 1.2.3, 1.2 e dev; PR n -> pr-n e dev
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=pr
+            type=raw,value=dev,enable=${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') }}
             type=sha,prefix=sha-,format=short
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

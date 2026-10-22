@@ -416,7 +416,7 @@ emissor-em-planilha/
 ├─ CLAUDE.md, README.md
 ├─ iniciar.bat               # Windows: instala/atualiza o que faltar e executa
 ├─ Dockerfile, docker-compose.yaml   # alternativa: Docker (dados em ./data)
-├─ .github/workflows/imagem.yml      # publica a imagem em ghcr.io (usada pela hospedagem)
+├─ .github/workflows/imagem.yml      # publica a imagem em ghcr.io (usada pela hospedagem); PR → :pr-N e :dev
 ├─ .github/workflows/versao.yml      # "Publicar versão" (manual): release vX.Y.Z + imagem :X.Y.Z
 ├─ docs/                     # NT 008; guia.md (manual completo); img/ e video/ (dados fictícios)
 ├─ backend/                  # projeto uv (Python 3.12)
@@ -638,3 +638,4 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-13 | Página "ligando o sistema" por service worker, sem guardar o app em cache | Pedido do Iuri: na hospedagem a máquina dorme sem uso e o primeiro acesso ficava em branco; o service worker é o único jeito grátis de mostrar algo antes de o servidor responder |
 | 2026-10-22 | Dois leiautes ao mesmo tempo: NT 009 (`xsd/v1_01_nt009`) na homologação e o anterior (`xsd/v1_01`) na produção, escolhidos por `LEIAUTE_POR_AMBIENTE` | A Produção Restrita passou à NT 009 em 20/10/2026 (finNFSe obrigatório em infDPS: a DPS antiga é recusada no XSD) e a Produção ainda não tem data |
 | 2026-10-22 | Produção troca sozinha para a NT 009 em 01/12/2026 00:00 (pelo `dhEmi` da DPS; `leiaute()` substitui `LEIAUTE_POR_AMBIENTE`), publicada antes da data | Data do comunicado do CGNFS-e de 20/10/2026; não depender de uma versão publicada na noite da troca |
+| 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
