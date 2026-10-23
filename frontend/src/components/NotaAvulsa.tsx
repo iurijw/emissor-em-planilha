@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, dadosTributacao, type Cliente, type DadosTributacao } from "../api";
 import { documentoValido, formatarDocumento, moeda, parseValor, soDocumento } from "../format";
+import { BotaoVariaveis, PreviaDescricao } from "./Variaveis";
 import { EmissaoFluxo, type CorpoAvulsa } from "../pages/EmissaoFluxo";
 import { Gaveta } from "../ui";
 import { useTributacoes } from "./Abas";
@@ -134,6 +135,11 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
               <label className="campo largo">
                 <span>Descrição do serviço</span>
                 <textarea rows={4} value={descricao} maxLength={2000} onChange={(e) => setDescricao(e.target.value)} />
+                <PreviaDescricao texto={descricao} />
+                <small>
+                  Aceita variáveis como <span className="num">{"{mes}"}</span> e <span className="num">{"{ano}"}</span>.{" "}
+                  <BotaoVariaveis className="btn-texto" />
+                </small>
               </label>
             </div>
           </section>

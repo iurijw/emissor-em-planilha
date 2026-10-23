@@ -48,7 +48,7 @@ from emissor.nfse.models import (
 )
 from emissor.nfse.tributos import calcular as calcular_tributos
 from emissor.nfse.xml_reader import NFSeDoc
-from emissor.services import arquivos
+from emissor.services import arquivos, variaveis
 from emissor.services import certificado as cert_service
 from emissor.services import tributacao as trib_service
 from emissor.services.clientes import para_tomador
@@ -91,6 +91,7 @@ def validar_linhas(
     """Erros e avisos de cada linha. Linhas sem aba (nota avulsa) usam ``tributacao_avulsa`` (None = padrões)."""
     res = []
     inicio_mes = agora().replace(day=1, hour=0, minute=0, second=0)
+    hoje = agora().date()
     abas = {a.id: a for a in trib_service.garantir_abas(s)}
     exclusivos = trib_service.clientes_exclusivos(list(abas.values()))
     erros_aba = _erros_tributacao_abas(s, list(abas.values()))
@@ -125,10 +126,16 @@ def validar_linhas(
         valor = _valor(ln.valor)
         if valor is None:
             v.erros.append(f"Valor inválido ou zerado: {ln.valor!r}.")
-        if not (ln.descricao or "").strip():
+        descricao = variaveis.substituir(ln.descricao or "", hoje)
+        if not descricao.strip():
             v.erros.append("Descrição do serviço não informada.")
-        elif len(ln.descricao) > 2000:
-            v.erros.append(f"Descrição com {len(ln.descricao)} caracteres (máximo 2000).")
+        elif len(descricao) > 2000:
+            v.erros.append(f"Descrição com {len(descricao)} caracteres (máximo 2000).")
+        for nome in variaveis.desconhecidas(ln.descricao or ""):
+            v.erros.append(
+                f"A descrição tem {nome}, que não é uma variável conhecida. "
+                f"Use {', '.join(i['valor'] for i in variaveis.lista())}."
+            )
         if doc and aba is not None:
             dona = exclusivos.get(doc)
             if aba.clientes() and doc not in aba.clientes():
@@ -501,7 +508,7 @@ class EmissionWorker:
             config=aplicar_tributacao(fiscal, e.tributacao()),
             tomador=para_tomador(cli, e.tomador_documento, e.tomador_nome),
             valor=Decimal(e.valor),
-            descricao=e.descricao,
+            descricao=variaveis.substituir(e.descricao, dh.date()),
         )
         try:
             id_dps, xml = preparar_dps(inp, cert)
@@ -528,6 +535,7 @@ class EmissionWorker:
             reg.id_dps = id_dps
             reg.dps_path = arquivos.relativo(caminho)
             reg.dh_emissao = para_local(dh)
+            reg.descricao = inp.descricao  # o texto que foi na nota (variáveis trocadas)
             reg.atualizado_em = agora()
             s.add_all([cfg, reg])
             s.commit()

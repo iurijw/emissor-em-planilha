@@ -32,6 +32,7 @@ from emissor.nfse.xml_reader import NFSeDoc, NfseXmlError, extrair_padroes, extr
 from emissor.services import certificado as cert_service
 from emissor.services import clientes as cli_service
 from emissor.services import tributacao as trib_service
+from emissor.services import variaveis
 from emissor.services.emissao import verificar_prontidao, worker
 
 log = logging.getLogger(__name__)
@@ -317,6 +318,7 @@ def opcoes() -> dict[str, Any]:
         "ibscbs_c_class_trib": lista(codes.C_CLASS_TRIB_SUGESTOES),
         "ibscbs_ind_final": lista(codes.IND_FINAL),
         "ambiente": [{"valor": a.value, "descricao": a.descricao} for a in Ambiente],
+        "variaveis_descricao": variaveis.lista(),
     }
 
 

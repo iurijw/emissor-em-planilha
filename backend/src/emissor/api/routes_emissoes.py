@@ -23,6 +23,7 @@ from emissor.db import Emissao, EventoNFSe, Lote, sessao
 from emissor.nfse.models import normalizar_documento
 from emissor.services import arquivos
 from emissor.services import eventos as eventos_service
+from emissor.services import relatorio as relatorio_service
 from emissor.services.emissao import criar_lote, verificar_na_sefin, worker
 
 # Notas que existem na Sefin e têm XML/PDF para baixar.
@@ -77,17 +78,9 @@ def cancelar_lote(lote_id: str, acesso: UsuarioAtual) -> dict[str, Any]:
 # --- emissões -------------------------------------------------------------------------------------
 
 
-@router.get("/emissoes")
-def listar_emissoes(
-    status: str | None = None,
-    ambiente: str | None = None,
-    de: date | None = None,
-    ate: date | None = None,
-    q: str | None = None,
-    lote_id: str | None = None,
-    pagina: int = 1,
-    por_pagina: int = 50,
-) -> dict[str, Any]:
+def _filtros(
+    status: str | None, ambiente: str | None, de: date | None, ate: date | None, q: str | None, lote_id: str | None
+) -> list:
     filtros = []
     if status:
         filtros.append(Emissao.status.in_(status.split(",")))
@@ -111,6 +104,21 @@ def listar_emissoes(
                 Emissao.descricao.ilike(termo),
             )
         )
+    return filtros
+
+
+@router.get("/emissoes")
+def listar_emissoes(
+    status: str | None = None,
+    ambiente: str | None = None,
+    de: date | None = None,
+    ate: date | None = None,
+    q: str | None = None,
+    lote_id: str | None = None,
+    pagina: int = 1,
+    por_pagina: int = 50,
+) -> dict[str, Any]:
+    filtros = _filtros(status, ambiente, de, ate, q, lote_id)
     por_pagina = max(1, min(por_pagina, 500))
     with sessao() as s:
         total = s.exec(select(func.count()).select_from(Emissao).where(*filtros)).one()
@@ -129,6 +137,46 @@ def listar_emissoes(
         "por_pagina": por_pagina,
         "valor_autorizado": f"{sum(float(v) for v in soma):.2f}",
     }
+
+
+@router.get("/emissoes/relatorio")
+def relatorio(
+    status: str | None = None,
+    ambiente: str | None = None,
+    de: date | None = None,
+    ate: date | None = None,
+    q: str | None = None,
+    lote_id: str | None = None,
+    formato: str = "xlsx",
+) -> Response:
+    """Planilha das notas filtradas (as mesmas da aba Emissões), uma linha por nota com ISS, retenções e líquido.
+    Só entram notas com XML (autorizadas, canceladas e substituídas)."""
+    if formato not in ("xlsx", "csv"):
+        raise HTTPException(400, "Formato deve ser xlsx ou csv.")
+    filtros = _filtros(status, ambiente, de, ate, q, lote_id)
+    with sessao() as s:
+        emissoes = s.exec(
+            select(Emissao)
+            .where(*filtros, Emissao.status.in_(COM_ARQUIVOS))
+            .order_by(Emissao.id)
+            .limit(relatorio_service.MAX_NOTAS + 1)
+        ).all()
+    if len(emissoes) > relatorio_service.MAX_NOTAS:
+        raise HTTPException(
+            400, f"São mais de {relatorio_service.MAX_NOTAS} notas: filtre por um período menor para o relatório."
+        )
+    if not emissoes:
+        raise HTTPException(400, "Nenhuma nota autorizada nos filtros escolhidos.")
+    linhas = relatorio_service.linhas(emissoes)
+    periodo = f"{de:%Y%m%d}-{ate:%Y%m%d}" if de and ate else f"{datetime.now():%Y%m%d-%H%M}"
+    nome = f"notas-nfse-{periodo}"
+    if formato == "csv":
+        return _anexo(f"{nome}.csv", relatorio_service.csv_bytes(linhas), "text/csv; charset=utf-8")
+    return _anexo(
+        f"{nome}.xlsx",
+        relatorio_service.xlsx_bytes(linhas),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 def _emissao(emissao_id: int) -> Emissao:
