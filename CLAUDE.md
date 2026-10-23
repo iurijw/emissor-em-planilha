@@ -213,7 +213,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET/POST /api/abas`, `PUT/DELETE /api/abas/{id}`; `aba_id` em `GET/PUT /api/tabela`, importar e exportar | abas da tabela |
 | `POST /api/avulsa/validar`, `POST /api/avulsa` | nota avulsa |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
-| `GET /api/emissoes/relatorio?formato=xlsx\|csv&resumo=` (mesmos filtros da lista) | notas e resumo do mês em planilha |
+| `GET /api/emissoes/relatorio?formato=xlsx\|csv` (mesmos filtros da lista) | planilha das notas filtradas |
 | `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip`, `POST /api/emissoes/{id}/verificar` | emissões |
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
@@ -391,7 +391,7 @@ mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliqu
   `test_listas_de_codigos_iguais_ao_xsd` compara cada lista de `codes.py` com o tipo enumerado do XSD (lista nova →
   acrescentar lá; `C_IND_OP` é um recorte proposital do Anexo C).
 
-### Variáveis na descrição e relatório do mês (2026-10-23)
+### Variáveis na descrição e planilha das notas (2026-10-23)
 
 - **Variáveis** (`services/variaveis.py`): `{mes}`, `{mes_numero}`, `{ano}`, `{competencia}`, `{mes_anterior}`,
   `{mes_anterior_numero}`, `{ano_mes_anterior}`, `{competencia_anterior}`, `{data}`; nome sem acento e sem diferença de
@@ -400,11 +400,10 @@ mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliqu
   Variável desconhecida é **erro** na validação (texto entre chaves que não é variável também). A lista vai em
   `GET /api/config/opcoes` (`variaveis_descricao`, com o exemplo de hoje); a tela repete a troca para a prévia
   (`components/Variaveis.tsx`), então mudar a regra de caixa exige mudar os dois.
-- **Relatório** (`services/relatorio.py`, `GET /api/emissoes/relatorio?formato=xlsx|csv` com os filtros da lista):
-  valores lidos do XML autorizado (`vBC`, `pAliqAplic`, `vISSQN`, `vTotalRet`, `vLiq`, retenções federais; PIS/COFINS só
-  quando retidos, por `RETENCOES_PIS_COFINS`). Aba Resumo por ambiente e competência (homologação e produção nunca se
-  somam; canceladas/substituídas fora dos totais) e aba Notas; `resumo=false` (botão "Exportar notas") traz só a aba
-  Notas; CSV só com as notas. Até 20.000 notas por relatório.
+- **Planilha das notas** (`services/relatorio.py`, `GET /api/emissoes/relatorio?formato=xlsx|csv` com os filtros da
+  lista; botão "Exportar notas (Excel)"): uma linha por nota, valores lidos do XML autorizado (`vBC`, `pAliqAplic`,
+  `vISSQN`, `vTotalRet`, `vLiq`, retenções federais; PIS/COFINS só quando retidos, por `RETENCOES_PIS_COFINS`);
+  canceladas/substituídas em cinza. Até 20.000 notas. Um resumo por competência foi feito e retirado a pedido do Iuri.
 
 ### Padrões que o onboarding extrai dos XMLs
 
@@ -565,7 +564,7 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 - **F5 — Verificação** (em andamento): testes ponta a ponta no navegador; testes manuais em
   homologação; ajustes; liberação de produção.
 - **F6 — Futuro (em andamento):** ✅ cancelamento de NFS-e e situação pelo ADN (2026-10-09); ✅ grupo IBS/CBS,
-  tributações, abas e nota avulsa (2026-10-11); ✅ variáveis na descrição e relatório do mês (2026-10-23); importar notas emitidas fora do sistema (a distribuição por NSU já é lida —
+  tributações, abas e nota avulsa (2026-10-11); ✅ variáveis na descrição e planilha das notas (2026-10-23); importar notas emitidas fora do sistema (a distribuição por NSU já é lida —
   hoje só os eventos de notas do sistema são aplicados).
 
 ## Convenções
@@ -655,5 +654,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-22 | Dois leiautes ao mesmo tempo: NT 009 (`xsd/v1_01_nt009`) na homologação e o anterior (`xsd/v1_01`) na produção, escolhidos por `LEIAUTE_POR_AMBIENTE` | A Produção Restrita passou à NT 009 em 20/10/2026 (finNFSe obrigatório em infDPS: a DPS antiga é recusada no XSD) e a Produção ainda não tem data |
 | 2026-10-22 | Produção troca sozinha para a NT 009 em 01/12/2026 00:00 (pelo `dhEmi` da DPS; `leiaute()` substitui `LEIAUTE_POR_AMBIENTE`), publicada antes da data | Data do comunicado do CGNFS-e de 20/10/2026; não depender de uma versão publicada na noite da troca |
 | 2026-10-23 | Variáveis na descrição trocadas na montagem da DPS; variável desconhecida bloqueia a linha | Pedido do Iuri (estudo de funções): evita editar a tabela todo mês; um "{mes_atua}" impresso na nota seria pior que um erro |
-| 2026-10-23 | Relatório do mês lido do XML autorizado, com resumo por ambiente e competência | Pedido do Iuri: o valor que vale é o que a Sefin calculou; homologação não pode inflar o total de produção |
+| 2026-10-23 | Planilha das notas filtradas (uma linha por nota) lida do XML autorizado, sem aba de resumo | Pedido do Iuri: o valor que vale é o que a Sefin calculou; o resumo por competência não era necessário |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

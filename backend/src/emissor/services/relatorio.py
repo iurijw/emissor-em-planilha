@@ -1,8 +1,7 @@
-"""Relatório das emissões em planilha: uma linha por nota (ISS, retenções e líquido lidos do XML da NFS-e) e o
-resumo por competência, para conferir e fechar o mês.
+"""Planilha das emissões filtradas: uma linha por nota, com ISS, retenções e líquido lidos do XML da NFS-e.
 
 Os valores vêm do XML autorizado (o que a Sefin calculou), não da tabela. Notas canceladas ou substituídas aparecem
-na lista com a situação, mas ficam fora dos totais.
+com a situação, em cinza.
 """
 
 from __future__ import annotations
@@ -59,8 +58,8 @@ class LinhaRelatorio:
     tributacao: str
     ambiente: str
     chave: str
-    conta: bool  # entra nos totais (autorizada)
-    ordem: str  # AAAAMM, para ordenar o resumo
+    conta: bool  # autorizada (canceladas e substituídas saem em cinza)
+    ordem: str  # AAAAMM, para ordenar
 
     @property
     def iss_retido_valor(self) -> Decimal:
@@ -201,85 +200,6 @@ def _valores(r: LinhaRelatorio) -> list:
     ]
 
 
-@dataclass
-class Resumo:
-    competencia: str
-    ambiente: str
-    notas: int = 0
-    valor: Decimal = ZERO
-    iss: Decimal = ZERO
-    iss_retido: Decimal = ZERO
-    federais: Decimal = ZERO
-    total_retido: Decimal = ZERO
-    liquido: Decimal = ZERO
-    canceladas: int = 0
-    valor_canceladas: Decimal = ZERO
-
-    def somar(self, r: LinhaRelatorio) -> None:
-        if not r.conta:
-            self.canceladas += 1
-            self.valor_canceladas += r.valor
-            return
-        self.notas += 1
-        self.valor += r.valor
-        self.iss += r.iss or ZERO
-        self.iss_retido += r.iss_retido_valor
-        self.federais += r.irrf + r.csll + r.inss + r.pis + r.cofins
-        self.total_retido += r.total_retido
-        self.liquido += r.liquido
-
-    def valores(self) -> list:
-        return [
-            self.competencia,
-            self.ambiente,
-            self.notas,
-            self.valor,
-            self.iss,
-            self.iss_retido,
-            self.federais,
-            self.total_retido,
-            self.liquido,
-            self.canceladas,
-            self.valor_canceladas,
-        ]
-
-
-COLUNAS_RESUMO = [
-    ("Competência", 14),
-    ("Ambiente", 13),
-    ("Notas autorizadas", 12),
-    ("Valor dos serviços", 17),
-    ("ISS", 15),
-    ("ISS retido pelo tomador", 15),
-    ("Retenções federais", 15),
-    ("Total retido", 15),
-    ("Valor líquido", 17),
-    ("Canceladas/substituídas", 14),
-    ("Valor cancelado", 15),
-]
-
-
-def resumo(rs: list[LinhaRelatorio]) -> list[Resumo]:
-    """Uma linha por ambiente e competência; com mais de uma competência, o total do ambiente (homologação e
-    produção nunca se somam)."""
-    por: dict[tuple[str, str], Resumo] = {}
-    for r in rs:
-        por.setdefault((r.ambiente != "Produção", r.ordem), Resumo(r.competencia, r.ambiente)).somar(r)
-    res: list[Resumo] = []
-    for amb in sorted({k[0] for k in por}):
-        itens = [por[k] for k in sorted(por) if k[0] == amb]
-        res += itens
-        if len(itens) > 1:
-            total = Resumo("Total", itens[0].ambiente)
-            for i in itens:
-                total.notas += i.notas
-                total.canceladas += i.canceladas
-                for campo in ("valor", "iss", "iss_retido", "federais", "total_retido", "liquido", "valor_canceladas"):
-                    setattr(total, campo, getattr(total, campo) + getattr(i, campo))
-            res.append(total)
-    return res
-
-
 def _cabecalho(ws, colunas: list[tuple[str, int]]) -> None:
     ws.append([c for c, _ in colunas])
     for c in ws[1]:
@@ -294,24 +214,10 @@ def _cabecalho(ws, colunas: list[tuple[str, int]]) -> None:
 MOEDA = '"R$" #,##0.00'
 
 
-def xlsx_bytes(rs: list[LinhaRelatorio], com_resumo: bool = True) -> bytes:
-    """Aba Notas (uma linha por nota); com ``com_resumo``, a aba Resumo vem antes dela."""
+def xlsx_bytes(rs: list[LinhaRelatorio]) -> bytes:
     wb = Workbook()
-    if com_resumo:
-        ws = wb.active
-        ws.title = "Resumo"
-        _cabecalho(ws, COLUNAS_RESUMO)
-        for item in resumo(rs):
-            ws.append(item.valores())
-            for col in (4, 5, 6, 7, 8, 9, 11):
-                ws.cell(row=ws.max_row, column=col).number_format = MOEDA
-            if item.competencia == "Total":
-                for c in ws[ws.max_row]:
-                    c.font = Font(bold=True)
-        wn = wb.create_sheet("Notas")
-    else:
-        wn = wb.active
-        wn.title = "Notas"
+    wn = wb.active
+    wn.title = "Notas"
     _cabecalho(wn, COLUNAS)
     for r in rs:
         wn.append(_valores(r))

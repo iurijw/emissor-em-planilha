@@ -469,29 +469,23 @@ def test_variaveis_na_descricao_e_relatorio(api, sim, pfx_bytes, nfse_exemplo_by
     linha = api.get("/api/tabela", params={"aba_id": aba["id"]}).json()["linhas"][0]
     assert linha["descricao"] == "Serviço {MES}"
 
-    # Relatório: retenção e líquido lidos do XML; a nota cancelada sai dos totais.
+    # Planilha das notas: retenção e líquido lidos do XML; a cancelada aparece com a situação.
     api.post(f"/api/emissoes/{outra['id']}/cancelar", json={"c_motivo": "2", "x_motivo": "Serviço não prestado"})
     r = api.get("/api/emissoes/relatorio")
     assert r.status_code == 200, r.text
+    assert 'filename="notas-nfse-' in r.headers["content-disposition"]
     wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["Notas"]
     notas = list(wb["Notas"].iter_rows(values_only=True))
     cab = notas[0]
-    linhas_rel = {ln[cab.index("Nº NFS-e")]: dict(zip(cab, ln, strict=True)) for ln in notas[1:]}
+    linhas_rel = [dict(zip(cab, ln, strict=True)) for ln in notas[1:]]
     assert len(linhas_rel) == 2
-    retida = next(ln for ln in linhas_rel.values() if ln["CNPJ/CPF"] == formatar_documento(TOMADOR_CNPJ))
+    retida = next(ln for ln in linhas_rel if ln["CNPJ/CPF"] == formatar_documento(TOMADOR_CNPJ))
     assert retida["Situação"] == "Autorizada"
     assert retida["IRRF retido"] == 3 and retida["ISS retido pelo tomador"] == 4
     assert retida["Total retido"] == 7 and retida["Valor líquido"] == 193
-    resumo = list(wb["Resumo"].iter_rows(values_only=True))
-    assert len(resumo) == 2  # uma competência
-    item = dict(zip(resumo[0], resumo[1], strict=True))
-    assert item["Notas autorizadas"] == 1 and item["Valor dos serviços"] == 200 and item["Valor líquido"] == 193
-    assert item["Canceladas/substituídas"] == 1 and item["Valor cancelado"] == 300
-    # Só as notas do filtro, sem o resumo.
-    r = api.get("/api/emissoes/relatorio", params={"resumo": False, "status": "autorizada"})
-    wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Notas"] and wb["Notas"].max_row == 2
-    assert 'filename="notas-nfse-' in r.headers["content-disposition"]
+    cancelada = next(ln for ln in linhas_rel if ln["CNPJ/CPF"] == formatar_documento(TOMADOR_CPF))
+    assert cancelada["Situação"] == "Cancelada" and cancelada["Valor do serviço"] == 300
     assert api.get("/api/emissoes/relatorio", params={"status": "rejeitada"}).status_code == 400
     assert api.get("/api/emissoes/relatorio", params={"formato": "pdf"}).status_code == 400
 

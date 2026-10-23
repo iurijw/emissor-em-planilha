@@ -62,12 +62,11 @@ export function Emissoes() {
     });
   }
 
-  async function baixarRelatorio(comResumo: boolean) {
+  async function baixarNotas() {
     const p = new URLSearchParams(params);
     p.delete("pagina");
     p.delete("por_pagina");
-    p.set("resumo", String(comResumo));
-    setBaixando(comResumo ? "relatorio" : "notas");
+    setBaixando("notas");
     try {
       await baixar(`/api/emissoes/relatorio?${p}`);
     } catch (e) {
@@ -105,17 +104,9 @@ export function Emissoes() {
               className="btn btn--pequeno"
               disabled={!!baixando}
               title="Uma linha por nota deste filtro, com ISS, retenções e valor líquido"
-              onClick={() => baixarRelatorio(false)}
+              onClick={baixarNotas}
             >
               {baixando === "notas" && <Spinner />} Exportar notas (Excel)
-            </button>
-            <button
-              className="btn btn--pequeno"
-              disabled={!!baixando}
-              title="Resumo por competência das notas deste filtro, com a lista das notas numa segunda aba"
-              onClick={() => baixarRelatorio(true)}
-            >
-              {baixando === "relatorio" && <Spinner />} Resumo do mês
             </button>
           </div>
         )}
