@@ -130,7 +130,30 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
           <section>
             <h3 className="secao-titulo">Tomador</h3>
             <div className="grade-form">
-              <label className="campo largo" style={{ position: "relative" }}>
+              <label className={`campo ${docInvalido ? "campo--erro" : ""}`}>
+                <span>CNPJ / CPF</span>
+                <input className="num" autoFocus value={formatarDocumento(documento)} onChange={(e) => setDocumento(soDocumento(e.target.value))} />
+                {docInvalido ? (
+                  <small className="campo__erro">CNPJ/CPF inválido.</small>
+                ) : (
+                  <small>
+                    {cadastro
+                      ? cadastro.endereco_completo
+                        ? "Cliente cadastrado, com endereço."
+                        : "Cadastro sem endereço: a nota sai sem o endereço."
+                      : consultaAtual?.estado === "buscando"
+                        ? "Buscando a empresa na Receita…"
+                        : consultaAtual?.estado === "falhou"
+                          ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."} A nota sai sem o endereço; complete em Clientes.`
+                          : documento.length === 11
+                            ? "CPF sem cadastro: a nota sai sem o endereço. Complete em Clientes."
+                            : documento
+                              ? "Sem cadastro: a nota sai sem o endereço."
+                              : " "}
+                  </small>
+                )}
+              </label>
+              <label className="campo" style={{ position: "relative" }}>
                 <span>Nome da empresa</span>
                 <input
                   value={nome}
@@ -138,7 +161,6 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                   onFocus={() => setFocoNome(true)}
                   onBlur={() => window.setTimeout(() => setFocoNome(false), 150)}
                   placeholder="Digite para buscar no cadastro"
-                  autoFocus
                 />
                 {sugestoes.length > 0 && (
                   <ul className="lista-clientes lista-clientes--sugestoes lista-clientes--flutuante">
@@ -168,30 +190,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                       : "Nenhum cliente cadastrado com esse nome. Informe o CNPJ/CPF para emitir."}
                   </small>
                 ) : (
-                  <small>Em branco, usa o nome do cadastro ou, para CNPJ novo, o da Receita.</small>
-                )}
-              </label>
-              <label className={`campo ${docInvalido ? "campo--erro" : ""}`}>
-                <span>CNPJ / CPF</span>
-                <input className="num" value={formatarDocumento(documento)} onChange={(e) => setDocumento(soDocumento(e.target.value))} />
-                {docInvalido ? (
-                  <small className="campo__erro">CNPJ/CPF inválido.</small>
-                ) : (
-                  <small>
-                    {cadastro
-                      ? cadastro.endereco_completo
-                        ? "Cliente cadastrado, com endereço."
-                        : "Cadastro sem endereço: a nota sai sem o endereço."
-                      : consultaAtual?.estado === "buscando"
-                        ? "Buscando a empresa na Receita…"
-                        : consultaAtual?.estado === "falhou"
-                          ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."} A nota sai sem o endereço; complete em Clientes.`
-                          : documento.length === 11
-                            ? "CPF sem cadastro: a nota sai sem o endereço. Complete em Clientes."
-                            : documento
-                              ? "Sem cadastro: a nota sai sem o endereço."
-                              : " "}
-                  </small>
+                  <small>Em branco, vem do cadastro ou da Receita.</small>
                 )}
               </label>
               <label className="campo">
