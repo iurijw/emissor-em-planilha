@@ -283,6 +283,7 @@ export interface Config {
 export interface Opcao {
   valor: string;
   descricao: string;
+  exemplo?: string; // variaveis_descricao: como a variável sai hoje
 }
 export type Opcoes = Record<string, Opcao[]>;
 

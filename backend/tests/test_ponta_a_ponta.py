@@ -17,18 +17,22 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from lxml import etree
+from openpyxl import load_workbook
 
 from emissor import auth
 from emissor.api.app import create_app
+from emissor.db import agora
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient, gzip_b64, ungzip_b64
 from emissor.nfse.constants import NS_NFSE
+from emissor.nfse.documentos import formatar_documento
 from emissor.nfse.signer import verificar
 from emissor.nfse.xml_reader import NFSeDoc
 from emissor.nfse.xsd import validar_dps, validar_evento, validar_nfse
 from emissor.services import clientes as clientes_service
 from emissor.services import emissao as emissao_service
 from emissor.services import eventos as eventos_service
+from emissor.services import variaveis
 
 from .conftest import ADMIN_EMAIL, ADMIN_SENHA, CNPJ_PRESTADOR, SENHA_PFX, _gerar_pfx, entrar_como_admin
 from .sefin_simulada import SefinSimulada, brasilapi_simulada, conferir_assinatura_sefin
@@ -422,6 +426,71 @@ def test_producao_usa_outro_endereco_e_outra_numeracao(api, sim, pfx_bytes, nfse
 # --- todas as rotas ---------------------------------------------------------------------------------------
 
 
+def test_variaveis_na_descricao_e_relatorio(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """A descrição sai com as variáveis trocadas pela data da emissão; o relatório soma ISS, retenções e líquido."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    _regime(api, reg_ap_trib_sn="1")
+    t = api.post(
+        "/api/tributacoes",
+        json={"nome": "Retido", "dados": {"tp_ret_issqn": "2", "p_aliq_iss": "2", "p_ret_irrf": "1,5"}},
+    ).json()
+    aba = api.post("/api/abas", json={"nome": "Retenção", "tributacao_id": t["id"]}).json()
+    texto = "Honorários de {Mês}/{ano} (ref. {mes_anterior}, {competencia_anterior})"
+    ids = _linhas(
+        api,
+        [
+            {"nome": "X", "documento": TOMADOR_CNPJ, "valor": "1000", "descricao": texto},
+            {"nome": "Y", "documento": TOMADOR_CPF, "valor": "200", "descricao": "Serviço de {mes_atual}"},
+        ],
+        aba["id"],
+    )
+    v = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["linhas"]
+    assert v[0]["erros"] == []
+    assert any("{mes_atual}" in e for e in v[1]["erros"])
+    nomes = [i["valor"] for i in api.get("/api/config/opcoes").json()["variaveis_descricao"]]
+    assert "{mes}" in nomes and "{competencia_anterior}" in nomes
+
+    ids = _linhas(
+        api, [{"nome": "Y", "documento": TOMADOR_CNPJ, "valor": "200", "descricao": "Serviço {MES}"}], aba["id"]
+    )
+    ids += _linhas(api, [{"nome": "Z", "documento": TOMADOR_CPF, "valor": "300", "descricao": texto}])
+    lote = _emitir(api, ids)
+    assert lote["contagem"] == {"autorizada": 2}, lote
+    e = lote["emissoes"][0]
+    hoje = agora().date()
+    esperado = variaveis.substituir(texto, hoje)
+    assert "{" not in esperado and variaveis.MESES[hoje.month - 1].capitalize() in esperado
+    doc = _conferir_nota(api, sim, e, documento=TOMADOR_CNPJ, valor="200.00")
+    assert doc.dps("serv/cServ/xDescServ") == f"Serviço {variaveis.MESES[hoje.month - 1].upper()}"
+    assert api.get(f"/api/emissoes/{e['id']}").json()["descricao"] == doc.dps("serv/cServ/xDescServ")
+    outra = lote["emissoes"][1]
+    assert api.get(f"/api/emissoes/{outra['id']}").json()["descricao"] == esperado
+    # A tabela continua com as variáveis, para o mês que vem.
+    linha = api.get("/api/tabela", params={"aba_id": aba["id"]}).json()["linhas"][0]
+    assert linha["descricao"] == "Serviço {MES}"
+
+    # Relatório: retenção e líquido lidos do XML; a nota cancelada sai dos totais.
+    api.post(f"/api/emissoes/{outra['id']}/cancelar", json={"c_motivo": "2", "x_motivo": "Serviço não prestado"})
+    r = api.get("/api/emissoes/relatorio")
+    assert r.status_code == 200, r.text
+    wb = load_workbook(io.BytesIO(r.content))
+    notas = list(wb["Notas"].iter_rows(values_only=True))
+    cab = notas[0]
+    linhas_rel = {ln[cab.index("Nº NFS-e")]: dict(zip(cab, ln, strict=True)) for ln in notas[1:]}
+    assert len(linhas_rel) == 2
+    retida = next(ln for ln in linhas_rel.values() if ln["CNPJ/CPF"] == formatar_documento(TOMADOR_CNPJ))
+    assert retida["Situação"] == "Autorizada"
+    assert retida["IRRF retido"] == 3 and retida["ISS retido pelo tomador"] == 4
+    assert retida["Total retido"] == 7 and retida["Valor líquido"] == 193
+    resumo = list(wb["Resumo"].iter_rows(values_only=True))
+    assert len(resumo) == 2  # uma competência
+    item = dict(zip(resumo[0], resumo[1], strict=True))
+    assert item["Notas autorizadas"] == 1 and item["Valor dos serviços"] == 200 and item["Valor líquido"] == 193
+    assert item["Canceladas/substituídas"] == 1 and item["Valor cancelado"] == 300
+    assert api.get("/api/emissoes/relatorio", params={"status": "rejeitada"}).status_code == 400
+    assert api.get("/api/emissoes/relatorio", params={"formato": "pdf"}).status_code == 400
+
+
 def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     """Chama cada rota da API pelo menos uma vez num uso completo; rota nova sem teste faz este teste falhar."""
 
@@ -530,6 +599,8 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     ok(api.get("/api/sincronizacao"))
     z = ok(api.post("/api/emissoes/zip", json={"ids": [i["id"] for i in itens], "conteudo": "ambos"}))
     assert len(zipfile.ZipFile(io.BytesIO(z.content)).namelist()) == 5  # 2 XML + 1 evento + 2 PDF
+    rel = ok(api.get("/api/emissoes/relatorio", params={"formato": "csv"}))
+    assert rel.content.decode("utf-8-sig").count("\n") == 3  # cabeçalho + 2 notas
     assert sim.rejeicoes == []
 
     # Limpeza e diagnóstico

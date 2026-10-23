@@ -62,6 +62,20 @@ export function Emissoes() {
     });
   }
 
+  async function baixarRelatorio() {
+    const p = new URLSearchParams(params);
+    p.delete("pagina");
+    p.delete("por_pagina");
+    setBaixando("relatorio");
+    try {
+      await baixar(`/api/emissoes/relatorio?${p}`);
+    } catch (e) {
+      toast((e as Error).message, "erro");
+    } finally {
+      setBaixando(null);
+    }
+  }
+
   async function baixarZip(conteudo: "xml" | "pdf" | "ambos") {
     setBaixando(conteudo);
     try {
@@ -86,6 +100,14 @@ export function Emissoes() {
               <b className="num" style={{ color: "var(--tinta)" }}>{lista.data.total}</b> emissões ·{" "}
               <b className="num" style={{ color: "var(--tinta)" }}>{moeda(lista.data.valor_autorizado)}</b> autorizados
             </span>
+            <button
+              className="btn btn--pequeno"
+              disabled={!!baixando}
+              title="Planilha das notas deste filtro com ISS, retenções e valor líquido, e o resumo por competência"
+              onClick={baixarRelatorio}
+            >
+              {baixando === "relatorio" && <Spinner />} Relatório em Excel
+            </button>
           </div>
         )}
       </div>

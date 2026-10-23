@@ -20,6 +20,7 @@ import { documentoValido, formatarDocumento, moeda, parseTSV, parseValor, soDocu
 import { AbasPlanilha, EditorAba } from "../components/Abas";
 import { EditorNomeCliente } from "../components/EditorNomeCliente";
 import { NotaAvulsa } from "../components/NotaAvulsa";
+import { BotaoVariaveis } from "../components/Variaveis";
 import { AmbChip, Dialogo, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 import { EmissaoFluxo } from "./EmissaoFluxo";
 import { ZonaArquivo } from "./Onboarding";
@@ -555,6 +556,8 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         <button className="btn btn--pequeno btn--fantasma" onClick={() => baixar(`/api/tabela/exportar?formato=csv&aba_id=${abaId ?? ""}`).catch((e) => toast(e.message, "erro"))}>
           CSV
         </button>
+        <span className="barra__sep" />
+        <BotaoVariaveis />
         {aba && aba.clientes.length > 0 && (
           <button
             className="btn btn--pequeno btn--fantasma"

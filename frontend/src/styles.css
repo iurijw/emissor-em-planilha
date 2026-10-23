@@ -124,6 +124,14 @@ a { color: var(--azul-texto); }
 .campo input:focus, .campo select:focus, .campo textarea:focus, .input:focus { outline: none; border-color: var(--azul); box-shadow: var(--foco); }
 .campo--erro input, .campo--erro select { border-color: var(--erro); }
 .campo__erro { color: var(--erro); font-size: 12px; }
+.previa-descricao span { color: var(--tinta); }
+.btn-texto {
+  border: 0; padding: 0; background: none; font: inherit; color: var(--azul-texto);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.btn-texto:focus-visible { outline: none; box-shadow: var(--foco); border-radius: 2px; }
+.tabela.variaveis td:first-child { white-space: nowrap; }
+@media (max-width: 560px) { .tabela.variaveis th:nth-child(3), .tabela.variaveis td:nth-child(3) { display: none; } }
 .grade-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 16px; }
 .grade-form .largo { grid-column: 1 / -1; }
 
