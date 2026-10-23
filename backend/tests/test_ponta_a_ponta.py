@@ -487,6 +487,11 @@ def test_variaveis_na_descricao_e_relatorio(api, sim, pfx_bytes, nfse_exemplo_by
     item = dict(zip(resumo[0], resumo[1], strict=True))
     assert item["Notas autorizadas"] == 1 and item["Valor dos serviços"] == 200 and item["Valor líquido"] == 193
     assert item["Canceladas/substituídas"] == 1 and item["Valor cancelado"] == 300
+    # Só as notas do filtro, sem o resumo.
+    r = api.get("/api/emissoes/relatorio", params={"resumo": False, "status": "autorizada"})
+    wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["Notas"] and wb["Notas"].max_row == 2
+    assert 'filename="notas-nfse-' in r.headers["content-disposition"]
     assert api.get("/api/emissoes/relatorio", params={"status": "rejeitada"}).status_code == 400
     assert api.get("/api/emissoes/relatorio", params={"formato": "pdf"}).status_code == 400
 

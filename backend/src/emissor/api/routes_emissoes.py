@@ -148,9 +148,11 @@ def relatorio(
     q: str | None = None,
     lote_id: str | None = None,
     formato: str = "xlsx",
+    resumo: bool = True,
 ) -> Response:
-    """Planilha das notas filtradas (as mesmas da aba Emissões) com ISS, retenções e líquido, e o resumo por
-    competência. Só entram notas com XML (autorizadas, canceladas e substituídas)."""
+    """Planilha das notas filtradas (as mesmas da aba Emissões), uma linha por nota com ISS, retenções e líquido;
+    com ``resumo``, também a aba do resumo por competência. Só entram notas com XML (autorizadas, canceladas e
+    substituídas)."""
     if formato not in ("xlsx", "csv"):
         raise HTTPException(400, "Formato deve ser xlsx ou csv.")
     filtros = _filtros(status, ambiente, de, ate, q, lote_id)
@@ -169,11 +171,12 @@ def relatorio(
         raise HTTPException(400, "Nenhuma nota autorizada nos filtros escolhidos.")
     linhas = relatorio_service.linhas(emissoes)
     periodo = f"{de:%Y%m%d}-{ate:%Y%m%d}" if de and ate else f"{datetime.now():%Y%m%d-%H%M}"
+    nome = f"{'relatorio' if resumo and formato == 'xlsx' else 'notas'}-nfse-{periodo}"
     if formato == "csv":
-        return _anexo(f"relatorio-nfse-{periodo}.csv", relatorio_service.csv_bytes(linhas), "text/csv; charset=utf-8")
+        return _anexo(f"{nome}.csv", relatorio_service.csv_bytes(linhas), "text/csv; charset=utf-8")
     return _anexo(
-        f"relatorio-nfse-{periodo}.xlsx",
-        relatorio_service.xlsx_bytes(linhas),
+        f"{nome}.xlsx",
+        relatorio_service.xlsx_bytes(linhas, com_resumo=resumo),
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 

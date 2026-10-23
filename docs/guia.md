@@ -41,8 +41,8 @@ empresa.
 - **Homologação e produção**: comece em Produção Restrita (notas de teste) e mude para Produção nas configurações.
   O ambiente fica sempre visível no topo, e emitir em produção exige digitar EMITIR.
 - **Emissões**: busca e filtros, XML e PDF de cada nota, ou várias de uma vez em um ZIP.
-- **Relatório em Excel** das notas do período: ISS, retenções e valor líquido de cada nota, lidos do XML autorizado,
-  e o resumo por competência para conferir e fechar o mês.
+- **Notas e resumo em Excel** do filtro da aba Emissões: ISS, retenções e valor líquido de cada nota, lidos do XML
+  autorizado, e o resumo por competência para conferir e fechar o mês.
 - **Cancelamento** de uma ou várias notas (evento 101101), com motivo. O PDF passa a sair com a marca d'água
   CANCELADA, e em produção é preciso digitar CANCELAR para confirmar.
 - **Situação sempre atualizada**: ao abrir a aba Emissões, o sistema confere no Ambiente Nacional (ADN) se alguma
@@ -157,10 +157,10 @@ Outubro, `{MES}` → OUTUBRO). A tabela continua com as variáveis para o mês s
 texto que foi na nota. Uma variável escrita errado impede a emissão da linha. A lista completa está no botão
 **Variáveis na descrição**, acima da tabela.
 
-**Relatório do mês.** Na aba **Emissões**, escolha o período (e, se quiser, a situação ou o ambiente) e clique em
-**Relatório em Excel**. A planilha tem a aba **Resumo**, com uma linha por competência (notas, valor, ISS, ISS retido,
-retenções federais e líquido), e a aba **Notas**, com cada nota. Canceladas e substituídas aparecem na lista, mas não
-entram nos totais.
+**Notas e resumo em Excel.** Na aba **Emissões**, escolha o período (e, se quiser, a situação, o ambiente ou uma
+busca). **Exportar notas (Excel)** baixa uma linha por nota do filtro, com valor, ISS, retenções e valor líquido.
+**Resumo do mês** traz antes a aba **Resumo**, com uma linha por competência (notas, valor, ISS, ISS retido, retenções
+federais e líquido). Canceladas e substituídas aparecem na lista, mas não entram nos totais.
 
 **Nota avulsa.** O botão **Nota avulsa** (ao lado de Emitir) abre um formulário com cliente, valor, descrição e a
 tributação. A nota passa pela mesma conferência e pela mesma numeração da tabela e aparece na aba **Emissões**.

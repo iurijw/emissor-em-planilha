@@ -294,20 +294,24 @@ def _cabecalho(ws, colunas: list[tuple[str, int]]) -> None:
 MOEDA = '"R$" #,##0.00'
 
 
-def xlsx_bytes(rs: list[LinhaRelatorio]) -> bytes:
+def xlsx_bytes(rs: list[LinhaRelatorio], com_resumo: bool = True) -> bytes:
+    """Aba Notas (uma linha por nota); com ``com_resumo``, a aba Resumo vem antes dela."""
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Resumo"
-    _cabecalho(ws, COLUNAS_RESUMO)
-    for item in resumo(rs):
-        ws.append(item.valores())
-        for col in (4, 5, 6, 7, 8, 9, 11):
-            ws.cell(row=ws.max_row, column=col).number_format = MOEDA
-        if item.competencia == "Total":
-            for c in ws[ws.max_row]:
-                c.font = Font(bold=True)
-
-    wn = wb.create_sheet("Notas")
+    if com_resumo:
+        ws = wb.active
+        ws.title = "Resumo"
+        _cabecalho(ws, COLUNAS_RESUMO)
+        for item in resumo(rs):
+            ws.append(item.valores())
+            for col in (4, 5, 6, 7, 8, 9, 11):
+                ws.cell(row=ws.max_row, column=col).number_format = MOEDA
+            if item.competencia == "Total":
+                for c in ws[ws.max_row]:
+                    c.font = Font(bold=True)
+        wn = wb.create_sheet("Notas")
+    else:
+        wn = wb.active
+        wn.title = "Notas"
     _cabecalho(wn, COLUNAS)
     for r in rs:
         wn.append(_valores(r))

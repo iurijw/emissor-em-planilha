@@ -213,7 +213,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET/POST /api/abas`, `PUT/DELETE /api/abas/{id}`; `aba_id` em `GET/PUT /api/tabela`, importar e exportar | abas da tabela |
 | `POST /api/avulsa/validar`, `POST /api/avulsa` | nota avulsa |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
-| `GET /api/emissoes/relatorio?formato=xlsx\|csv` (mesmos filtros da lista) | relatório do mês |
+| `GET /api/emissoes/relatorio?formato=xlsx\|csv&resumo=` (mesmos filtros da lista) | notas e resumo do mês em planilha |
 | `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip`, `POST /api/emissoes/{id}/verificar` | emissões |
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
@@ -403,7 +403,8 @@ mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliqu
 - **Relatório** (`services/relatorio.py`, `GET /api/emissoes/relatorio?formato=xlsx|csv` com os filtros da lista):
   valores lidos do XML autorizado (`vBC`, `pAliqAplic`, `vISSQN`, `vTotalRet`, `vLiq`, retenções federais; PIS/COFINS só
   quando retidos, por `RETENCOES_PIS_COFINS`). Aba Resumo por ambiente e competência (homologação e produção nunca se
-  somam; canceladas/substituídas fora dos totais) e aba Notas; CSV só com as notas. Até 20.000 notas por relatório.
+  somam; canceladas/substituídas fora dos totais) e aba Notas; `resumo=false` (botão "Exportar notas") traz só a aba
+  Notas; CSV só com as notas. Até 20.000 notas por relatório.
 
 ### Padrões que o onboarding extrai dos XMLs
 
