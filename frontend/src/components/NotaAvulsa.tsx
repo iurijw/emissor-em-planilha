@@ -173,6 +173,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                           <button
                             type="button"
                             className="btn btn--fantasma"
+                            title={c.nome}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => {
                               setNome(c.nome);
