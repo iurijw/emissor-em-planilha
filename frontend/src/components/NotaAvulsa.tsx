@@ -130,69 +130,74 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
           <section>
             <h3 className="secao-titulo">Tomador</h3>
             <div className="grade-form">
-              <label className={`campo ${docInvalido ? "campo--erro" : ""}`}>
-                <span>CNPJ / CPF</span>
-                <input className="num" autoFocus value={formatarDocumento(documento)} onChange={(e) => setDocumento(soDocumento(e.target.value))} />
-                {docInvalido ? (
-                  <small className="campo__erro">CNPJ/CPF inválido.</small>
-                ) : (
-                  <small>
-                    {cadastro
-                      ? cadastro.endereco_completo
-                        ? "Cliente cadastrado, com endereço."
-                        : "Cadastro sem endereço: a nota sai sem o endereço."
-                      : consultaAtual?.estado === "buscando"
-                        ? "Buscando a empresa na Receita…"
-                        : consultaAtual?.estado === "falhou"
-                          ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."} A nota sai sem o endereço; complete em Clientes.`
-                          : documento.length === 11
-                            ? "CPF sem cadastro: a nota sai sem o endereço. Complete em Clientes."
-                            : documento
-                              ? "Sem cadastro: a nota sai sem o endereço."
-                              : " "}
-                  </small>
-                )}
-              </label>
-              <label className="campo" style={{ position: "relative" }}>
-                <span>Nome da empresa</span>
-                <input
-                  value={nome}
-                  onChange={(e) => setNome(e.target.value)}
-                  onFocus={() => setFocoNome(true)}
-                  onBlur={() => window.setTimeout(() => setFocoNome(false), 150)}
-                  placeholder="Digite para buscar no cadastro"
-                />
-                {sugestoes.length > 0 && (
-                  <ul className="lista-clientes lista-clientes--sugestoes lista-clientes--flutuante">
-                    {sugestoes.map((c) => (
-                      <li key={c.documento}>
-                        <button
-                          type="button"
-                          className="btn btn--fantasma"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            setNome(c.nome);
-                            setDocumento(c.documento);
-                            setFocoNome(false);
-                          }}
-                        >
-                          <span>{c.nome}</span>
-                          <span className="num">{formatarDocumento(c.documento)}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {faltaDocumento ? (
-                  <small className="campo__erro">
-                    {porNome.length > 1
-                      ? "Há mais de um cliente com esse nome. Escolha na lista ou informe o CNPJ/CPF."
-                      : "Nenhum cliente cadastrado com esse nome. Informe o CNPJ/CPF para emitir."}
-                  </small>
-                ) : (
-                  <small>Em branco, vem do cadastro ou da Receita.</small>
-                )}
-              </label>
+              <div className="largo tomador-ou">
+                <label className={`campo ${docInvalido ? "campo--erro" : ""}`}>
+                  <span>CNPJ / CPF</span>
+                  <input className="num" autoFocus value={formatarDocumento(documento)} onChange={(e) => setDocumento(soDocumento(e.target.value))} />
+                  {docInvalido ? (
+                    <small className="campo__erro">CNPJ/CPF inválido.</small>
+                  ) : (
+                    <small>
+                      {cadastro
+                        ? cadastro.endereco_completo
+                          ? "Cliente cadastrado, com endereço."
+                          : "Cadastro sem endereço: a nota sai sem o endereço."
+                        : consultaAtual?.estado === "buscando"
+                          ? "Buscando a empresa na Receita…"
+                          : consultaAtual?.estado === "falhou"
+                            ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."} A nota sai sem o endereço; complete em Clientes.`
+                            : documento.length === 11
+                              ? "CPF sem cadastro: a nota sai sem o endereço. Complete em Clientes."
+                              : documento
+                                ? "Sem cadastro: a nota sai sem o endereço."
+                                : " "}
+                    </small>
+                  )}
+                </label>
+                <span className="tomador-ou__ou" aria-hidden="true">
+                  ou
+                </span>
+                <label className="campo" style={{ position: "relative" }}>
+                  <span>Nome da empresa</span>
+                  <input
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    onFocus={() => setFocoNome(true)}
+                    onBlur={() => window.setTimeout(() => setFocoNome(false), 150)}
+                    placeholder="Digite para buscar no cadastro"
+                  />
+                  {sugestoes.length > 0 && (
+                    <ul className="lista-clientes lista-clientes--sugestoes lista-clientes--flutuante">
+                      {sugestoes.map((c) => (
+                        <li key={c.documento}>
+                          <button
+                            type="button"
+                            className="btn btn--fantasma"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setNome(c.nome);
+                              setDocumento(c.documento);
+                              setFocoNome(false);
+                            }}
+                          >
+                            <span>{c.nome}</span>
+                            <span className="num">{formatarDocumento(c.documento)}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {faltaDocumento ? (
+                    <small className="campo__erro">
+                      {porNome.length > 1
+                        ? "Há mais de um cliente com esse nome. Escolha na lista ou informe o CNPJ/CPF."
+                        : "Nenhum cliente cadastrado com esse nome. Informe o CNPJ/CPF para emitir."}
+                    </small>
+                  ) : (
+                    <small>Em branco, vem do cadastro ou da Receita.</small>
+                  )}
+                </label>
+              </div>
               <label className="campo">
                 <span>Valor</span>
                 <input className="num" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" inputMode="decimal" />
