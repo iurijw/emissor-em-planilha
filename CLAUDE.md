@@ -355,6 +355,10 @@ PIS/COFINS, pTotTribSN, IBS/CBS). Prestador, regime e tpEmit vêm sempre das con
 - `criar_lote`/`criar_avulsa` copiam a tributação para `emissao.tributacao_nome/tributacao_json`; o worker aplica com
   `aplicar_tributacao` (mudar a tributação depois não afeta notas na fila). Sem cópia = padrões do momento do envio.
 - **Nota avulsa**: lote de 1 com `linha_id` nulo, mesma fila, numeração e validação da tabela (linha transitória).
+  Tomador (2026-10-23): CNPJ válido sem cadastro é buscado na Receita na hora (`/api/clientes/consultar-pendentes`, o
+  mesmo da tabela), que cadastra o cliente com endereço e preenche o nome vazio; CNPJ do cadastro com nome vazio mostra
+  o nome do cadastro; só o nome → ao sair do campo, um cadastro com o mesmo nome (sem acento/caixa) dá o CNPJ, senão a
+  tela pede o CNPJ/CPF (sem ele não emite). CPF sem cadastro sai sem endereço.
   Tributação: padrão, predefinida (`tributacao_id`) ou só desta nota (`tributacao`, validada como completa). Operador
   pode usar as três (auditado em `nota_avulsa`).
 - **Migração mínima** (`db._acrescentar_colunas`): colunas novas de tabelas existentes entram com `ALTER TABLE ADD
