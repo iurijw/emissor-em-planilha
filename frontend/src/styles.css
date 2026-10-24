@@ -134,6 +134,16 @@ a { color: var(--azul-texto); }
 @media (max-width: 560px) { .tabela.variaveis th:nth-child(3), .tabela.variaveis td:nth-child(3) { display: none; } }
 .grade-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 16px; }
 .grade-form .largo { grid-column: 1 / -1; }
+/* Nota avulsa: "CNPJ / CPF  ou  Nome da empresa" numa linha; o "ou" fica na altura das caixas. */
+.tomador-ou { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0 14px; align-items: start; }
+.tomador-ou__ou {
+  margin-top: 22px; height: 36px; display: flex; align-items: center;
+  font-size: 12.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--grafite);
+}
+@media (max-width: 560px) {
+  .tomador-ou { grid-template-columns: minmax(0, 1fr); }
+  .tomador-ou__ou { margin: 6px 0 10px; height: auto; }
+}
 
 /* ---------- Cartões / folhas ---------- */
 .folha { background: var(--folha); border: 1px solid var(--linha); border-radius: 8px; padding: 20px; }
@@ -395,6 +405,11 @@ a { color: var(--azul-texto); }
 .lista-clientes--sugestoes li { padding: 0; }
 .lista-clientes--sugestoes .btn { width: 100%; justify-content: space-between; font-weight: 450; height: 34px; border-radius: 0; }
 .lista-clientes--flutuante { position: absolute; top: 60px; left: 0; right: 0; z-index: 5; box-shadow: var(--sombra); }
+.lista-clientes--sugestoes .btn { min-width: 0; }
+.lista-clientes--sugestoes .btn > span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lista-clientes--sugestoes .btn > .num { flex-shrink: 0; }
+/* Nota avulsa: o campo do nome é estreito, então o CNPJ vai embaixo do nome. */
+.tomador-ou .lista-clientes--sugestoes .btn { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; height: auto; padding: 7px 10px; }
 
 /* Escolha da tributação da nota avulsa */
 .escolha-tributacao { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
