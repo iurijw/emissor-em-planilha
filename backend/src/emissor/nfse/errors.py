@@ -74,6 +74,8 @@ class SefinError(Exception):
 
 # Dicas por código conhecido (confirmado em documentação/comunidade).
 _DICAS_CODIGO = {
+    "E0014": "Este número de DPS já gerou uma NFS-e. Se não foi por este sistema, outro sistema emite com o mesmo "
+    "CNPJ e série: use uma série só para este sistema ou ajuste a próxima DPS em Configurações.",
     "E0010": "A série não pertence à faixa do canal de emissão. Para sistema próprio use série entre 1 e 49999 "
     "(Configurações → Série).",
     # Eventos (cancelamento) — Anexo II do leiaute.

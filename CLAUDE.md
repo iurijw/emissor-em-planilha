@@ -185,6 +185,11 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 - nDPS separado por ambiente (`proximo_ndps_homologacao` / `proximo_ndps_producao`), reservado só após
   a DPS ser montada/assinada/validada; XML assinado gravado em `data/dps/` **antes** do envio.
 - Ao reiniciar, lotes `em_andamento` são retomados; emissão `processando` consulta `/dps/{id}` antes de reenviar.
+- **Nota recuperada só se for desta DPS** (2026-10-27): o Id da DPS é só CNPJ + município + série + número, então outro
+  sistema com o mesmo CNPJ e série gera o mesmo Id para outra nota (E0014). `conferir_mesma_dps` compara `dhEmi`, tomador
+  e valor da NFS-e achada em `/dps/{id}` com os da DPS enviada; se diferem, `NumeracaoEmUso`: a emissão fica `rejeitada`
+  (E0014 com número/data/tomador da nota existente e a dica de trocar a série ou a próxima DPS) e o lote é interrompido.
+  Até a 0.6.1 a nota alheia era adotada como emitida (visto numa instalação antiga em 27/10/2026).
 - `POST /api/emissoes/{id}/verificar`: resolve emissões com erro de comunicação consultando a Sefin.
 - Validação prévia (`POST /api/tabela/validar`): erros bloqueiam; avisos (sem endereço, CNPJ não ATIVO,
   mesma nota já autorizada no mês para o mesmo cliente e valor) só alertam.
@@ -659,4 +664,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-22 | Produção troca sozinha para a NT 009 em 01/12/2026 00:00 (pelo `dhEmi` da DPS; `leiaute()` substitui `LEIAUTE_POR_AMBIENTE`), publicada antes da data | Data do comunicado do CGNFS-e de 20/10/2026; não depender de uma versão publicada na noite da troca |
 | 2026-10-23 | Variáveis na descrição trocadas na montagem da DPS; variável desconhecida bloqueia a linha | Pedido do Iuri (estudo de funções): evita editar a tabela todo mês; um "{mes_atua}" impresso na nota seria pior que um erro |
 | 2026-10-23 | Planilha das notas filtradas (uma linha por nota) lida do XML autorizado, sem aba de resumo | Pedido do Iuri: o valor que vale é o que a Sefin calculou; o resumo por competência não era necessário |
+| 2026-10-27 | NFS-e achada pelo Id da DPS só é adotada se `dhEmi`, tomador e valor baterem com a DPS enviada; senão a nota fica rejeitada e o lote para | Outro sistema emitindo com o mesmo CNPJ e série fez a 0.1.0 registrar notas de outros clientes como emitidas (as notas pedidas nunca saíram) |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
