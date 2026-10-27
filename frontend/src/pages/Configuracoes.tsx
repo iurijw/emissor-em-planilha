@@ -263,11 +263,14 @@ function SecaoEmpresa({ cfg }: { cfg: Config }) {
   const [fiscal, setFiscal] = useState<Fiscal | null>(cfg.fiscal);
   if (!fiscal || !cfg.fiscal) return null;
   const atual = cfg.fiscal;
-  const empresa = Object.fromEntries(CAMPOS_EMPRESA.map((k) => [k, fiscal[k]]));
+  const empresa: Partial<Fiscal> = Object.fromEntries(CAMPOS_EMPRESA.map((k) => [k, fiscal[k]]));
+  // Passar a ME/EPP exige o % do Simples na tributação padrão, que só mostra o campo depois do regime salvo.
+  const pedirTotTribSN = atual.op_simp_nac !== "3" || !atual.p_tot_trib_sn;
+  if (pedirTotTribSN && fiscal.op_simp_nac === "3") empresa.p_tot_trib_sn = fiscal.p_tot_trib_sn;
   return (
     <section className="folha" id="empresa">
       <h2 className="secao-titulo">Dados da empresa</h2>
-      <CamposEmpresa valor={fiscal} onChange={setFiscal} />
+      <CamposEmpresa valor={fiscal} onChange={setFiscal} pedirTotTribSN={pedirTotTribSN} />
       <div style={{ marginTop: 16 }}><ErroCaixa erro={erro} titulo="Dados da empresa não salvos" /></div>
       <button
         className="btn btn--primario"
