@@ -2,14 +2,19 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import {
   api,
+  ApiError,
+  type ConferenciaServico,
   type DadosTributacao,
   type Fiscal,
   issExigeAliquota,
   type Municipio,
   type Opcoes,
   type Regime,
+  type Servico,
+  type ServicoDetalhe,
 } from "../api";
 import { formatarDocumento, moeda } from "../format";
+import { Spinner } from "../ui";
 
 export function useOpcoes() {
   return useQuery({ queryKey: ["opcoes"], queryFn: () => api.get<Opcoes>("/api/config/opcoes"), staleTime: Infinity });
@@ -119,14 +124,7 @@ export function CampoMunicipio(props: {
         }}
       />
       {mostrarLista && (
-        <ul
-          role="listbox"
-          style={{
-            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, margin: "4px 0 0", padding: 4,
-            listStyle: "none", background: "var(--folha)", border: "1px solid var(--linha-forte)", borderRadius: 6,
-            boxShadow: "var(--sombra)", maxHeight: 240, overflow: "auto",
-          }}
-        >
+        <ul role="listbox" className="lista-sugestoes">
           {opcoes.map((m, i) => (
             <li key={m.codigo} role="option" aria-selected={i === destaque}>
               <button
@@ -198,21 +196,298 @@ function Texto(props: {
   valor: string | null;
   onChange: (v: string) => void;
   ajuda?: string;
+  /** Mostrado no lugar da ajuda, com o campo em vermelho. */
+  erro?: string;
   num?: boolean;
   largo?: boolean;
   placeholder?: string;
 }) {
   return (
-    <label className={`campo ${props.largo ? "largo" : ""}`}>
+    <label className={`campo ${props.largo ? "largo" : ""} ${props.erro ? "campo--erro" : ""}`}>
       <span>{props.rotulo}</span>
       <input
         className={props.num ? "num" : undefined}
         value={props.valor ?? ""}
         placeholder={props.placeholder}
+        aria-invalid={props.erro ? true : undefined}
         onChange={(e) => props.onChange(e.target.value)}
       />
-      {props.ajuda && <small>{props.ajuda}</small>}
+      {props.erro ? <small className="campo__erro">{props.erro}</small> : props.ajuda && <small>{props.ajuda}</small>}
     </label>
+  );
+}
+
+// Códigos como a lista nacional os mostra: 171901 → 17.19.01; 113022100 → 1.1302.21.00.
+export const codigoServicoTela = (c: string | null | undefined) =>
+  c && /^\d{6}$/.test(c) ? `${c.slice(0, 2)}.${c.slice(2, 4)}.${c.slice(4)}` : c ?? "";
+const nbsTela = (c: string | null | undefined) =>
+  c && /^\d{9}$/.test(c) ? `${c[0]}.${c.slice(1, 5)}.${c.slice(5, 7)}.${c.slice(7)}` : c ?? "";
+
+/** Serviço da lista nacional pelo código (6 dígitos) com NBS e cClassTrib sugeridos; null = fora da lista. */
+function useServico(codigo: string) {
+  return useQuery({
+    queryKey: ["servico", codigo],
+    queryFn: async () => {
+      try {
+        return await api.get<ServicoDetalhe>(`/api/servicos/${codigo}`);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
+    enabled: /^\d{6}$/.test(codigo),
+    staleTime: Infinity,
+  });
+}
+
+/** Código de tributação nacional: busca na lista nacional por código ou descrição, guarda os 6 dígitos. */
+function CampoServico(props: { codigo: string; onChange: (codigo: string) => void; servico: ServicoDetalhe | null | undefined }) {
+  const id = useId();
+  const [termo, setTermo] = useState("");
+  const [aberto, setAberto] = useState(false);
+  const [destaque, setDestaque] = useState(0);
+  const [pendente, setPendente] = useState("");
+  const buscar = (q: string) => api.get<Servico[]>(`/api/servicos?q=${encodeURIComponent(q)}`);
+  const busca = useQuery({
+    queryKey: ["servicos", termo],
+    queryFn: () => buscar(termo),
+    enabled: termo.trim().length >= 2,
+    staleTime: Infinity,
+  });
+
+  const escolher = (codigo: string) => {
+    props.onChange(codigo);
+    setPendente("");
+    setTermo("");
+    setAberto(false);
+  };
+
+  // Saiu do campo sem clicar: um código de 6 dígitos vale como digitado; senão, só se a busca indicar um serviço.
+  const sair = async () => {
+    setAberto(false);
+    const t = termo.trim();
+    const digitos = t.replace(/[\s./-]/g, "");
+    if (!t) {
+      setPendente("");
+      return;
+    }
+    if (/^\d{6}$/.test(digitos)) return escolher(digitos);
+    let lista = busca.data;
+    if (!lista || busca.isFetching) lista = await buscar(t).catch(() => []);
+    if (lista.length === 1) escolher(lista[0].codigo);
+    else setPendente(t);
+  };
+
+  const opcoes = busca.data ?? [];
+  const mostrarLista = aberto && opcoes.length > 0;
+  const rotulo = props.servico ? `${codigoServicoTela(props.codigo)} — ${props.servico.descricao}` : codigoServicoTela(props.codigo);
+  const foraDaLista = props.servico === null && /^\d{6}$/.test(props.codigo);
+  const erro = pendente
+    ? `Escolha o serviço na lista: "${pendente}" não indica um serviço só.`
+    : foraDaLista
+      ? "Este código não está na lista nacional de serviços: a Sefin deve recusar a nota. Busque o serviço pela descrição."
+      : "";
+
+  return (
+    <label className={`campo largo${erro ? " campo--erro" : ""}`} style={{ position: "relative" }}>
+      <span>Serviço (código de tributação nacional)</span>
+      <input
+        aria-describedby={`${id}-ajuda`}
+        aria-expanded={mostrarLista}
+        aria-autocomplete="list"
+        aria-invalid={erro ? true : undefined}
+        role="combobox"
+        value={aberto ? termo : pendente || rotulo}
+        placeholder="Digite o código ou parte da descrição, ex.: contabilidade"
+        onFocus={() => {
+          setTermo(pendente);
+          setDestaque(0);
+          setAberto(true);
+        }}
+        onBlur={() => void sair()}
+        onChange={(e) => {
+          setTermo(e.target.value);
+          setDestaque(0);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" && opcoes.length) {
+            e.preventDefault();
+            setDestaque((i) => (i + 1) % opcoes.length);
+          } else if (e.key === "ArrowUp" && opcoes.length) {
+            e.preventDefault();
+            setDestaque((i) => (i - 1 + opcoes.length) % opcoes.length);
+          } else if (e.key === "Enter" && mostrarLista) {
+            e.preventDefault();
+            escolher(opcoes[Math.min(destaque, opcoes.length - 1)].codigo);
+          } else if (e.key === "Escape") {
+            setAberto(false);
+          }
+        }}
+      />
+      {mostrarLista && (
+        <ul role="listbox" className="lista-sugestoes">
+          {opcoes.map((o, i) => (
+            <li key={o.codigo} role="option" aria-selected={i === destaque}>
+              <button
+                type="button"
+                tabIndex={-1}
+                className="lista-sugestoes__item"
+                style={{ background: i === destaque ? "var(--linha)" : undefined }}
+                onMouseEnter={() => setDestaque(i)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  escolher(o.codigo);
+                }}
+              >
+                <span className="num">{codigoServicoTela(o.codigo)}</span>
+                <span>
+                  {o.descricao}
+                  {o.subitem_descricao && o.subitem_descricao !== o.descricao && (
+                    <small>Subitem {o.subitem}: {o.subitem_descricao}</small>
+                  )}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {aberto && termo.trim().length >= 2 && busca.isSuccess && !opcoes.length ? (
+        <small id={`${id}-ajuda`}>Nenhum serviço com esse código ou essas palavras. Tente outra palavra.</small>
+      ) : erro ? (
+        <small id={`${id}-ajuda`} className="campo__erro">
+          {erro}
+        </small>
+      ) : (
+        <small id={`${id}-ajuda`}>
+          Busque pelo código ou pela descrição da lista nacional (LC 116). O código vai na nota com 6 dígitos
+          {props.codigo ? <> (<span className="num">{props.codigo}</span>)</> : null}.
+        </small>
+      )}
+    </label>
+  );
+}
+
+/** NBS: os que o Anexo VIII liga ao serviço escolhido, ou outro código digitado. */
+function CampoNbs(props: {
+  valor: string | null;
+  onChange: (v: string | null) => void;
+  servico: ServicoDetalhe | null | undefined;
+  obrigatorio: boolean;
+}) {
+  const lista = props.servico?.nbs ?? [];
+  const naLista = !props.valor || lista.some((n) => n.codigo === props.valor);
+  const [livre, setLivre] = useState(false);
+  const ajudaBase = props.obrigatorio ? "Obrigatório com IBS/CBS." : "Vazio = não informar.";
+  if (!lista.length || livre) {
+    const erro = props.valor && !/^\d{9}$/.test(props.valor) ? "O código NBS tem 9 dígitos, ex.: 1.1302.21.00." : undefined;
+    return (
+      <label className={`campo largo${erro ? " campo--erro" : ""}`}>
+        <span>Código NBS</span>
+        <input
+          className="num"
+          value={props.valor ?? ""}
+          placeholder="9 dígitos"
+          aria-invalid={erro ? true : undefined}
+          onChange={(e) => props.onChange(e.target.value.replace(/\D/g, "").slice(0, 9) || null)}
+        />
+        {erro ? (
+          <small className="campo__erro">{erro}</small>
+        ) : (
+          <small>
+            {ajudaBase}{" "}
+            {lista.length > 0 && (
+              <button type="button" className="btn-texto" onClick={() => setLivre(false)}>
+                Escolher entre os NBS do serviço
+              </button>
+            )}
+          </small>
+        )}
+      </label>
+    );
+  }
+  return (
+    <label className="campo largo">
+      <span>Código NBS</span>
+      <select
+        value={props.valor ?? ""}
+        onChange={(e) => {
+          if (e.target.value === "__outro") setLivre(true);
+          else props.onChange(e.target.value || null);
+        }}
+      >
+        <option value="">{props.obrigatorio ? "Escolha o NBS do serviço" : "Não informar"}</option>
+        {lista.map((n) => (
+          <option key={n.codigo} value={n.codigo}>
+            {nbsTela(n.codigo)} — {n.descricao}
+          </option>
+        ))}
+        {!naLista && <option value={props.valor ?? ""}>{nbsTela(props.valor)} — fora da lista deste serviço</option>}
+        <option value="__outro">Outro código NBS…</option>
+      </select>
+      <small>
+        {ajudaBase} A lista vem do Anexo VIII (correlação entre o serviço e a NBS).
+        {!naLista && " O código atual não é um dos que o Anexo VIII liga a este serviço: confira com a contabilidade."}
+      </small>
+    </label>
+  );
+}
+
+const CAIXA_SITUACAO: Record<ConferenciaServico["situacao"], string> = {
+  encontrado: "info-caixa",
+  nao_encontrado: "aviso",
+  nao_conferido: "",
+};
+
+/** Pergunta ao Sistema Nacional se a prefeitura tem o serviço cadastrado (sem ele, a Sefin recusa com E0312). */
+function ConferirPrefeitura(props: { codigo: string; local: string | null; municipioPrestador?: string | null }) {
+  const [estado, setEstado] = useState<{ chave: string; res?: ConferenciaServico; erro?: string } | null>(null);
+  const [carregando, setCarregando] = useState(false);
+  const chave = `${props.codigo}|${props.local ?? ""}|${props.municipioPrestador ?? ""}`;
+  const atual = estado?.chave === chave ? estado : null;
+  const valido = /^\d{6}$/.test(props.codigo);
+
+  const conferir = async () => {
+    setCarregando(true);
+    try {
+      const res = await api.post<ConferenciaServico>("/api/config/conferir-servico", {
+        c_trib_nac: props.codigo,
+        c_loc_prestacao: props.local,
+        c_mun_emissor: props.municipioPrestador || null,
+      });
+      setEstado({ chave, res });
+    } catch (e) {
+      setEstado({ chave, erro: e instanceof Error ? e.message : "Não foi possível conferir." });
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  const res = atual?.res;
+  return (
+    <div className="conferir-prefeitura">
+      <button type="button" className="btn btn--pequeno" onClick={conferir} disabled={!valido || carregando}>
+        {carregando && <Spinner />} Conferir na prefeitura
+      </button>
+      <div aria-live="polite" className="conferir-prefeitura__resultado">
+        {res ? (
+          <div className={CAIXA_SITUACAO[res.situacao] || "dica-grade"} style={res.situacao === "nao_conferido" ? { marginTop: 0 } : undefined}>
+            <div>
+              {res.mensagem}
+              {res.detalhe && res.situacao !== "encontrado" && (
+                <small style={{ display: "block", marginTop: 4 }}>Resposta do Sistema Nacional: {res.detalhe}</small>
+              )}
+            </div>
+          </div>
+        ) : atual?.erro ? (
+          <span className="campo__erro">{atual.erro}</span>
+        ) : (
+          <span className="dica-grade" style={{ marginTop: 0 }}>
+            Pergunta ao Sistema Nacional, com o certificado, se a prefeitura tem este serviço cadastrado. Sem ele a Sefin
+            recusa a nota (E0312).
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -306,13 +581,23 @@ export function CamposTributacao({
   valor,
   onChange,
   regime,
+  municipioPrestador,
 }: {
   valor: DadosTributacao;
   onChange: (t: DadosTributacao) => void;
   /** Regime do prestador (Configurações): decide quais alíquotas a nota aceita. */
   regime: Regime | null | undefined;
+  /** Município do prestador ainda não salvo (onboarding); sem ele, a conferência usa o das configurações. */
+  municipioPrestador?: string | null;
 }) {
   const op = useOpcoes().data;
+  const servico = useServico(valor.c_trib_nac).data;
+  const nbsEscolhido = servico?.nbs.find((n) => n.codigo === valor.c_nbs);
+  const classeSugerida = servico?.c_class_trib.find((c) => c.codigo === valor.ibscbs_c_class_trib);
+  const erroTribMun =
+    valor.c_trib_mun && !/^\d{3}$/.test(valor.c_trib_mun)
+      ? "O código municipal tem só 3 dígitos (ex.: 001). O código nacional vai no campo Serviço."
+      : undefined;
   const retido = ["2", "3"].includes(valor.tp_ret_issqn);
   const exigeAliquota = issExigeAliquota(regime, valor);
   const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
@@ -339,25 +624,23 @@ export function CamposTributacao({
       <section>
         <h3 className="secao-titulo">Serviço</h3>
         <div className="grade-form">
-          <Texto
-            rotulo="Código de tributação nacional"
-            valor={valor.c_trib_nac}
-            onChange={(v) => set("c_trib_nac", v.replace(/\D/g, ""))}
-            ajuda="6 dígitos. 171901 = contabilidade."
-            num
-          />
-          <Texto
-            rotulo="Código NBS"
+          <CampoServico codigo={valor.c_trib_nac} onChange={(c) => set("c_trib_nac", c)} servico={servico} />
+          <CampoNbs
             valor={valor.c_nbs}
-            onChange={(v) => set("c_nbs", v.replace(/\D/g, "") || null)}
-            ajuda={valor.ibscbs ? "9 dígitos. Obrigatório com IBS/CBS." : "9 dígitos."}
-            num
+            onChange={(v) => set("c_nbs", v)}
+            servico={servico}
+            obrigatorio={valor.ibscbs}
           />
           <Texto
             rotulo="Código de tributação municipal"
             valor={valor.c_trib_mun}
-            onChange={(v) => set("c_trib_mun", v || null)}
-            ajuda="Opcional."
+            onChange={(v) => {
+              const d = v.replace(/\D/g, "").slice(0, 9);
+              // "080101003" = nacional + municipal: fica só o municipal (o servidor faz o mesmo ao salvar).
+              set("c_trib_mun", (d.length === 9 && d.startsWith(valor.c_trib_nac) ? d.slice(6) : d) || null);
+            }}
+            ajuda="Opcional: os 3 dígitos que a prefeitura criou para o serviço (ex.: 001). Na dúvida, deixe vazio."
+            erro={erroTribMun}
             num
           />
           <CampoMunicipio
@@ -367,6 +650,7 @@ export function CamposTributacao({
             ajuda="Normalmente o mesmo município do prestador."
           />
         </div>
+        <ConferirPrefeitura codigo={valor.c_trib_nac} local={valor.c_loc_prestacao} municipioPrestador={municipioPrestador} />
       </section>
 
       <section>
@@ -544,16 +828,23 @@ export function CamposTributacao({
               valor={valor.ibscbs_c_ind_op}
               opcoes={op?.ibscbs_c_ind_op}
               onChange={(v) => set("ibscbs_c_ind_op", v ?? "100301")}
-              ajuda="Onde o IBS/CBS é devido. Serviços em geral: 100301."
+              ajuda={
+                "Onde o IBS/CBS é devido. Serviços em geral: 100301." +
+                (nbsEscolhido?.c_ind_op.length
+                  ? ` Para o NBS escolhido, o Anexo VIII indica ${nbsEscolhido.c_ind_op.join(" ou ")}.`
+                  : "")
+              }
             />
             <Texto
               rotulo="Classificação tributária (cClassTrib)"
               valor={valor.ibscbs_c_class_trib}
               onChange={(v) => set("ibscbs_c_class_trib", v.replace(/\D/g, "").slice(0, 6))}
               ajuda={
-                (classeConhecida
-                  ? `${op?.ibscbs_c_class_trib?.find((o) => o.valor === valor.ibscbs_c_class_trib)?.descricao}. `
-                  : `CST ${(valor.ibscbs_c_class_trib || "").slice(0, 3) || "—"} (3 primeiros dígitos). `) +
+                (classeSugerida
+                  ? `${classeSugerida.nome}${reducao(classeSugerida)}. `
+                  : classeConhecida
+                    ? `${op?.ibscbs_c_class_trib?.find((o) => o.valor === valor.ibscbs_c_class_trib)?.descricao}. `
+                    : `CST ${(valor.ibscbs_c_class_trib || "").slice(0, 3) || "—"} (3 primeiros dígitos). `) +
                 "Use o código da tabela oficial para o seu serviço: alguns têm redução ou isenção."
               }
               num
@@ -567,10 +858,38 @@ export function CamposTributacao({
             />
           </div>
         )}
+        {valor.ibscbs && !!servico?.c_class_trib.length && (
+          <div className="dica-grade sugestoes-classe">
+            <span>Classificação que o Anexo VIII sugere para {codigoServicoTela(servico.codigo)}; confirme com a contabilidade:</span>
+            <ul>
+              {servico.c_class_trib.map((c) => (
+                <li key={c.codigo}>
+                  <button
+                    type="button"
+                    className="btn-texto num"
+                    aria-pressed={c.codigo === valor.ibscbs_c_class_trib}
+                    onClick={() => set("ibscbs_c_class_trib", c.codigo)}
+                  >
+                    {c.codigo}
+                  </button>{" "}
+                  {c.nome}
+                  {reducao(c)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
     </>
   );
 }
+
+const reducao = (c: { reducao_ibs: number; reducao_cbs: number }) =>
+  c.reducao_ibs || c.reducao_cbs
+    ? c.reducao_ibs === c.reducao_cbs
+      ? `, redução de ${c.reducao_ibs}%`
+      : `, redução de ${c.reducao_ibs}% no IBS e ${c.reducao_cbs}% na CBS`
+    : "";
 
 // Percentuais: a tela usa vírgula, os dados guardam ponto ("2.50"); vazio = não informar.
 const pctTela = (v: string | null) => (v ?? "").replace(".", ",");

@@ -19,6 +19,7 @@ from emissor.api.serial import cliente_dict, linha_dict
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, agora, obter_config, sessao
 from emissor.nfse.models import limpar_texto, normalizar_documento, somente_digitos
 from emissor.services import clientes as cli_service
+from emissor.services import parametros
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
 from emissor.services.emissao import aliquotas_iss, validar_linhas, verificar_prontidao
@@ -166,10 +167,13 @@ def validar(entrada: ValidarEntrada) -> dict[str, Any]:
         aliquotas = aliquotas_iss(s, linhas)
         problemas = verificar_prontidao(s)
         total = sum((float(ln.valor) for ln in linhas if _eh_numero(ln.valor)), 0.0)
+        c_mun, servicos = parametros.alvos(s, linhas)
     return {
         "ambiente": cfg.ambiente,
         "ambiente_descricao": cfg.amb.descricao,
         "problemas": problemas,
+        # Avisos de todas as linhas (ex.: serviço que a prefeitura não tem cadastrado); pedem a mesma ciência.
+        "avisos": parametros.avisos(cfg.amb, c_mun, servicos) if not problemas else [],
         "linhas": [{"linha_id": v.linha_id, "erros": v.erros, "avisos": v.avisos} for v in res],
         "quantidade": len(linhas),
         "total": f"{total:.2f}",

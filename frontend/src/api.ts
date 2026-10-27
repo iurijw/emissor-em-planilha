@@ -312,10 +312,40 @@ export interface Municipio {
   uf: string;
 }
 
+/** Serviço da lista nacional (cTribNac, Anexo B). */
+export interface Servico {
+  codigo: string;
+  descricao: string;
+  subitem: string;
+  subitem_descricao: string;
+}
+
+/** Serviço com os NBS e as sugestões de cClassTrib que o Anexo VIII correlaciona a ele. */
+export interface ServicoDetalhe extends Servico {
+  grupo_descricao: string;
+  nbs: { codigo: string; descricao: string; c_ind_op: string[] }[];
+  c_class_trib: { codigo: string; nome: string; reducao_ibs: number; reducao_cbs: number }[];
+  fontes: string[];
+}
+
+/** Resposta de "Conferir na prefeitura" (parametrização do município no Sistema Nacional). */
+export interface ConferenciaServico {
+  situacao: "encontrado" | "nao_encontrado" | "nao_conferido";
+  mensagem: string;
+  c_trib_nac: string;
+  municipio: string | null;
+  competencia: string | null;
+  aliquota: string | null;
+  detalhe: string | null;
+  ambiente: string;
+}
+
 export interface Validacao {
   ambiente: Ambiente;
   ambiente_descricao: string;
   problemas: string[];
+  /** Avisos que valem para várias linhas (ex.: serviço que a prefeitura não tem cadastrado). */
+  avisos: string[];
   linhas: { linha_id: number; erros: string[]; avisos: string[] }[];
   quantidade: number;
   total: string;

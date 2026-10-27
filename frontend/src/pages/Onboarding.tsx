@@ -324,7 +324,12 @@ export function Onboarding({ status }: { status: Status }) {
             </p>
             <div className="folha" style={{ marginTop: 24 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
-                <CamposTributacao valor={fiscal} onChange={(t) => setFiscal({ ...fiscal, ...t })} regime={fiscal} />
+                <CamposTributacao
+                  valor={fiscal}
+                  onChange={(t) => setFiscal({ ...fiscal, ...t })}
+                  regime={fiscal}
+                  municipioPrestador={fiscal.c_mun_emissor}
+                />
               </div>
             </div>
             <div style={{ marginTop: 16 }}>

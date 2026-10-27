@@ -32,7 +32,7 @@ from emissor.nfse.xsd import validar_dps, validar_evento, validar_nfse
 from emissor.services import clientes as clientes_service
 from emissor.services import emissao as emissao_service
 from emissor.services import eventos as eventos_service
-from emissor.services import variaveis
+from emissor.services import parametros, variaveis
 
 from .conftest import ADMIN_EMAIL, ADMIN_SENHA, CNPJ_PRESTADOR, SENHA_PFX, _gerar_pfx, entrar_como_admin
 from .sefin_simulada import SefinSimulada, brasilapi_simulada, conferir_assinatura_sefin
@@ -53,6 +53,7 @@ def cert_sefin() -> Certificado:
 def sim(cert_sefin, monkeypatch) -> SefinSimulada:
     """Liga a simulação: todo ``SefinClient`` sem transporte (fila, verificar, testar conexão...) fala com ela."""
     s = SefinSimulada(cert_sefin)
+    monkeypatch.setattr(parametros, "ATIVA", True)  # conferência na prefeitura pelo ADN simulado
     init_original = SefinClient.__init__
 
     def init(self, ambiente, certificado, *, transport=None, **kw):
@@ -447,6 +448,54 @@ def test_numero_da_dps_ja_usado_por_outro_sistema(api, sim, pfx_bytes, nfse_exem
     assert api.get("/api/emissoes", params={"status": "autorizada"}).json()["total"] == 1
 
 
+def test_servico_que_a_prefeitura_nao_administra(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """E0312: a conferência pelo ADN avisa antes de emitir (sem bloquear) e a rejeição traz a dica."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    fiscal = api.get("/api/config").json()["fiscal"]
+    c_trib, mun = fiscal["c_trib_nac"], fiscal["c_mun_emissor"]
+
+    def conferir(**kw) -> dict:
+        r = api.post("/api/config/conferir-servico", json={"c_trib_nac": c_trib, **kw})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def consultas() -> int:
+        return sum("/parametrizacao/" in c for c in sim.chamadas)
+
+    r = conferir()
+    assert r["situacao"] == "encontrado" and "2,00%" in r["mensagem"] and r["municipio"] == mun, r
+    assert consultas() == 1
+    ids = _linhas(api, [{"nome": "A", "documento": TOMADOR_CNPJ, "valor": "10", "descricao": "a"}])
+    assert api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["avisos"] == []
+    assert consultas() == 1  # resposta guardada: a validação não consulta de novo
+
+    sim.servicos_nao_administrados.add((mun, c_trib))
+    parametros.limpar_cache()
+    r = conferir()
+    assert r["situacao"] == "nao_encontrado" and "E0312" in r["mensagem"], r
+    assert consultas() == 3  # sem cadastro no formato de referência, tenta o alternativo (que a simulação recusa)
+    val = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()
+    assert len(val["avisos"]) == 1 and "(tributação padrão)" in val["avisos"][0], val
+    assert val["linhas"][0]["erros"] == []  # aviso não bloqueia
+    av = api.post(
+        "/api/avulsa/validar", json={"nome": "A", "documento": TOMADOR_CNPJ, "valor": "10", "descricao": "a"}
+    ).json()
+    assert len(av["avisos"]) == 1
+    rej = _emitir(api, ids)["emissoes"][0]
+    assert rej["status"] == "rejeitada", rej
+    msg = rej["erro"]["mensagens"][0]
+    assert msg["codigo"] == "E0312" and "Conferir na prefeitura" in msg["dica"]
+
+    # Local da prestação em outro município (o ISS pode ser de outra prefeitura) e ADN fora do ar: sem conferir.
+    assert conferir(c_loc_prestacao="3550308")["situacao"] == "nao_conferido"
+    parametros.limpar_cache()
+    sim.fora_do_ar = True
+    r = conferir()
+    assert r["situacao"] == "nao_conferido" and r["mensagem"].startswith("Não foi possível conferir agora"), r
+    sim.fora_do_ar = False
+    assert api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["avisos"] == []  # falha guardada 5 min
+
+
 # --- todas as rotas ---------------------------------------------------------------------------------------
 
 
@@ -563,6 +612,12 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     ok(api.put("/api/config", json={"fiscal": cfg["fiscal"]}))
     ok(api.get("/api/config/opcoes"))
     assert "4205407" in [m["codigo"] for m in ok(api.get("/api/municipios", params={"q": "florian"})).json()]
+    assert ok(api.get("/api/servicos", params={"q": "contabilidade"})).json()[0]["codigo"] == "171901"
+    assert ok(api.get("/api/servicos/17.19.01")).json()["nbs"][0]["codigo"] == "113022100"
+    ok(api.get("/api/servicos/999999"), 404)
+    assert (
+        ok(api.post("/api/config/conferir-servico", json={"c_trib_nac": "171901"})).json()["situacao"] == "encontrado"
+    )
     assert ok(api.post("/api/config/testar-conexao")).json()["ok"] is True
     ok(api.post("/api/logs/cliente", json={"mensagem": "teste de log do navegador"}))
 
