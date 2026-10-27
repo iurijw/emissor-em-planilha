@@ -128,6 +128,8 @@ class SefinSimulada:
         self.certificados_recusados: set[str] = set()  # CNPJ → 403 IIS (como certificado fora da ICP-Brasil)
         self.cair_apos_processar: int = 0  # próximas N emissões: processa e "perde" a resposta (timeout)
         self.fora_do_ar: bool = False  # 503 em tudo
+        # (município, cTribNac) que a prefeitura não administra: E0312 na emissão e nada na parametrização.
+        self.servicos_nao_administrados: set[tuple[str, str]] = set()
 
     # --- infraestrutura ------------------------------------------------------------------------------
     def transport(self, cert: Certificado) -> httpx.MockTransport:
@@ -216,6 +218,15 @@ class SefinSimulada:
         rejeicao = _regras_tributos(t)
         if rejeicao:
             return self._rejeitar(*rejeicao)
+        if (
+            t("serv/locPrest/cLocPrestacao") or t("cLocEmi"),
+            t("serv/cServ/cTribNac"),
+        ) in self.servicos_nao_administrados:
+            return self._rejeitar(
+                "E0312",
+                "O código de tributação nacional informado não está administrado pelo município de incidência do "
+                "ISSQN na data de competência informada na DPS, conforme a lista de serviços do município.",
+            )
         toma = t("toma/CNPJ") or t("toma/CPF") or ""
         if toma in self.rejeitar_tomador:
             return self._rejeitar(*self.rejeitar_tomador[toma])
@@ -484,6 +495,8 @@ class SefinSimulada:
         )
 
     def _adn_rotas(self, req: httpx.Request, path: str, tp_amb: str) -> httpx.Response:
+        if m := re.fullmatch(r"/parametrizacao/(\d{7})/([\d.]+)/([\d-]+)/aliquota", path):
+            return self._parametrizacao(*m.groups())
         docs = [d for d in self.adn if self.notas[d["ChaveAcesso"]].tp_amb == tp_amb]
         if m := re.fullmatch(r"/contribuintes/DFe/(\d+)", path):
             if req.url.params.get("lote") != "true":
@@ -494,6 +507,18 @@ class SefinSimulada:
                 [d for d in docs if d["ChaveAcesso"] == m.group(1) and d["TipoDocumento"] == "EVENTO"], tp_amb
             )
         return httpx.Response(404)
+
+    def _parametrizacao(self, c_mun: str, servico: str, competencia: str) -> httpx.Response:
+        """Alíquota do serviço no município. Só o formato das bibliotecas de referência (6 dígitos, AAAA-MM-DD)
+        é aceito; o alternativo recebe 400, como um formato que a API real não entendesse."""
+        if not (re.fullmatch(r"\d{6}", servico) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", competencia)):
+            return httpx.Response(400, json={"mensagem": "Parâmetros da consulta inválidos."})
+        if (c_mun, servico) in self.servicos_nao_administrados:
+            return httpx.Response(
+                404, json={"mensagem": "Nenhuma alíquota encontrada para o serviço.", "aliquotas": None}
+            )
+        vigencia = {"Incidencia": "Municipio", "Aliq": float(ALIQ_ISS), "DtIni": "2025-01-01T00:00:00", "DtFim": None}
+        return httpx.Response(200, json={"mensagem": None, "aliquotas": {servico: [vigencia]}})
 
     @staticmethod
     def _lote(docs: list[dict], tp_amb: str) -> httpx.Response:

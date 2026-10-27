@@ -16,6 +16,7 @@ from emissor.api.deps import AdminAtual, UsuarioAtual
 from emissor.api.routes_emissoes import obter_lote
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, Tributacao, agora, obter_config, sessao
 from emissor.nfse.models import aplicar_tributacao, normalizar_documento, tributacao_de
+from emissor.services import parametros
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
 from emissor.services.emissao import (
@@ -365,10 +366,12 @@ def validar_nota_avulsa(entrada: AvulsaEntrada) -> dict[str, Any]:
             problemas += [
                 f"Tributação: {e}" for e in trib_service.coerencia(nota.tributacao, trib_service.config_base(s))
             ]
+        c_mun, servicos = parametros.alvos(s, [linha_avulsa(nota)], nota.tributacao, nota.tributacao_nome)
     return {
         "ambiente": cfg.ambiente,
         "ambiente_descricao": cfg.amb.descricao,
         "problemas": problemas,
+        "avisos": parametros.avisos(cfg.amb, c_mun, servicos) if not problemas else [],
         "linhas": [{"linha_id": 0, "erros": v.erros, "avisos": v.avisos}],
         "quantidade": 1,
         "total": _total(nota.valor),

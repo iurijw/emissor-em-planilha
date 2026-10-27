@@ -134,6 +134,52 @@ a { color: var(--azul-texto); }
 @media (max-width: 560px) { .tabela.variaveis th:nth-child(3), .tabela.variaveis td:nth-child(3) { display: none; } }
 .grade-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 16px; }
 .grade-form .largo { grid-column: 1 / -1; }
+/* Rótulos longos (os do portal) em duas linhas: as caixas da mesma linha ficam alinhadas. */
+@media (min-width: 700px) {
+  .grade-form--rotulos-longos .campo > span { min-height: 2.8em; display: flex; align-items: flex-end; }
+}
+
+/* Lista de sugestões de um campo com busca (município, serviço) */
+.lista-sugestoes {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 5; margin: 4px 0 0; padding: 4px;
+  list-style: none; background: var(--folha); border: 1px solid var(--linha-forte); border-radius: var(--raio);
+  box-shadow: var(--sombra); max-height: 280px; overflow: auto;
+}
+.lista-sugestoes__item {
+  display: grid; grid-template-columns: 5.2em 1fr; gap: 10px; align-items: baseline; width: 100%;
+  padding: 7px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--tinta);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.lista-sugestoes__item .num { color: var(--azul-texto); }
+.lista-sugestoes__item small { display: block; margin-top: 2px; color: var(--grafite); font-size: 12px; }
+
+/* Tributação no formato do Emissor Nacional: perguntas Sim/Não, valores mostrados e a prévia da nota */
+.pergunta { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pergunta legend { padding: 0; margin-bottom: 6px; font-size: 12.5px; font-weight: 600; color: var(--tinta); max-width: 75ch; }
+.pergunta__opcoes { display: flex; gap: 22px; }
+.pergunta__opcoes label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-size: 14px; }
+.pergunta__opcoes input { width: 16px; height: 16px; margin: 0; accent-color: var(--azul); }
+.pergunta small { color: var(--grafite); font-size: 12px; max-width: 75ch; }
+.campo__mostrado {
+  display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: var(--raio);
+  background: #f1f6f8; color: var(--tinta); border: 1px solid transparent;
+}
+.previa-nfse { border: 1px solid var(--linha); border-radius: var(--raio); padding: 16px 18px 12px; background: #fbfdfe; }
+.previa-nfse__cabeca { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.previa-nfse__cabeca .secao-titulo { margin: 0; }
+.previa-nfse__exemplo { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--grafite); }
+.previa-nfse__exemplo input {
+  width: 9.5em; height: 30px; padding: 0 8px; text-align: right; border: 1px solid var(--linha-forte);
+  border-radius: var(--raio); background: var(--folha);
+}
+.previa-nfse__exemplo input:focus { outline: none; border-color: var(--azul); box-shadow: var(--foco); }
+.previa-nfse h4 { margin: 16px 0 4px; font-size: 13px; font-weight: 650; padding-bottom: 4px; border-bottom: 1px solid var(--linha); }
+.previa-nfse dl { margin: 0; }
+.previa-nfse__linha { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 13px; }
+.previa-nfse__linha dt { flex: 1; display: flex; align-items: baseline; min-width: 0; color: var(--grafite); }
+.previa-nfse__linha dt::after { content: ""; flex: 1; min-width: 12px; margin: 0 0 3px 8px; border-bottom: 1px dotted var(--linha-forte); }
+.previa-nfse__linha dd { margin: 0; white-space: nowrap; color: var(--tinta); }
+.previa-nfse__linha--total dt, .previa-nfse__linha--total dd { color: var(--tinta); font-weight: 700; }
 /* Nota avulsa: "CNPJ / CPF  ou  Nome da empresa" numa linha; o "ou" fica na altura das caixas. */
 .tomador-ou { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0 14px; align-items: start; }
 .tomador-ou__ou {
@@ -298,7 +344,7 @@ a { color: var(--azul-texto); }
   .onb { grid-template-columns: 1fr; }
   .onb__lado { padding: 20px; }
   .onb__passos { flex-direction: row; overflow-x: auto; }
-  .config { grid-template-columns: 1fr; }
+  .config { grid-template-columns: minmax(0, 1fr); }
   .config__menu { position: static; flex-direction: row; overflow-x: auto; }
   .topo { flex-wrap: wrap; height: auto; gap: 4px 12px; padding: 12px 16px 0; }
   .nav { width: 100%; height: 44px; overflow-x: auto; scrollbar-width: none; }

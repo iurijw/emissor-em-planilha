@@ -3,6 +3,7 @@
 - Sefin Nacional: emissão (``/nfse``), consulta por DPS/chave e registro/consulta de eventos.
 - ADN (Ambiente de Dados Nacional, ``/contribuintes``): distribuição de documentos por NSU e
   eventos de uma NFS-e — é por ele que chegam cancelamentos feitos fora do sistema (portal).
+- ADN ``/parametrizacao``: o que o município cadastrou no Sistema Nacional (alíquota de cada serviço).
 
 Toda chamada é registrada:
 - no log JSON (``emissor.nfse.client``) com método, URL, status, tempo e corpo de resposta;
@@ -18,7 +19,8 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,7 @@ import httpx
 from emissor import config
 from emissor.logging_setup import get_context
 from emissor.nfse.certificate import Certificado
+from emissor.nfse.codes import formatar_c_trib_nac
 from emissor.nfse.constants import Ambiente
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro, extrair_alertas, extrair_mensagens
 
@@ -74,6 +77,19 @@ class LoteDistribuicao:
     status: str  # DOCUMENTOS_LOCALIZADOS | NENHUM_DOCUMENTO_LOCALIZADO | REJEICAO
     documentos: list[DocumentoDistribuido] = field(default_factory=list)
     alertas: list[MensagemSefin] = field(default_factory=list)
+
+
+@dataclass
+class AliquotaMunicipal:
+    """Parametrização do município para um serviço. ``encontrado`` None = sem resposta conclusiva."""
+
+    encontrado: bool | None
+    aliquota: str | None = None
+    mensagem: str | None = None
+
+
+# Consulta de apoio (não emite nada): quem chama segue sem ela se demorar.
+_TIMEOUT_CONSULTA = httpx.Timeout(8.0, connect=4.0)
 
 
 class SefinClient:
@@ -178,6 +194,31 @@ class SefinClient:
         """ADN ``GET /contribuintes/NFSe/{chave}/Eventos`` — todos os eventos da NFS-e."""
         url = f"{self.ambiente.adn_url}/contribuintes/NFSe/{chave}/Eventos"
         return self._lote_adn(self._request("GET", url, "adn_eventos"), "adn_eventos")
+
+    def aliquota_municipal(self, c_mun: str, c_trib_nac: str, competencia: date) -> AliquotaMunicipal:
+        """ADN ``GET /parametrizacao/{município}/{serviço}/{competência}/aliquota``: o município administra o serviço?
+
+        O município cadastra no Sistema Nacional cada serviço que administra, com a alíquota; sem esse cadastro a
+        Sefin recusa a DPS (E0312). A rota não tem documentação oficial publicada: tenta o formato das bibliotecas de
+        referência (código de 6 dígitos, data ``AAAA-MM-DD``) e, sem achar, o alternativo (``17.19.01.000``,
+        ``MM-DD-AAAA``). "Não encontrado" só quando um deles responde que não há cadastro.
+        """
+        tentativas = (
+            (c_trib_nac, competencia.isoformat()),
+            (f"{formatar_c_trib_nac(c_trib_nac)}.000", competencia.strftime("%m-%d-%Y")),
+        )
+        respostas = []
+        for servico, comp in tentativas:
+            url = f"{self.ambiente.adn_url}/parametrizacao/{c_mun}/{servico}/{comp}/aliquota"
+            resp = self._request("GET", url, "parametrizacao", timeout=_TIMEOUT_CONSULTA)
+            dados = self._json(resp, "parametrizacao")
+            if resp.status_code in (401, 403, 429, 495, 496) or resp.status_code >= 500:
+                raise self._erro_http(resp, dados, "O Ambiente Nacional recusou a consulta")
+            r = _aliquota_municipal(resp.status_code, dados, competencia)
+            if r.encontrado:
+                return r
+            respostas.append(r)
+        return next((r for r in respostas if r.encontrado is False), respostas[0])
 
     # --- infraestrutura -----------------------------------------------------------
     def _request(
@@ -376,6 +417,45 @@ def _sem_arquivos(dados: Any, original: bytes) -> bytes:
                 for item in v
             ]
     return json.dumps(copia, ensure_ascii=False, indent=1).encode("utf-8")
+
+
+def _aliquota_municipal(status: int, dados: Any, competencia: date) -> AliquotaMunicipal:
+    """Lê ``{mensagem, aliquotas: {serviço: [{Incidencia, Aliq, DtIni, DtFim}]}}`` (404 com corpo = sem cadastro)."""
+    inesperada = f"Resposta inesperada do Ambiente Nacional (HTTP {status})."
+    if not isinstance(dados, dict):
+        return AliquotaMunicipal(None, mensagem=inesperada)
+    mensagem = str(_get(dados, "mensagem") or "").strip() or None
+    aliquotas = _get(dados, "aliquotas")
+    vigencias = [
+        a
+        for lista in (aliquotas.values() if isinstance(aliquotas, dict) else [])
+        if isinstance(lista, list)
+        for a in lista
+        if isinstance(a, dict)
+    ]
+    if vigencias:
+        return AliquotaMunicipal(True, _aliquota_vigente(vigencias, competencia), mensagem)
+    if status in (200, 404) and (isinstance(aliquotas, dict) or mensagem):
+        return AliquotaMunicipal(False, mensagem=mensagem)
+    return AliquotaMunicipal(None, mensagem=mensagem or inesperada)
+
+
+def _aliquota_vigente(vigencias: list[dict], competencia: date) -> str | None:
+    def dia(v: Any) -> date | None:
+        try:
+            return date.fromisoformat(str(v)[:10]) if v else None
+        except ValueError:
+            return None
+
+    def vale(a: dict) -> bool:
+        ini, fim = dia(_get(a, "DtIni")), dia(_get(a, "DtFim"))
+        return (ini is None or ini <= competencia) and (fim is None or competencia <= fim)
+
+    escolhida = next((a for a in vigencias if vale(a)), vigencias[0])
+    try:
+        return f"{Decimal(str(_get(escolhida, 'Aliq')).replace(',', '.')):.2f}"
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _get(dados: Any, chave: str) -> Any:

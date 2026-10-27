@@ -1,10 +1,14 @@
-"""Descrições dos códigos do leiaute (fonte: documentação dos XSD 1.01) e municípios IBGE."""
+"""Descrições dos códigos do leiaute (fonte: documentação dos XSD 1.01), municípios IBGE e serviços nacionais."""
 
 from __future__ import annotations
 
 import csv
+import json
+import re
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 TP_AMB = {"1": "Produção", "2": "Homologação"}
 AMB_GER = {"1": "Prefeitura", "2": "Sistema Nacional da NFS-e"}
@@ -121,11 +125,6 @@ C_IND_OP = {
     "100501": "Bens móveis imateriais e direitos, operação onerosa: domicílio do adquirente (tomador)",
     "100601": "Bens móveis imateriais e direitos, operação não onerosa: domicílio do destinatário (tomador)",
 }
-# Sugestões de cClassTrib (tabela oficial de classificação tributária do IBS e da CBS). O campo aceita qualquer
-# código de 6 dígitos; o CST é sempre os 3 primeiros dígitos (regra E0959).
-C_CLASS_TRIB_SUGESTOES = {
-    "000001": "Situações tributadas integralmente pelo IBS e CBS",
-}
 IND_FINAL = {"0": "Não", "1": "Sim (uso ou consumo pessoal)"}
 # Subitens da LC 116 que exigem tpOper (E0903): locação/cessão de imóvel, factoring, administração de fundos...
 SUBITENS_EXIGEM_TP_OPER = ("2505", "1509", "1712", "1005")
@@ -137,7 +136,8 @@ def descricao(tabela: dict[str, str], codigo: str | None) -> str | None:
     return tabela.get(codigo, codigo)
 
 
-_MUNICIPIOS_CSV = Path(__file__).resolve().parents[1] / "data" / "municipios_ibge.csv"
+_DADOS = Path(__file__).resolve().parents[1] / "data"
+_MUNICIPIOS_CSV = _DADOS / "municipios_ibge.csv"
 
 
 @lru_cache(maxsize=1)
@@ -158,12 +158,12 @@ def municipio_uf(c_mun: str | None) -> str | None:
     return f"{m[0]} / {m[1]}" if m else None
 
 
+def _norm(s: str) -> str:
+    return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
+
+
 def buscar_municipios(termo: str, limite: int = 20) -> list[dict[str, str]]:
-    import unicodedata
-
-    def norm(s: str) -> str:
-        return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
-
+    norm = _norm
     t = norm(termo.strip())
     res = []
     for cod, (nome, uf) in _municipios().items():
@@ -172,3 +172,100 @@ def buscar_municipios(termo: str, limite: int = 20) -> list[dict[str, str]]:
             if len(res) >= limite:
                 break
     return res
+
+
+# --- serviços nacionais ----------------------------------------------------------------------------------
+# Lista nacional (cTribNac, Anexo B) com os NBS e cClassTrib que o Anexo VIII correlaciona a cada item da LC 116.
+# Gerada por ``scripts/servicos_nacionais.py``; quando o gov.br publicar versão nova de um dos anexos, gerar de novo.
+
+
+@lru_cache(maxsize=1)
+def _servicos_nacionais() -> dict[str, Any]:
+    dados = json.loads((_DADOS / "servicos_nacionais.json").read_text(encoding="utf-8"))
+    dados["por_codigo"] = {s["codigo"]: s for s in dados["servicos"]}
+    for s in dados["servicos"]:
+        s["_texto"] = _norm(" ".join([s["descricao"], s["subitem_descricao"], *(n["descricao"] for n in s["nbs"])]))
+        s["_descricao"] = _norm(s["descricao"])
+    return dados
+
+
+def fontes_servicos() -> list[str]:
+    return _servicos_nacionais()["fontes"]
+
+
+def csts_ibscbs() -> list[dict[str, str]]:
+    """CST do IBS/CBS que têm alguma classificação para NFS-e (ordem do código)."""
+    return [{"valor": c, "descricao": n} for c, n in sorted(_servicos_nacionais()["csts"].items())]
+
+
+def classes_ibscbs() -> list[dict[str, Any]]:
+    """cClassTrib vigentes para NFS-e, com o CST (3 primeiros dígitos), nome e redução do IBS e da CBS."""
+    return [
+        {
+            "valor": c,
+            "descricao": v["nome"],
+            "cst": v["cst"],
+            "reducao_ibs": v["reducao_ibs"],
+            "reducao_cbs": v["reducao_cbs"],
+        }
+        for c, v in _servicos_nacionais()["classes"].items()
+    ]
+
+
+def formatar_c_trib_nac(codigo: str | None) -> str:
+    """``171901`` → ``17.19.01`` (como a lista nacional mostra)."""
+    c = codigo or ""
+    return f"{c[:2]}.{c[2:4]}.{c[4:6]}" if len(c) == 6 and c.isdigit() else c
+
+
+def formatar_nbs(codigo: str | None) -> str:
+    """``113022100`` → ``1.1302.21.00`` (como a lista NBS mostra)."""
+    c = codigo or ""
+    return f"{c[0]}.{c[1:5]}.{c[5:7]}.{c[7:9]}" if len(c) == 9 and c.isdigit() else c
+
+
+def _resumo_servico(s: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "codigo": s["codigo"],
+        "descricao": s["descricao"],
+        "subitem": s["subitem"],
+        "subitem_descricao": s["subitem_descricao"],
+    }
+
+
+def servico(c_trib_nac: str | None) -> dict[str, Any] | None:
+    """Serviço da lista nacional com NBS e sugestões de cClassTrib (nome e redução), ou None se não existe."""
+    dados = _servicos_nacionais()
+    s = dados["por_codigo"].get(re.sub(r"\D", "", c_trib_nac or ""))
+    if s is None:
+        return None
+    classes = dados["classes"]
+    return {
+        **_resumo_servico(s),
+        "grupo_descricao": s["grupo_descricao"],
+        "nbs": s["nbs"],
+        "c_class_trib": [{"codigo": c, **classes[c]} for c in s["c_class_trib"] if c in classes],
+    }
+
+
+def buscar_servicos(termo: str, limite: int = 30) -> list[dict[str, Any]]:
+    """Busca por código (``17.19``, ``1719``, ``171901``; um NBS de 9 dígitos acha os serviços dele) ou por palavras.
+
+    Com palavras, todas precisam aparecer (sem acento e sem caixa) na descrição do serviço, do subitem ou de um NBS
+    dele; quem tem todas na descrição do próprio serviço vem primeiro.
+    """
+    servicos = _servicos_nacionais()["servicos"]
+    t = termo.strip()
+    digitos = re.sub(r"[\s./-]", "", t)
+    if digitos.isdigit():
+        if len(digitos) == 9:
+            achados = [s for s in servicos if any(n["codigo"] == digitos for n in s["nbs"])]
+        else:
+            achados = [s for s in servicos if s["codigo"].startswith(digitos)]
+        return [_resumo_servico(s) for s in achados[:limite]]
+    palavras = [p for p in re.split(r"\W+", _norm(t)) if len(p) >= 2]
+    if not palavras:
+        return []
+    achados = [s for s in servicos if all(p in s["_texto"] for p in palavras)]
+    achados.sort(key=lambda s: not all(p in s["_descricao"] for p in palavras))
+    return [_resumo_servico(s) for s in achados[:limite]]

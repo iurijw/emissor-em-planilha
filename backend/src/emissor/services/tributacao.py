@@ -8,6 +8,7 @@ tributação usa os padrões das configurações.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -67,9 +68,13 @@ def normalizar(d: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         dados[k] = v
     if "ibscbs" in dados:
         dados["ibscbs"] = _bool(dados["ibscbs"])
-    for campo in ("c_trib_nac", "c_nbs", "ibscbs_c_ind_op", "ibscbs_c_class_trib"):
+    for campo in ("c_trib_nac", "c_nbs", "c_trib_mun", "ibscbs_c_ind_op", "ibscbs_c_class_trib"):
         if dados.get(campo) is not None:
-            dados[campo] = str(dados[campo]).replace(".", "").replace(" ", "")
+            dados[campo] = re.sub(r"[\s./-]", "", str(dados[campo])) or None
+    mun, nac = dados.get("c_trib_mun"), dados.get("c_trib_nac")
+    if mun and nac and len(mun) == 9 and mun.startswith(nac):
+        # "080101003" = código nacional (080101) + municipal (003): o campo municipal leva só os 3 últimos.
+        dados["c_trib_mun"] = mun[6:]
     if dados.get("c_loc_prestacao") and not codes.municipio(dados["c_loc_prestacao"]):
         erros.append(f"Código IBGE de município inválido em c_loc_prestacao: {dados['c_loc_prestacao']}.")
     for campo, tabela in _ENUMS.items():
@@ -126,6 +131,19 @@ def coerencia(t: dict[str, Any], base: ConfigFiscal | None = None) -> list[str]:
     c_trib_nac = t.get("c_trib_nac") or ""
     if not c_trib_nac.isdigit() or len(c_trib_nac) != 6:
         erros.append("Código de Tributação Nacional deve ter 6 dígitos.")
+    c_trib_mun = t.get("c_trib_mun")
+    if c_trib_mun and (not c_trib_mun.isdigit() or len(c_trib_mun) != 3):
+        if c_trib_mun.isdigit() and len(c_trib_mun) == 9:
+            erros.append(
+                f"Código de tributação municipal tem só 3 dígitos: {c_trib_mun} parece o código nacional "
+                f"{c_trib_mun[:6]} seguido do municipal {c_trib_mun[6:]}. Ponha {c_trib_mun[6:]} no código municipal "
+                f"e confira se o nacional é mesmo {c_trib_mun[:6]}."
+            )
+        else:
+            erros.append(
+                "Código de tributação municipal deve ter 3 dígitos (o desdobro que a prefeitura criou para o "
+                "serviço, ex.: 001). Na dúvida, deixe vazio."
+            )
     c_nbs = t.get("c_nbs")
     if c_nbs and (not c_nbs.isdigit() or len(c_nbs) != 9):
         erros.append("Código NBS deve ter 9 dígitos.")

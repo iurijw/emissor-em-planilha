@@ -31,8 +31,8 @@ from emissor.nfse.models import CAMPOS_TRIBUTACAO, ConfigFiscal, normalizar_docu
 from emissor.nfse.xml_reader import NFSeDoc, NfseXmlError, extrair_padroes, extrair_tomador
 from emissor.services import certificado as cert_service
 from emissor.services import clientes as cli_service
+from emissor.services import parametros, variaveis
 from emissor.services import tributacao as trib_service
-from emissor.services import variaveis
 from emissor.services.emissao import verificar_prontidao, worker
 
 log = logging.getLogger(__name__)
@@ -315,7 +315,8 @@ def opcoes() -> dict[str, Any]:
         "tp_ret_pis_cofins": lista(codes.TP_RET_PIS_COFINS),
         "tp_emit": lista(codes.TP_EMIT),
         "ibscbs_c_ind_op": lista(codes.C_IND_OP),
-        "ibscbs_c_class_trib": lista(codes.C_CLASS_TRIB_SUGESTOES),
+        "ibscbs_cst": codes.csts_ibscbs(),
+        "ibscbs_classes": codes.classes_ibscbs(),
         "ibscbs_ind_final": lista(codes.IND_FINAL),
         "ambiente": [{"valor": a.value, "descricao": a.descricao} for a in Ambiente],
         "variaveis_descricao": variaveis.lista(),
@@ -327,6 +328,54 @@ def municipios(q: str = "") -> list[dict[str, str]]:
     if len(q.strip()) < 2:
         return []
     return codes.buscar_municipios(q)
+
+
+@router.get("/servicos")
+def servicos(q: str = "") -> list[dict[str, Any]]:
+    """Lista nacional de serviços (cTribNac) por código ou palavras da descrição."""
+    if len(q.strip()) < 2:
+        return []
+    return codes.buscar_servicos(q)
+
+
+@router.get("/servicos/{codigo}")
+def servico(codigo: str) -> dict[str, Any]:
+    """Um serviço com os NBS e as sugestões de cClassTrib do Anexo VIII."""
+    s = codes.servico(codigo)
+    if s is None:
+        raise HTTPException(
+            404,
+            f"O código {codigo} não está na lista nacional de serviços ({', '.join(codes.fontes_servicos()[:1])}).",
+        )
+    return {**s, "fontes": codes.fontes_servicos()}
+
+
+class ConferirServico(BaseModel):
+    c_trib_nac: str
+    c_loc_prestacao: str | None = None
+    # Município do prestador ainda não salvo (onboarding); sem ele, o das configurações.
+    c_mun_emissor: str | None = None
+    # Consultar de novo, sem a resposta guardada.
+    forcar: bool = False
+
+
+@router.post("/config/conferir-servico")
+def conferir_servico(entrada: ConferirServico) -> dict[str, Any]:
+    """A prefeitura tem o serviço cadastrado no Sistema Nacional? (consulta de leitura no ADN, com o certificado)"""
+    with sessao() as s:
+        cfg = obter_config(s)
+        fiscal = cfg.config_fiscal()
+    c_mun = somente_digitos(entrada.c_mun_emissor) or (fiscal.c_mun_emissor if fiscal else None)
+    if not c_mun or not codes.municipio(c_mun):
+        raise HTTPException(400, "Informe o município do prestador antes de conferir.")
+    c = parametros.conferir(
+        cfg.amb,
+        c_mun,
+        somente_digitos(entrada.c_trib_nac) or "",
+        somente_digitos(entrada.c_loc_prestacao) or None,
+        usar_cache=not entrada.forcar,
+    )
+    return {**c.as_dict(), "ambiente": cfg.amb.descricao}
 
 
 @router.post("/config/testar-conexao")
