@@ -193,7 +193,7 @@ def test_simulacao_recusa_dps_adulterada(sim, certificado, dps_input):
             assert r.json()["erros"][0]["Codigo"] == "SIM-ASSIN"  # assinada por outro certificado
         r = enviar(dps)
         assert r.status_code == 201 and validar_nfse(ungzip_b64(r.json()["nfseXmlGZipB64"])) == []
-        assert enviar(dps).json()["erros"][0]["Codigo"] == "SIM-DUP"
+        assert enviar(dps).json()["erros"][0]["Codigo"] == "E0014"
 
 
 def test_lote_com_ibscbs_desligado_e_ligado(api, sim, pfx_bytes, nfse_exemplo_bytes):
@@ -421,6 +421,30 @@ def test_producao_usa_outro_endereco_e_outra_numeracao(api, sim, pfx_bytes, nfse
     doc = _conferir_nota(api, sim, e, documento=TOMADOR_CNPJ, valor="490.00")
     assert doc.dps("tpAmb") == "1" and doc.dps("nDPS") == "500"
     assert any(c.startswith("POST sefin.nfse.gov.br/SefinNacional/nfse") for c in sim.chamadas)
+
+
+def test_numero_da_dps_ja_usado_por_outro_sistema(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """E0014 com a NFS-e de outra nota: não adota a nota alheia como se fosse a emitida (bug da 0.1.0)."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    ids = _linhas(
+        api,
+        [
+            {"nome": "A", "documento": TOMADOR_CNPJ, "valor": "10", "descricao": "a"},
+            {"nome": "B", "documento": TOMADOR_CPF, "valor": "20", "descricao": "b"},
+        ],
+    )
+    assert _emitir(api, ids[:1])["contagem"] == {"autorizada": 1}
+    # Outro sistema com o mesmo CNPJ e série (ou o contador voltou): o próximo número já foi usado.
+    assert api.put("/api/config", json={"proximo_ndps_homologacao": 1}).status_code == 200
+    lote = _emitir(api, [ids[1], ids[0]])
+    assert lote["status"] == "interrompido" and "numeração" in lote["motivo_interrupcao"]
+    rej, nao = lote["emissoes"]
+    assert rej["status"] == "rejeitada" and rej["chave_acesso"] is None, rej
+    msg = rej["erro"]["mensagens"][0]
+    assert msg["codigo"] == "E0014" and "nº 1 já gerou a NFS-e" in msg["descricao"] and msg["dica"]
+    assert nao["status"] == "nao_enviada"
+    assert len(sim.notas) == 1  # nada foi emitido nem reaproveitado
+    assert api.get("/api/emissoes", params={"status": "autorizada"}).json()["total"] == 1
 
 
 # --- todas as rotas ---------------------------------------------------------------------------------------

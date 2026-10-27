@@ -221,7 +221,11 @@ class SefinSimulada:
             return self._rejeitar(*self.rejeitar_tomador[toma])
         if inf.get("Id") in self.por_dps:
             chave = self.por_dps[inf.get("Id")]
-            return self._rejeitar("SIM-DUP", f"DPS já existe: NFS-e {chave} gerada para este Id.")
+            return self._rejeitar(
+                "E0014",
+                "Conjunto de Série, Número, Código do Município Emissor e CNPJ/CPF informado nesta DPS já existe em "
+                f"uma NFS-e gerada a partir de uma DPS enviada anteriormente (simulação: NFS-e {chave}).",
+            )
 
         nota = self._gerar_nfse(root, prest_doc, tp_amb, agora, cert)
         if self.cair_apos_processar:

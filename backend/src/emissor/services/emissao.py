@@ -36,7 +36,14 @@ from emissor.nfse.constants import Ambiente
 from emissor.nfse.danfse.render import gerar_danfse
 from emissor.nfse.documentos import documento_valido, formatar_documento
 from emissor.nfse.dps_builder import DpsBuildError
-from emissor.nfse.emissao import ResultadoEmissao, agora_emissao, enviar_dps, preparar_dps
+from emissor.nfse.emissao import (
+    NumeracaoEmUso,
+    ResultadoEmissao,
+    agora_emissao,
+    buscar_nfse_da_dps,
+    enviar_dps,
+    preparar_dps,
+)
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
 from emissor.nfse.models import (
     ConfigFiscal,
@@ -545,11 +552,8 @@ class EmissionWorker:
     def _retomar(self, e: Emissao, client: SefinClient, **kw) -> ResultadoEmissao:
         xml = arquivos.absoluto(e.dps_path).read_bytes()
         log.warning("retomando emissão que estava em processamento", extra={"id_dps": e.id_dps})
-        chave = client.consultar_dps(e.id_dps)
-        if chave:
-            resp = client.consultar_nfse(chave)
-            return ResultadoEmissao(e.id_dps, chave, xml, resp.nfse_xml, resp.alertas, recuperada=True)
-        return enviar_dps(client, e.id_dps, xml, **kw)
+        existente = buscar_nfse_da_dps(client, e.id_dps, xml)
+        return existente or enviar_dps(client, e.id_dps, xml, **kw)
 
     def _sucesso(self, e: Emissao, r: ResultadoEmissao) -> None:
         finalizar_autorizada(e.id, r)
@@ -568,6 +572,11 @@ class EmissionWorker:
         log.warning("emissão %s: %s", status, err, extra={"erro": err.as_dict()})
         if err.tipo == TipoErro.AUTENTICACAO:
             raise _Interromper(f"Certificado recusado pela Sefin: {err.resumo}")
+        if isinstance(err, NumeracaoEmUso):  # os próximos números provavelmente também já foram usados
+            raise _Interromper(
+                "A numeração da DPS está atrás da Sefin: outro sistema emitiu com o mesmo CNPJ e série. "
+                "Ajuste a série ou a próxima DPS em Configurações."
+            )
         if err.tipo in (TipoErro.INDISPONIVEL, TipoErro.AMBIGUO, TipoErro.RESPOSTA_INVALIDA):
             raise _Interromper(f"Sefin Nacional indisponível ou sem resposta confirmada: {err.resumo}")
 
@@ -660,27 +669,32 @@ def verificar_na_sefin(emissao_id: int, client_factory: ClientFactory = _client_
     cert = cert_service.carregar()
     if cert is None:
         raise LoteError("Nenhum certificado carregado.")
+    xml = arquivos.absoluto(e.dps_path).read_bytes() if e.dps_path else b""
+    outra_nota: NumeracaoEmUso | None = None
     with bind_context(emissao_id=e.id), client_factory(Ambiente(e.ambiente), cert) as client:
-        chave = client.consultar_dps(e.id_dps)
-        if chave:
-            resp = client.consultar_nfse(chave)
-            xml = arquivos.absoluto(e.dps_path).read_bytes() if e.dps_path else b""
-            return finalizar_autorizada(
-                e.id, ResultadoEmissao(e.id_dps, chave, xml, resp.nfse_xml, resp.alertas, recuperada=True)
-            )
+        try:
+            existente = buscar_nfse_da_dps(client, e.id_dps, xml)
+        except NumeracaoEmUso as err:
+            existente, outra_nota = None, err
+        if existente:
+            return finalizar_autorizada(e.id, existente)
     with sessao() as s:
         reg = s.get(Emissao, emissao_id)
         if reg.status != e.status or reg.id_dps != e.id_dps:
             return reg  # mudou durante a consulta (ex.: o worker registrou a nota): não sobrescreve
-        reg.status = "erro"
-        reg.erro_json = json.dumps(
-            {
-                "tipo": "nao_encontrada",
-                "resumo": "A Sefin confirmou que esta DPS NÃO gerou NFS-e. É seguro emitir novamente pela tabela.",
-                "mensagens": [],
-            },
-            ensure_ascii=False,
-        )
+        if outra_nota is not None:
+            reg.status = "rejeitada"
+            reg.erro_json = json.dumps(outra_nota.as_dict(), ensure_ascii=False)
+        else:
+            reg.status = "erro"
+            reg.erro_json = json.dumps(
+                {
+                    "tipo": "nao_encontrada",
+                    "resumo": "A Sefin confirmou que esta DPS NÃO gerou NFS-e. É seguro emitir novamente pela tabela.",
+                    "mensagens": [],
+                },
+                ensure_ascii=False,
+            )
         reg.atualizado_em = agora()
         s.add(reg)
         s.commit()
