@@ -77,8 +77,9 @@ _DICAS_CODIGO = {
     "E0014": "Este número de DPS já gerou uma NFS-e. Se não foi por este sistema, outro sistema emite com o mesmo "
     "CNPJ e série: use uma série só para este sistema ou ajuste a próxima DPS em Configurações.",
     "E0312": "A prefeitura do município de incidência do ISS não tem este código de tributação nacional na lista de "
-    "serviços dela no Sistema Nacional. Em Configurações → Tributações, procure o serviço pela descrição e use "
-    "“Conferir na prefeitura”; na dúvida, confirme o código com a contabilidade ou com a prefeitura.",
+    "serviços dela no Sistema Nacional. Em Configurações → Tributações, procure o serviço pela descrição: a tela "
+    "consulta a prefeitura e avisa se o código não está cadastrado. Na dúvida, confirme o código com a contabilidade "
+    "ou com a prefeitura.",
     "E0010": "A série não pertence à faixa do canal de emissão. Para sistema próprio use série entre 1 e 49999 "
     "(Configurações → Série).",
     # Eventos (cancelamento) — Anexo II do leiaute.

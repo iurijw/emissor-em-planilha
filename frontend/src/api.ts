@@ -324,16 +324,18 @@ export interface Servico {
 export interface ServicoDetalhe extends Servico {
   grupo_descricao: string;
   nbs: { codigo: string; descricao: string; c_ind_op: string[] }[];
-  c_class_trib: { codigo: string; nome: string; reducao_ibs: number; reducao_cbs: number }[];
+  c_class_trib: { codigo: string; cst: string; nome: string; reducao_ibs: number; reducao_cbs: number }[];
   fontes: string[];
 }
 
-/** Resposta de "Conferir na prefeitura" (parametrização do município no Sistema Nacional). */
+/** Consulta do serviço na prefeitura (parametrização do município no Sistema Nacional). */
 export interface ConferenciaServico {
   situacao: "encontrado" | "nao_encontrado" | "nao_conferido";
   mensagem: string;
   c_trib_nac: string;
   municipio: string | null;
+  /** "Florianópolis / SC" */
+  municipio_nome: string | null;
   competencia: string | null;
   aliquota: string | null;
   detalhe: string | null;

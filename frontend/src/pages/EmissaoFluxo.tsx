@@ -130,8 +130,9 @@ export function EmissaoFluxo(props: {
     const prod = val?.ambiente === "1";
     const comErro = val?.linhas.filter((l) => l.erros.length) ?? [];
     const comAviso = val?.linhas.filter((l) => !l.erros.length && l.avisos.length) ?? [];
+    const avisosGerais = val?.avisos ?? [];
     const bloqueado = !val || val.problemas.length > 0 || comErro.length > 0;
-    const precisaCiencia = comAviso.length > 0 && !cienteAvisos;
+    const precisaCiencia = (comAviso.length > 0 || avisosGerais.length > 0) && !cienteAvisos;
     const precisaConfirmacaoProd = prod && confirmaProd.trim().toUpperCase() !== "EMITIR";
     const aliquotas = val?.aliquotas_iss ?? [];
     const issPendente = aliquotas.some((a) => !respostaIssValida(a, respostasIss[chaveIss(a)]));
@@ -215,17 +216,31 @@ export function EmissaoFluxo(props: {
                   onChange={(r) => setRespostasIss((atual) => ({ ...atual, [chaveIss(a)]: r }))}
                 />
               ))}
-            {comAviso.length > 0 && (
+            {(comAviso.length > 0 || avisosGerais.length > 0) && (
               <div className="aviso">
                 <div>
-                  <strong>{comAviso.length} linha(s) com aviso</strong>
-                  <ul>
-                    {comAviso.map((l) => (
-                      <li key={l.linha_id}>
-                        <b>{props.nomes.get(l.linha_id) || `Linha ${l.linha_id}`}</b>: {l.avisos.join(" ")}
-                      </li>
-                    ))}
-                  </ul>
+                  {avisosGerais.length > 0 && (
+                    <>
+                      <strong>Serviço que a prefeitura não tem cadastrado</strong>
+                      <ul>
+                        {avisosGerais.map((a) => (
+                          <li key={a}>{a}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {comAviso.length > 0 && (
+                    <>
+                      <strong style={avisosGerais.length ? { marginTop: 10 } : undefined}>{comAviso.length} linha(s) com aviso</strong>
+                      <ul>
+                        {comAviso.map((l) => (
+                          <li key={l.linha_id}>
+                            <b>{props.nomes.get(l.linha_id) || `Linha ${l.linha_id}`}</b>: {l.avisos.join(" ")}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
                   <label style={{ display: "flex", gap: 8, marginTop: 10 }}>
                     <input type="checkbox" checked={cienteAvisos} onChange={(e) => setCienteAvisos(e.target.checked)} />
                     Li os avisos e quero emitir mesmo assim.

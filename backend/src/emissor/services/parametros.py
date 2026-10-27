@@ -59,7 +59,7 @@ class Conferencia:
     detalhe: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return asdict(self) | {"municipio_nome": codes.municipio_uf(self.municipio)}
 
 
 ClientFactory = Callable[[Ambiente, Certificado], SefinClient]
@@ -95,6 +95,7 @@ def conferir(
     competencia: date | None = None,
     *,
     client_factory: ClientFactory | None = None,
+    usar_cache: bool = True,
 ) -> Conferencia:
     """O município de incidência tem o serviço ``c_trib_nac`` cadastrado na competência (padrão: hoje)?"""
     competencia = competencia or agora().date()
@@ -114,7 +115,7 @@ def conferir(
     chave = (ambiente.value, mun, c_trib_nac, mes)
     with _lock:
         guardada = _cache.get(chave)
-    if guardada and guardada[0] > time.monotonic():
+    if usar_cache and guardada and guardada[0] > time.monotonic():
         return guardada[1]
 
     cert = cert_service.carregar()

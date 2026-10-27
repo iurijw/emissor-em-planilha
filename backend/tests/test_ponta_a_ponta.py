@@ -484,7 +484,7 @@ def test_servico_que_a_prefeitura_nao_administra(api, sim, pfx_bytes, nfse_exemp
     rej = _emitir(api, ids)["emissoes"][0]
     assert rej["status"] == "rejeitada", rej
     msg = rej["erro"]["mensagens"][0]
-    assert msg["codigo"] == "E0312" and "Conferir na prefeitura" in msg["dica"]
+    assert msg["codigo"] == "E0312" and "a tela consulta a prefeitura" in msg["dica"]
 
     # Local da prestação em outro município (o ISS pode ser de outra prefeitura) e ADN fora do ar: sem conferir.
     assert conferir(c_loc_prestacao="3550308")["situacao"] == "nao_conferido"

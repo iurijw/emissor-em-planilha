@@ -96,27 +96,35 @@ def main() -> None:
         s["c_class_trib"] = c.get("c_class_trib", [])
         sem_nbs += not s["nbs"]
 
-    # Nome e redução de cada cClassTrib citado (Conformidade Fácil), para a tela explicar a sugestão.
+    # cClassTrib vigentes que valem para NFS-e (Conformidade Fácil), com CST, nome e redução: a tela lista por CST,
+    # como o Emissor Nacional, e explica as sugestões do Anexo VIII.
+    tabela = json.loads(Path(args.classtrib).read_text(encoding="utf-8"))
     vigentes = {
-        c["CodClassTrib"]: c
-        for cst in json.loads(Path(args.classtrib).read_text(encoding="utf-8"))
-        for c in cst.get("ClassificacoesTributarias") or []
-        if not c.get("DthFimVig")
+        c["CodClassTrib"]: c for cst in tabela for c in cst.get("ClassificacoesTributarias") or [] if not c.get("DthFimVig")
     }
-    usados = sorted({c for s in servicos for c in s["c_class_trib"]} | {"000001"})
-    faltam = [c for c in usados if c not in vigentes]
+    usados = {c for s in servicos for c in s["c_class_trib"]}
+    faltam = sorted(c for c in usados if c not in vigentes)
     if faltam:
         raise SystemExit(f"cClassTrib do Anexo VIII fora da tabela vigente: {faltam}")
     classes = {
         c: {
-            "nome": texto(vigentes[c]["NomeReduzido"]).rstrip("."),
-            "reducao_ibs": vigentes[c].get("PercRedIbs") or 0,
-            "reducao_cbs": vigentes[c].get("PercRedCbs") or 0,
+            "cst": v["Cst"],
+            "nome": texto(v["NomeReduzido"]).rstrip("."),
+            "reducao_ibs": v.get("PercRedIbs") or 0,
+            "reducao_cbs": v.get("PercRedCbs") or 0,
         }
-        for c in usados
+        for c, v in sorted(vigentes.items())
+        if v.get("IndNfse") or c in usados
     }
+    csts = {t["Cst"]: texto(t["NomeCst"]) for t in tabela if any(c["cst"] == t["Cst"] for c in classes.values())}
 
-    dados = {"fontes": args.versoes.split("|"), "consulta": args.consulta, "servicos": servicos, "classes": classes}
+    dados = {
+        "fontes": args.versoes.split("|"),
+        "consulta": args.consulta,
+        "servicos": servicos,
+        "classes": classes,
+        "csts": csts,
+    }
     DESTINO.write_text(json.dumps(dados, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(
         f"{len(servicos)} serviços ({sem_nbs} sem NBS no Anexo VIII) -> {DESTINO} ({DESTINO.stat().st_size // 1024} KB)"

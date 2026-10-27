@@ -150,6 +150,14 @@ que as notas daquela aba saem ("padrão" = os padrões da nota em Configuraçõe
 um administrador em **Configurações → Tributações**; partem dos padrões da nota e só o que muda precisa ser ajustado.
 Ao emitir, a tributação é copiada para a nota: alterá-la depois não muda notas já enviadas.
 
+**Tela de tributação.** Segue a ordem e os nomes do [Emissor Nacional](https://www.nfse.gov.br/EmissorNacional):
+serviço prestado, tributação municipal, tributação federal, IBS/CBS e valor aproximado dos tributos, com uma prévia dos
+valores numa nota de exemplo. O código de tributação nacional é buscado pela descrição ou pelo código, e o NBS e a
+classificação do IBS/CBS vêm com as sugestões do Anexo VIII para o serviço escolhido. O código municipal tem só 3
+dígitos (o código completo `17.19.01.000` é o nacional seguido dele). Com o certificado carregado, a tela pergunta ao
+Sistema Nacional se a prefeitura tem o serviço cadastrado e mostra a alíquota dela; se não tiver, a Sefin recusaria a
+nota (`E0312`), e o sistema avisa também antes de emitir, sem impedir.
+
 **Variáveis na descrição.** A descrição pode ter variáveis trocadas pela data do dia em que a nota sai: `{mes}`
 (outubro), `{ano}`, `{competencia}` (10/2026), `{mes_anterior}`, `{ano_mes_anterior}`, `{competencia_anterior}`,
 `{mes_numero}`, `{mes_anterior_numero}` e `{data}`. Com a primeira letra maiúscula o mês sai com maiúscula (`{Mes}` →
@@ -245,6 +253,11 @@ são exclusivas dele e seriam rejeitadas (E0010).
 **Uma nota foi rejeitada. E agora?**
 A mensagem mostra o código da Sefin e o que corrigir (ex.: CEP que não pertence ao município → corrija o cadastro
 do cliente em **Clientes**). Depois marque a linha e emita só ela. As outras notas do lote não são afetadas.
+
+**A nota foi recusada com `E0312`.**
+A prefeitura do município de incidência não tem aquele código de tributação nacional cadastrado no Sistema Nacional.
+Em **Configurações → Tributações**, procure o serviço pela descrição e confira o aviso da prefeitura na tela; na
+dúvida, confirme o código com a contabilidade ou com a prefeitura.
 
 **A internet caiu no meio do lote.**
 O lote para, e as notas que não chegaram a ser enviadas ficam como "não enviada": é só emiti-las de novo. Para a nota

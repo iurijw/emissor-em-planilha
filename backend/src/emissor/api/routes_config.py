@@ -315,7 +315,8 @@ def opcoes() -> dict[str, Any]:
         "tp_ret_pis_cofins": lista(codes.TP_RET_PIS_COFINS),
         "tp_emit": lista(codes.TP_EMIT),
         "ibscbs_c_ind_op": lista(codes.C_IND_OP),
-        "ibscbs_c_class_trib": lista(codes.C_CLASS_TRIB_SUGESTOES),
+        "ibscbs_cst": codes.csts_ibscbs(),
+        "ibscbs_classes": codes.classes_ibscbs(),
         "ibscbs_ind_final": lista(codes.IND_FINAL),
         "ambiente": [{"valor": a.value, "descricao": a.descricao} for a in Ambiente],
         "variaveis_descricao": variaveis.lista(),
@@ -354,6 +355,8 @@ class ConferirServico(BaseModel):
     c_loc_prestacao: str | None = None
     # Município do prestador ainda não salvo (onboarding); sem ele, o das configurações.
     c_mun_emissor: str | None = None
+    # Consultar de novo, sem a resposta guardada.
+    forcar: bool = False
 
 
 @router.post("/config/conferir-servico")
@@ -370,6 +373,7 @@ def conferir_servico(entrada: ConferirServico) -> dict[str, Any]:
         c_mun,
         somente_digitos(entrada.c_trib_nac) or "",
         somente_digitos(entrada.c_loc_prestacao) or None,
+        usar_cache=not entrada.forcar,
     )
     return {**c.as_dict(), "ambiente": cfg.amb.descricao}
 

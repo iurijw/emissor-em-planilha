@@ -23,6 +23,11 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
 - **F6 (2026-10-12):** configurações reorganizadas: "Dados da empresa" (prestador e regime) separada de
   "Tributações" (a padrão + as outras numa lista só); retenções federais só aparecem quando marcadas; o onboarding
   tem os passos "Dados da empresa" e "Tributação padrão". Só tela: a tributação padrão continua em `config.fiscal`.
+- **F6 (2026-10-27):** tela de tributação na ordem e com os nomes do Emissor Nacional (as retenções federais voltaram a
+  ficar sempre à vista, como no portal), busca do serviço na lista nacional com NBS/cClassTrib do Anexo VIII, código
+  municipal só com 3 dígitos e consulta do serviço na prefeitura (E0312); ver "Código do serviço e tela de tributação".
+  A consulta à prefeitura **não foi conferida no ADN real** (o formato da rota não tem documentação oficial): validar
+  com um certificado real antes de confiar nela.
 - **Leiaute da NT 009 na Produção Restrita (2026-10-22):** desde 20/10/2026 a Produção Restrita usa o pacote
   `esquemas_prod_restrita_20261020` (NT 009). A DPS de homologação sai nesse leiaute (XSD em `nfse/xsd/v1_01_nt009/`)
   e a de produção continua no anterior (`nfse/xsd/v1_01/`) até 30/11/2026. A Produção passa **sozinha** à NT 009 em
@@ -145,12 +150,12 @@ Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base 
 | `dps_builder.py` | `build_dps`, `id_dps` (ordem do XSD, igual às notas do Emissor Web) |
 | `signer.py` | `assinar` / `verificar` (signxml) |
 | `xsd.py` | `validar_dps` / `validar_nfse` / `validar_pedido_evento` / `validar_evento` (leiaute pelo `tpAmb` do documento) |
-| `client.py` | `SefinClient`: `emitir`, `consultar_dps`, `consultar_nfse`, `registrar_evento`, `consultar_evento`; ADN: `distribuicao_dfe`, `eventos_nfse`; log de cada troca em `data/logs/sefin/` |
+| `client.py` | `SefinClient`: `emitir`, `consultar_dps`, `consultar_nfse`, `registrar_evento`, `consultar_evento`; ADN: `distribuicao_dfe`, `eventos_nfse`, `aliquota_municipal` (parametrização); log de cada troca em `data/logs/sefin/` |
 | `eventos.py` | pedido de cancelamento (`preparar_cancelamento`, `enviar_cancelamento` com a mesma lógica anti-duplicidade da emissão), `EventoDoc` (leitura de `<evento>`), tipos de evento e efeito na situação |
 | `errors.py` | `SefinError` (`tipo`: validacao_local/rejeicao/autenticacao/indisponivel/ambiguo), mensagens + dicas |
 | `emissao.py` | `preparar_dps` + `enviar_dps`: retentativa com a **mesma** DPS, verificação `/dps/{id}` antes de reenviar |
 | `xml_reader.py` | `NFSeDoc`, `extrair_padroes` (nota mais recente), `extrair_tomador` |
-| `codes.py` | descrições dos códigos (tpEmit, opSimpNac, tribISSQN...) e tabela IBGE de municípios |
+| `codes.py` | descrições dos códigos (tpEmit, opSimpNac, tribISSQN...), tabela IBGE de municípios e lista nacional de serviços (`servico`, `buscar_servicos`, classificações do IBS/CBS) |
 | `diagnostico.py` | CLI de teste de certificado/mTLS |
 | `../security.py` | Fernet para PFX/senha em repouso |
 
@@ -213,6 +218,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET/PUT /api/tabela`, `POST /api/tabela/importar?modo=`, `GET /api/tabela/exportar?formato=`, `POST /api/tabela/validar` | tabela |
 | `GET /api/clientes?q=`, `GET/PUT/DELETE /api/clientes/{doc}`, `POST /api/clientes/{doc}/consultar`, `POST /api/clientes/consultar-pendentes`, `POST /api/clientes/importar-xmls` | clientes |
 | `GET /api/municipios?q=` | busca IBGE |
+| `GET /api/servicos?q=`, `GET /api/servicos/{codigo}`, `POST /api/config/conferir-servico` | lista nacional de serviços e consulta do serviço na prefeitura |
 | `GET/POST /api/tributacoes`, `PUT/DELETE /api/tributacoes/{id}` (escrita só admin) | tributações predefinidas |
 | `POST /api/tributacoes/aliquota-iss` `{tributacao_id \| null, p_aliq_iss}` (qualquer usuário, auditado) | alíquota do ISS retido pelo aviso da emissão |
 | `GET/POST /api/abas`, `PUT/DELETE /api/abas/{id}`; `aba_id` em `GET/PUT /api/tabela`, importar e exportar | abas da tabela |
@@ -293,6 +299,8 @@ Pendências conhecidas:
   `vAjusteBC` (e `vCalcDR`/`vCalcReeRepRes` → `vCalcAjusteBCISSQN`/`vCalcAjusteBCIBSCBS` na NFS-e). `indDest`/`dest`
   continuaram no grupo IBSCBS, e `regApIBSCBSSN`, `cAtvSN` e `opSimpNac=4` ainda não estão no XSD. Produção em
   01/12/2026 (troca automática, ver Status); conferir antes o pacote de produção contra `v1_01_nt009`.
+- Consulta do serviço na prefeitura (`/parametrizacao`) só testada contra o ADN simulado; ver "Código do serviço e
+  tela de tributação".
 - Frontend sem testes automatizados (verificado manualmente no navegador); backend com testes pytest.
 
 ### Eventos: cancelamento e situação pelo ADN (F6, 2026-10-09)
@@ -413,6 +421,41 @@ mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliqu
   lista; botão "Exportar notas (Excel)"): uma linha por nota, valores lidos do XML autorizado (`vBC`, `pAliqAplic`,
   `vISSQN`, `vTotalRet`, `vLiq`, retenções federais; PIS/COFINS só quando retidos, por `RETENCOES_PIS_COFINS`);
   canceladas/substituídas em cinza. Até 20.000 notas. Um resumo por competência foi feito e retirado a pedido do Iuri.
+
+### Código do serviço e tela de tributação (2026-10-27)
+
+Motivo: notas recusadas com **E0312** (o município de incidência não administra o `cTribNac`) e código municipal
+digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 dígitos).
+- **Lista nacional de serviços** (`data/servicos_nacionais.json`, 338 códigos): gerada por
+  `backend/scripts/servicos_nacionais.py` a partir do Anexo B (lista de serviços e NBS), do Anexo VIII (NBS, `cIndOp` e
+  `cClassTrib` sugeridos por serviço) e da tabela de cClassTrib do Portal da Conformidade Fácil (`--classtrib`, JSON).
+  Versões e data da consulta ficam em `fontes`. **Regerar quando o Anexo B ou o VIII mudarem** (o mesmo monitor da
+  ferramenta de códigos da hospedagem avisa). `codes.buscar_servicos`: por código (prefixo, com ou sem pontos), por
+  NBS (9 dígitos) ou por palavras (sem acento/caixa, todas presentes; descrição do serviço antes da do NBS).
+- **`cTribMun`**: `normalizar` tira pontos/espaços; 9 dígitos que começam com o `cTribNac` viram os 3 últimos;
+  `coerencia` recusa outro tamanho (mensagem própria para o caso nacional + municipal). A tela faz a mesma troca.
+- **Consulta à prefeitura** (`services/parametros.py`, `SefinClient.aliquota_municipal`): `GET {adn}/parametrizacao/
+  {cMun}/{cTribNac}/{AAAA-MM-DD}/aliquota` com o mTLS do certificado (só leitura); sem achar, tenta o formato
+  alternativo (`17.19.01.000`, `MM-DD-AAAA`). Encontrado = alguma alíquota vigente na competência; "não encontrado" só
+  com 404/200 que diga que não há cadastro (`mensagem`/`aliquotas` vazio); 401/403/429/5xx viram `SefinError`; o resto
+  é "não conferido". **Formato tirado das bibliotecas de referência, sem documentação oficial nem teste no ADN real.**
+  Município de incidência = o do prestador quando o local da prestação é o mesmo (ou vazio); serviços com ISS no
+  domicílio do tomador (subitens 4.22, 4.23, 5.09, 10.04, 15.01, 15.09) e local em outro município não são conferidos.
+  Cache em memória por (ambiente, município, serviço, mês): 6 h para respostas, 5 min para falhas. **Nunca bloqueia**:
+  a tela de tributação mostra o resultado (e a alíquota da prefeitura); `/tabela/validar` e `/avulsa/validar`
+  devolvem `avisos` só para "não encontrado" (no máximo 10 s de consultas por validação), que exigem ciência no
+  diálogo de emissão. Os testes desligam a consulta (`parametros.ATIVA` no conftest); os de ponta a ponta ligam, com a
+  rota simulada em `sefin_simulada.py` (`servicos_nao_administrados` também faz a Sefin simulada recusar com E0312).
+- **Tela de tributação** (`CamposTributacao` em `FiscalForm.tsx`, usada em Configurações → Tributações, no
+  onboarding e na nota avulsa "Só para esta nota"): mesma ordem e nomes do Emissor Nacional (telas Serviço e Valores):
+  IBS/CBS sim/não; local, "Código de Tributação Nacional" (busca), "Código de Tributação Municipal" (com o código
+  completo `17.19.01.000`), município de incidência, imunidade/exportação/não incidência sim/não, NBS (lista do Anexo
+  VIII para o serviço ou outro código; ao trocar o serviço, um NBS que não é dele é trocado pelo único do serviço
+  novo ou fica para escolher), indicador da operação; retenção do ISSQN sim/não e alíquota (a da prefeitura, só
+  mostrada, ou a do Simples quando a Sefin exige); PIS/COFINS, tipo de retenção, IRRF, CSLL e CP sempre à vista
+  (substitui o "o tomador retém" de 2026-10-12); IBS/CBS com CST e cClassTrib em listas (sugestões do Anexo VIII
+  primeiro); valor aproximado dos tributos; "Prévia dos valores da NFS-e" numa nota de exemplo. Nada mudou nos dados
+  (`DadosTributacao`), só a tela. A tabela e o resto da nota avulsa ficaram como estavam (escolha do Iuri).
 
 ### Padrões que o onboarding extrai dos XMLs
 
@@ -664,5 +707,7 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-22 | Produção troca sozinha para a NT 009 em 01/12/2026 00:00 (pelo `dhEmi` da DPS; `leiaute()` substitui `LEIAUTE_POR_AMBIENTE`), publicada antes da data | Data do comunicado do CGNFS-e de 20/10/2026; não depender de uma versão publicada na noite da troca |
 | 2026-10-23 | Variáveis na descrição trocadas na montagem da DPS; variável desconhecida bloqueia a linha | Pedido do Iuri (estudo de funções): evita editar a tabela todo mês; um "{mes_atua}" impresso na nota seria pior que um erro |
 | 2026-10-23 | Planilha das notas filtradas (uma linha por nota) lida do XML autorizado, sem aba de resumo | Pedido do Iuri: o valor que vale é o que a Sefin calculou; o resumo por competência não era necessário |
+| 2026-10-27 | Tela de tributação na ordem e com os nomes do Emissor Nacional; serviço buscado na lista nacional (Anexos B e VIII); `cTribMun` só com 3 dígitos | Pedido do Iuri: quem emite já conhece o portal; códigos digitados errado geravam E0312 e recusa no XSD |
+| 2026-10-27 | Consulta do serviço na prefeitura (parametrização do ADN) só como aviso, nunca bloqueando | Antecipa a E0312, mas a rota não tem documentação oficial: uma resposta mal interpretada não pode impedir a emissão |
 | 2026-10-27 | NFS-e achada pelo Id da DPS só é adotada se `dhEmi`, tomador e valor baterem com a DPS enviada; senão a nota fica rejeitada e o lote para | Outro sistema emitindo com o mesmo CNPJ e série fez a 0.1.0 registrar notas de outros clientes como emitidas (as notas pedidas nunca saíram) |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

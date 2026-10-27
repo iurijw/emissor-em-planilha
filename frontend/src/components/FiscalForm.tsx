@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -8,6 +8,7 @@ import {
   type Fiscal,
   issExigeAliquota,
   type Municipio,
+  type Opcao,
   type Opcoes,
   type Regime,
   type Servico,
@@ -174,9 +175,10 @@ function Selecao(props: {
   onChange: (v: string | null) => void;
   vazio?: string;
   ajuda?: string;
+  largo?: boolean;
 }) {
   return (
-    <label className="campo">
+    <label className={props.largo ? "campo largo" : "campo"}>
       <span>{props.rotulo}</span>
       <select value={props.valor ?? ""} onChange={(e) => props.onChange(e.target.value || null)}>
         {props.vazio !== undefined && <option value="">{props.vazio}</option>}
@@ -432,61 +434,54 @@ function CampoNbs(props: {
   );
 }
 
-const CAIXA_SITUACAO: Record<ConferenciaServico["situacao"], string> = {
-  encontrado: "info-caixa",
-  nao_encontrado: "aviso",
-  nao_conferido: "",
-};
+/**
+ * Pergunta ao Sistema Nacional, com o certificado, o que a prefeitura cadastrou para o serviço (alíquota). Sem o
+ * cadastro a Sefin recusa a nota (E0312). Só leitura; o servidor guarda a resposta por algumas horas.
+ */
+function useConferencia(codigo: string, local: string | null, municipioPrestador?: string | null) {
+  const [forcar, setForcar] = useState(false);
+  const q = useQuery({
+    queryKey: ["conferir-servico", codigo, local ?? "", municipioPrestador ?? "", forcar],
+    queryFn: () =>
+      api.post<ConferenciaServico>("/api/config/conferir-servico", {
+        c_trib_nac: codigo,
+        c_loc_prestacao: local,
+        c_mun_emissor: municipioPrestador || null,
+        forcar,
+      }),
+    enabled: /^\d{6}$/.test(codigo),
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+  return { ...q, consultarDeNovo: () => (forcar ? q.refetch() : setForcar(true)) };
+}
 
-/** Pergunta ao Sistema Nacional se a prefeitura tem o serviço cadastrado (sem ele, a Sefin recusa com E0312). */
-function ConferirPrefeitura(props: { codigo: string; local: string | null; municipioPrestador?: string | null }) {
-  const [estado, setEstado] = useState<{ chave: string; res?: ConferenciaServico; erro?: string } | null>(null);
-  const [carregando, setCarregando] = useState(false);
-  const chave = `${props.codigo}|${props.local ?? ""}|${props.municipioPrestador ?? ""}`;
-  const atual = estado?.chave === chave ? estado : null;
-  const valido = /^\d{6}$/.test(props.codigo);
-
-  const conferir = async () => {
-    setCarregando(true);
-    try {
-      const res = await api.post<ConferenciaServico>("/api/config/conferir-servico", {
-        c_trib_nac: props.codigo,
-        c_loc_prestacao: props.local,
-        c_mun_emissor: props.municipioPrestador || null,
-      });
-      setEstado({ chave, res });
-    } catch (e) {
-      setEstado({ chave, erro: e instanceof Error ? e.message : "Não foi possível conferir." });
-    } finally {
-      setCarregando(false);
-    }
-  };
-
-  const res = atual?.res;
+/** Pergunta de Sim/Não como no Emissor Nacional (Não primeiro). */
+function Pergunta(props: { texto: string; sim: boolean; onChange: (sim: boolean) => void; ajuda?: string }) {
+  const nome = useId();
   return (
-    <div className="conferir-prefeitura">
-      <button type="button" className="btn btn--pequeno" onClick={conferir} disabled={!valido || carregando}>
-        {carregando && <Spinner />} Conferir na prefeitura
-      </button>
-      <div aria-live="polite" className="conferir-prefeitura__resultado">
-        {res ? (
-          <div className={CAIXA_SITUACAO[res.situacao] || "dica-grade"} style={res.situacao === "nao_conferido" ? { marginTop: 0 } : undefined}>
-            <div>
-              {res.mensagem}
-              {res.detalhe && res.situacao !== "encontrado" && (
-                <small style={{ display: "block", marginTop: 4 }}>Resposta do Sistema Nacional: {res.detalhe}</small>
-              )}
-            </div>
-          </div>
-        ) : atual?.erro ? (
-          <span className="campo__erro">{atual.erro}</span>
-        ) : (
-          <span className="dica-grade" style={{ marginTop: 0 }}>
-            Pergunta ao Sistema Nacional, com o certificado, se a prefeitura tem este serviço cadastrado. Sem ele a Sefin
-            recusa a nota (E0312).
-          </span>
-        )}
+    <fieldset className="pergunta largo">
+      <legend>{props.texto}</legend>
+      <div className="pergunta__opcoes">
+        <label>
+          <input type="radio" name={nome} checked={!props.sim} onChange={() => props.onChange(false)} /> Não
+        </label>
+        <label>
+          <input type="radio" name={nome} checked={props.sim} onChange={() => props.onChange(true)} /> Sim
+        </label>
       </div>
+      {props.ajuda && <small>{props.ajuda}</small>}
+    </fieldset>
+  );
+}
+
+/** Valor que o sistema mostra e não se edita aqui (como os campos cinza do portal). */
+function Mostrado(props: { rotulo: string; valor: ReactNode; ajuda?: ReactNode; num?: boolean }) {
+  return (
+    <div className="campo">
+      <span>{props.rotulo}</span>
+      <output className={`campo__mostrado${props.num ? " num" : ""}`}>{props.valor}</output>
+      {props.ajuda && <small>{props.ajuda}</small>}
     </div>
   );
 }
@@ -573,9 +568,12 @@ export function CamposEmpresa({
   );
 }
 
+type ClasseIbsCbs = Opcao & { cst: string; reducao_ibs: number; reducao_cbs: number };
+
 /**
- * Serviço, tributos e IBS/CBS: o que muda de uma tributação para outra. Usado na tributação padrão e nas
- * outras tributações (Configurações e onboarding) e na nota avulsa com tributação própria.
+ * Serviço, tributos e IBS/CBS: o que muda de uma tributação para outra, na ordem e com os nomes do Emissor Nacional
+ * (Serviço → Valores → prévia da emissão). Usado na tributação padrão e nas outras tributações (Configurações e
+ * onboarding) e na nota avulsa com tributação própria.
  */
 export function CamposTributacao({
   valor,
@@ -587,244 +585,109 @@ export function CamposTributacao({
   onChange: (t: DadosTributacao) => void;
   /** Regime do prestador (Configurações): decide quais alíquotas a nota aceita. */
   regime: Regime | null | undefined;
-  /** Município do prestador ainda não salvo (onboarding); sem ele, a conferência usa o das configurações. */
+  /** Município do prestador ainda não salvo (onboarding); sem ele, a consulta à prefeitura usa o das configurações. */
   municipioPrestador?: string | null;
 }) {
   const op = useOpcoes().data;
   const servico = useServico(valor.c_trib_nac).data;
-  const nbsEscolhido = servico?.nbs.find((n) => n.codigo === valor.c_nbs);
-  const classeSugerida = servico?.c_class_trib.find((c) => c.codigo === valor.ibscbs_c_class_trib);
-  const erroTribMun =
-    valor.c_trib_mun && !/^\d{3}$/.test(valor.c_trib_mun)
-      ? "O código municipal tem só 3 dígitos (ex.: 001). O código nacional vai no campo Serviço."
-      : undefined;
+  const prefeitura = useConferencia(valor.c_trib_nac, valor.c_loc_prestacao, municipioPrestador);
+  const conferencia = prefeitura.data;
+  const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
+  // Ao trocar o serviço, um NBS que não é dele dá lugar ao único NBS do serviço novo (ou fica para escolher).
+  const servicoTrocado = useRef<string | null>(null);
+  useEffect(() => {
+    if (!servico || servico.codigo !== servicoTrocado.current) return;
+    servicoTrocado.current = null;
+    const codigos = servico.nbs.map((n) => n.codigo);
+    if (valor.c_nbs && !codigos.includes(valor.c_nbs)) onChange({ ...valor, c_nbs: codigos.length === 1 ? codigos[0] : null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [servico]);
   const retido = ["2", "3"].includes(valor.tp_ret_issqn);
   const exigeAliquota = issExigeAliquota(regime, valor);
-  const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
-  const classeConhecida = op?.ibscbs_c_class_trib?.some((o) => o.valor === valor.ibscbs_c_class_trib);
-  // Retenções federais só aparecem quando marcadas; já abertas se a tributação tem alguma.
-  const temRetencao =
-    RETEM_PIS_COFINS_CSLL.has(valor.tp_ret_pis_cofins ?? "") || [valor.p_ret_irrf, valor.p_ret_csll, valor.p_ret_cp].some((p) => Number(p ?? 0) > 0);
-  const [marcada, setMarcada] = useState(temRetencao);
-  const retemFederais = marcada || temRetencao;
-  const retemCsll = !!valor.cst_pis_cofins && !!RETENCOES[valor.tp_ret_pis_cofins ?? ""]?.[2];
-  const marcarRetencao = (sim: boolean) => {
-    setMarcada(sim);
-    if (!sim)
-      onChange({
-        ...valor,
-        p_ret_irrf: null,
-        p_ret_csll: null,
-        p_ret_cp: null,
-        tp_ret_pis_cofins: RETEM_PIS_COFINS_CSLL.has(valor.tp_ret_pis_cofins ?? "") ? null : valor.tp_ret_pis_cofins,
-      });
-  };
+  const incide = valor.trib_issqn === "1";
+  const nbsEscolhido = servico?.nbs.find((n) => n.codigo === valor.c_nbs);
+  const retencao = RETENCOES[valor.tp_ret_pis_cofins ?? ""];
+  const retemCsll = !!valor.cst_pis_cofins && !!retencao?.[2];
+  const erroTribMun =
+    valor.c_trib_mun && !/^\d{3}$/.test(valor.c_trib_mun)
+      ? "O código municipal tem só 3 dígitos (ex.: 001). O código nacional vai no campo acima."
+      : undefined;
+  const codigoCompleto = /^\d{6}$/.test(valor.c_trib_nac)
+    ? `${codigoServicoTela(valor.c_trib_nac)}.${/^\d{3}$/.test(valor.c_trib_mun ?? "") ? valor.c_trib_mun : "000"}`
+    : null;
+  // Alíquota do ISS: a do Simples (digitada) quando a Sefin exige; senão a que a prefeitura cadastrou.
+  const aliquotaPrefeitura = conferencia?.situacao === "encontrado" ? conferencia.aliquota : null;
+  const aliquotaIss = !incide ? null : exigeAliquota ? valor.p_aliq_iss : aliquotaPrefeitura;
+
   return (
     <>
       <section>
-        <h3 className="secao-titulo">Serviço</h3>
+        <h3 className="secao-titulo">Informações gerais</h3>
         <div className="grade-form">
-          <CampoServico codigo={valor.c_trib_nac} onChange={(c) => set("c_trib_nac", c)} servico={servico} />
-          <CampoNbs
-            valor={valor.c_nbs}
-            onChange={(v) => set("c_nbs", v)}
+          <Pergunta
+            texto="Preencher as informações IBS/CBS?"
+            sim={valor.ibscbs}
+            onChange={(v) => set("ibscbs", v)}
+            ajuda="A Sefin calcula os valores do IBS e da CBS a partir da classificação. Sem elas, a nota é aceita até 31/12/2026; confirme com a contabilidade a partir de quando são exigidas para você."
+          />
+        </div>
+      </section>
+
+      <section>
+        <h3 className="secao-titulo">Serviço prestado</h3>
+        <div className="grade-form">
+          <CampoMunicipio
+            rotulo="Local da prestação do serviço"
+            codigo={valor.c_loc_prestacao}
+            onChange={(c) => set("c_loc_prestacao", c)}
+            ajuda="Vazio = município do prestador."
+          />
+          <CampoServico
+            codigo={valor.c_trib_nac}
+            onChange={(c) => {
+              servicoTrocado.current = c;
+              set("c_trib_nac", c);
+            }}
             servico={servico}
-            obrigatorio={valor.ibscbs}
           />
           <Texto
-            rotulo="Código de tributação municipal"
+            rotulo="Código de Tributação Municipal"
             valor={valor.c_trib_mun}
             onChange={(v) => {
               const d = v.replace(/\D/g, "").slice(0, 9);
               // "080101003" = nacional + municipal: fica só o municipal (o servidor faz o mesmo ao salvar).
               set("c_trib_mun", (d.length === 9 && d.startsWith(valor.c_trib_nac) ? d.slice(6) : d) || null);
             }}
-            ajuda="Opcional: os 3 dígitos que a prefeitura criou para o serviço (ex.: 001). Na dúvida, deixe vazio."
+            ajuda={
+              "Opcional: os 3 dígitos que a prefeitura criou para o serviço. Na dúvida, deixe vazio." +
+              (codigoCompleto ? ` Código completo do serviço: ${codigoCompleto}.` : "")
+            }
             erro={erroTribMun}
             num
           />
-          <CampoMunicipio
-            rotulo="Local da prestação"
-            codigo={valor.c_loc_prestacao}
-            onChange={(c) => set("c_loc_prestacao", c)}
-            ajuda="Normalmente o mesmo município do prestador."
+          <Mostrado
+            rotulo="Município de incidência do ISSQN"
+            valor={conferencia?.municipio_nome ?? "—"}
+            ajuda={!conferencia?.municipio && conferencia?.situacao === "nao_conferido" ? conferencia.mensagem : undefined}
           />
-        </div>
-        <ConferirPrefeitura codigo={valor.c_trib_nac} local={valor.c_loc_prestacao} municipioPrestador={municipioPrestador} />
-      </section>
-
-      <section>
-        <h3 className="secao-titulo">ISS</h3>
-        <div className="grade-form">
-          <Selecao
-            rotulo="Tributação do ISSQN"
-            valor={valor.trib_issqn}
-            opcoes={op?.trib_issqn}
-            onChange={(v) => set("trib_issqn", v ?? "1")}
+          <Pergunta
+            texto="O serviço prestado é um caso de imunidade, exportação de serviço ou não incidência do ISSQN?"
+            sim={!incide}
+            onChange={(sim) => set("trib_issqn", sim ? "2" : "1")}
           />
-          <Selecao
-            rotulo="Retenção do ISSQN"
-            valor={valor.tp_ret_issqn}
-            // Retenção pelo intermediário exige os dados dele na nota, que o sistema não envia.
-            opcoes={op?.tp_ret_issqn?.filter((o) => o.valor !== "3" || valor.tp_ret_issqn === "3")}
-            onChange={(v) => set("tp_ret_issqn", v ?? "1")}
-          />
-          {exigeAliquota && (
-            <Texto
-              rotulo="Alíquota do ISS retido (%)"
-              valor={pctTela(valor.p_aliq_iss)}
-              onChange={(v) => onChange({ ...valor, p_aliq_iss: pctDado(v), p_aliq_iss_atualizada_em: hoje() })}
-              ajuda={
-                "Alíquota efetiva do Simples no mês, de 1,80% a 5,00%. A cada emissão o sistema pergunta se ela continua valendo." +
-                (valor.p_aliq_iss_atualizada_em ? ` Atualizada em ${dataTela(valor.p_aliq_iss_atualizada_em)}.` : "")
-              }
-              num
-            />
-          )}
-        </div>
-        {retido && !exigeAliquota && regime && (
-          <p className="dica-grade">
-            Com este regime a alíquota do ISS retido é a que a prefeitura cadastrou no Sistema Nacional: a nota não pode
-            informar outra. Ela só é pedida para optante do Simples com o ISS apurado pelo Simples.
-          </p>
-        )}
-      </section>
-
-      <section>
-        <h3 className="secao-titulo">PIS e COFINS</h3>
-        <div className="grade-form">
-          <Selecao
-            rotulo="CST do PIS/COFINS"
-            valor={valor.cst_pis_cofins}
-            opcoes={op?.cst_pis_cofins}
-            vazio="Não informar"
-            onChange={(v) =>
-              // Sem CST não há PIS/COFINS na nota, nem retenção deles.
-              onChange(v ? { ...valor, cst_pis_cofins: v } : { ...valor, cst_pis_cofins: null, p_aliq_pis: null, p_aliq_cofins: null, tp_ret_pis_cofins: null })
-            }
-          />
-          {valor.cst_pis_cofins && (
-            <>
-              <Texto
-                rotulo="Alíquota do PIS (%)"
-                valor={pctTela(valor.p_aliq_pis)}
-                onChange={(v) => set("p_aliq_pis", pctDado(v))}
-                ajuda="Sobre o valor do serviço. Vazio = não informar."
-                num
-              />
-              <Texto
-                rotulo="Alíquota da COFINS (%)"
-                valor={pctTela(valor.p_aliq_cofins)}
-                onChange={(v) => set("p_aliq_cofins", pctDado(v))}
-                ajuda="Sobre o valor do serviço. Vazio = não informar."
-                num
-              />
-            </>
-          )}
-        </div>
-        {valor.cst_pis_cofins && !retemFederais && (
-          <p className="dica-grade">Informados na nota sem retenção: não saem do valor líquido.</p>
-        )}
-      </section>
-
-      <section>
-        <h3 className="secao-titulo">Retenções federais</h3>
-        <label className="interruptor">
-          <input type="checkbox" checked={retemFederais} onChange={(e) => marcarRetencao(e.target.checked)} />
-          <span>
-            <strong>O tomador retém tributos federais</strong>
-            <small>PIS, COFINS, CSLL, IRRF ou INSS descontados do valor da nota.</small>
-          </span>
-        </label>
-        {retemFederais && (
-          <>
-            <div className="grade-form" style={{ marginTop: 14 }}>
-              {valor.cst_pis_cofins && (
-                <Selecao
-                  rotulo="PIS, COFINS e CSLL retidos"
-                  valor={RETEM_PIS_COFINS_CSLL.has(valor.tp_ret_pis_cofins ?? "") ? valor.tp_ret_pis_cofins : null}
-                  opcoes={op?.tp_ret_pis_cofins?.filter((o) => RETEM_PIS_COFINS_CSLL.has(o.valor))}
-                  vazio="Nenhum deles"
-                  onChange={(v) =>
-                    onChange({ ...valor, tp_ret_pis_cofins: v, p_ret_csll: v && RETENCOES[v]?.[2] ? valor.p_ret_csll : null })
-                  }
-                  ajuda="O PIS e a COFINS retidos usam as alíquotas acima."
-                />
-              )}
-              <Texto
-                rotulo="IRRF retido (%)"
-                valor={pctTela(valor.p_ret_irrf)}
-                onChange={(v) => set("p_ret_irrf", pctDado(v))}
-                ajuda="Vazio = sem retenção."
-                num
-              />
-              {(retemCsll || valor.p_ret_csll) && (
-                <Texto
-                  rotulo="CSLL retida (%)"
-                  valor={pctTela(valor.p_ret_csll)}
-                  onChange={(v) => set("p_ret_csll", pctDado(v))}
-                  num
-                />
-              )}
-              <Texto
-                rotulo="INSS retido (%)"
-                valor={pctTela(valor.p_ret_cp)}
-                onChange={(v) => set("p_ret_cp", pctDado(v))}
-                ajuda="Contribuição previdenciária (CP). Vazio = sem retenção."
-                num
-              />
-            </div>
-            {!valor.cst_pis_cofins && (
-              <p className="dica-grade">Para reter PIS, COFINS ou CSLL, escolha antes o CST do PIS/COFINS.</p>
-            )}
-            <p className="dica-grade">
-              O sistema calcula o valor de cada retenção com estes percentuais e desconta do valor líquido.
-            </p>
-          </>
-        )}
-      </section>
-
-      <section>
-        <h3 className="secao-titulo">Tributos aproximados (Lei 12.741/2012)</h3>
-        <div className="grade-form">
-          {regime?.op_simp_nac === "1" ? (
-            <>
-              <Texto rotulo="Federais (%)" valor={pctTela(valor.p_tot_trib_fed)} onChange={(v) => set("p_tot_trib_fed", pctDado(v))} num />
-              <Texto rotulo="Estaduais (%)" valor={pctTela(valor.p_tot_trib_est)} onChange={(v) => set("p_tot_trib_est", pctDado(v))} num />
-              <Texto rotulo="Municipais (%)" valor={pctTela(valor.p_tot_trib_mun)} onChange={(v) => set("p_tot_trib_mun", pctDado(v))} num />
-            </>
-          ) : regime?.op_simp_nac === "2" ? (
-            <p className="dica-grade">MEI não informa o percentual aproximado de tributos.</p>
-          ) : (
-            <Texto
-              rotulo="% aproximado de tributos (Simples)"
-              valor={pctTela(valor.p_tot_trib_sn)}
-              onChange={(v) => set("p_tot_trib_sn", pctDado(v))}
-              ajuda="Obrigatório para ME/EPP optante do Simples."
-              num
-            />
-          )}
-        </div>
-      </section>
-
-      <PreviaTributos valor={valor} exigeAliquota={exigeAliquota} />
-
-      <section>
-        <h3 className="secao-titulo">IBS e CBS</h3>
-        <label className="interruptor">
-          <input type="checkbox" checked={valor.ibscbs} onChange={(e) => set("ibscbs", e.target.checked)} />
-          <span>
-            <strong>Informar IBS e CBS na nota</strong>
-            <small>
-              A Sefin calcula os valores a partir da classificação abaixo. Sem o grupo, a nota é aceita até 31/12/2026;
-              confirme com a contabilidade a partir de quando ele é exigido para você.
-            </small>
-          </span>
-        </label>
-        {valor.ibscbs && (
-          <div className="grade-form" style={{ marginTop: 14 }}>
+          {!incide && (
             <Selecao
-              rotulo="Indicador da operação"
+              rotulo="Tributação do ISSQN sobre o serviço prestado"
+              valor={valor.trib_issqn}
+              opcoes={op?.trib_issqn?.filter((o) => o.valor !== "1")}
+              onChange={(v) => set("trib_issqn", v ?? "2")}
+            />
+          )}
+          <CampoNbs valor={valor.c_nbs} onChange={(v) => set("c_nbs", v)} servico={servico} obrigatorio={valor.ibscbs} />
+          {valor.ibscbs && (
+            <Selecao
+              rotulo="Código indicador da operação"
+              largo
               valor={valor.ibscbs_c_ind_op}
               opcoes={op?.ibscbs_c_ind_op}
               onChange={(v) => set("ibscbs_c_ind_op", v ?? "100301")}
@@ -835,51 +698,288 @@ export function CamposTributacao({
                   : "")
               }
             />
+          )}
+        </div>
+        <SituacaoPrefeitura consulta={prefeitura} />
+      </section>
+
+      <section>
+        <h3 className="secao-titulo">Tributação municipal</h3>
+        <div className="grade-form">
+          <Pergunta
+            texto="Há retenção do ISSQN pelo Tomador?"
+            sim={retido}
+            onChange={(sim) => onChange({ ...valor, tp_ret_issqn: sim ? "2" : "1" })}
+            ajuda={valor.tp_ret_issqn === "3" ? "Retenção pelo intermediário não é emitida por este sistema: use a do tomador." : undefined}
+          />
+          {exigeAliquota ? (
             <Texto
-              rotulo="Classificação tributária (cClassTrib)"
-              valor={valor.ibscbs_c_class_trib}
-              onChange={(v) => set("ibscbs_c_class_trib", v.replace(/\D/g, "").slice(0, 6))}
+              rotulo="Alíquota (%)"
+              valor={pctTela(valor.p_aliq_iss)}
+              onChange={(v) => onChange({ ...valor, p_aliq_iss: pctDado(v), p_aliq_iss_atualizada_em: hoje() })}
               ajuda={
-                (classeSugerida
-                  ? `${classeSugerida.nome}${reducao(classeSugerida)}. `
-                  : classeConhecida
-                    ? `${op?.ibscbs_c_class_trib?.find((o) => o.valor === valor.ibscbs_c_class_trib)?.descricao}. `
-                    : `CST ${(valor.ibscbs_c_class_trib || "").slice(0, 3) || "—"} (3 primeiros dígitos). `) +
-                "Use o código da tabela oficial para o seu serviço: alguns têm redução ou isenção."
+                "Alíquota efetiva do Simples no mês, de 1,80% a 5,00%. A cada emissão o sistema pergunta se ela continua valendo." +
+                (valor.p_aliq_iss_atualizada_em ? ` Atualizada em ${dataTela(valor.p_aliq_iss_atualizada_em)}.` : "") +
+                (aliquotaPrefeitura ? ` A prefeitura cadastrou ${pctTela(aliquotaPrefeitura)}% para o serviço.` : "")
               }
               num
             />
-            <Selecao
-              rotulo="Uso ou consumo pessoal"
-              valor={valor.ibscbs_ind_final}
-              opcoes={op?.ibscbs_ind_final}
-              vazio="Não informar"
-              onChange={(v) => set("ibscbs_ind_final", v)}
+          ) : (
+            <Mostrado
+              rotulo="Alíquota"
+              num={incide && !!aliquotaPrefeitura}
+              valor={!incide ? "—" : aliquotaPrefeitura ? `${pctTela(aliquotaPrefeitura)} %` : "Definida pela prefeitura"}
+              ajuda={
+                !incide
+                  ? "Sem ISSQN nesta operação."
+                  : aliquotaPrefeitura
+                    ? `Cadastrada pela prefeitura no Sistema Nacional para ${conferencia?.competencia}. A nota não informa alíquota: a Sefin aplica esta.`
+                    : "A nota não informa alíquota: a Sefin aplica a que a prefeitura cadastrou."
+              }
             />
-          </div>
-        )}
-        {valor.ibscbs && !!servico?.c_class_trib.length && (
-          <div className="dica-grade sugestoes-classe">
-            <span>Classificação que o Anexo VIII sugere para {codigoServicoTela(servico.codigo)}; confirme com a contabilidade:</span>
-            <ul>
-              {servico.c_class_trib.map((c) => (
-                <li key={c.codigo}>
-                  <button
-                    type="button"
-                    className="btn-texto num"
-                    aria-pressed={c.codigo === valor.ibscbs_c_class_trib}
-                    onClick={() => set("ibscbs_c_class_trib", c.codigo)}
-                  >
-                    {c.codigo}
-                  </button>{" "}
-                  {c.nome}
-                  {reducao(c)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+          )}
+        </div>
       </section>
+
+      <section>
+        <h3 className="secao-titulo">Tributação federal</h3>
+        <div className="grade-form grade-form--rotulos-longos">
+          <Selecao
+            rotulo="Situação Tributária do PIS/COFINS"
+            valor={valor.cst_pis_cofins}
+            opcoes={op?.cst_pis_cofins}
+            vazio="Não informar"
+            onChange={(v) =>
+              // Sem CST não há PIS/COFINS na nota, nem retenção deles.
+              onChange(
+                v
+                  ? { ...valor, cst_pis_cofins: v }
+                  : { ...valor, cst_pis_cofins: null, p_aliq_pis: null, p_aliq_cofins: null, tp_ret_pis_cofins: null, p_ret_csll: null },
+              )
+            }
+          />
+          {valor.cst_pis_cofins && (
+            <>
+              <Selecao
+                rotulo="Tipo de retenção do PIS/COFINS/CSLL"
+                valor={valor.tp_ret_pis_cofins}
+                opcoes={op?.tp_ret_pis_cofins}
+                vazio="Não informar"
+                onChange={(v) => onChange({ ...valor, tp_ret_pis_cofins: v, p_ret_csll: v && RETENCOES[v]?.[2] ? valor.p_ret_csll : null })}
+              />
+              <Texto
+                rotulo="Alíquota do PIS (%)"
+                valor={pctTela(valor.p_aliq_pis)}
+                onChange={(v) => set("p_aliq_pis", pctDado(v))}
+                ajuda={retencao?.[0] ? "Retido: sai do valor líquido." : "Sobre o valor do serviço. Vazio = não informar."}
+                num
+              />
+              <Texto
+                rotulo="Alíquota da COFINS (%)"
+                valor={pctTela(valor.p_aliq_cofins)}
+                onChange={(v) => set("p_aliq_cofins", pctDado(v))}
+                ajuda={retencao?.[1] ? "Retida: sai do valor líquido." : "Sobre o valor do serviço. Vazio = não informar."}
+                num
+              />
+            </>
+          )}
+          <Texto
+            rotulo="IRRF (%)"
+            valor={pctTela(valor.p_ret_irrf)}
+            onChange={(v) => set("p_ret_irrf", pctDado(v))}
+            ajuda="Imposto de renda retido pelo tomador. Vazio = sem retenção."
+            num
+          />
+          {(retemCsll || valor.p_ret_csll) && (
+            <Texto
+              rotulo="Contribuições Sociais - Retidas (%)"
+              valor={pctTela(valor.p_ret_csll)}
+              onChange={(v) => set("p_ret_csll", pctDado(v))}
+              ajuda="CSLL retida, como pede o tipo de retenção escolhido."
+              num
+            />
+          )}
+          <Texto
+            rotulo="Contribuição Previdenciária - Retida (%)"
+            valor={pctTela(valor.p_ret_cp)}
+            onChange={(v) => set("p_ret_cp", pctDado(v))}
+            ajuda="INSS retido pelo tomador. Vazio = sem retenção."
+            num
+          />
+        </div>
+        <p className="dica-grade">
+          Em percentual, porque a mesma tributação vale para notas de valores diferentes: o sistema calcula o valor em
+          reais de cada nota.{!valor.cst_pis_cofins && " Para reter PIS, COFINS ou CSLL, escolha antes a situação tributária do PIS/COFINS."}
+        </p>
+      </section>
+
+      {valor.ibscbs && (
+        <section>
+          <h3 className="secao-titulo">IBS/CBS</h3>
+          <CamposIbsCbs valor={valor} onChange={onChange} servico={servico} />
+        </section>
+      )}
+
+      <section>
+        <h3 className="secao-titulo">Valor aproximado dos tributos</h3>
+        <div className="grade-form">
+          {regime?.op_simp_nac === "1" ? (
+            <>
+              <Texto rotulo="Federais (%)" valor={pctTela(valor.p_tot_trib_fed)} onChange={(v) => set("p_tot_trib_fed", pctDado(v))} num />
+              <Texto rotulo="Estaduais (%)" valor={pctTela(valor.p_tot_trib_est)} onChange={(v) => set("p_tot_trib_est", pctDado(v))} num />
+              <Texto rotulo="Municipais (%)" valor={pctTela(valor.p_tot_trib_mun)} onChange={(v) => set("p_tot_trib_mun", pctDado(v))} num />
+            </>
+          ) : regime?.op_simp_nac === "2" ? (
+            <p className="dica-grade largo">MEI não informa o valor aproximado dos tributos.</p>
+          ) : (
+            <Texto
+              rotulo="Alíquota no Simples Nacional (%)"
+              valor={pctTela(valor.p_tot_trib_sn)}
+              onChange={(v) => set("p_tot_trib_sn", pctDado(v))}
+              ajuda="Obrigatória para ME/EPP optante do Simples (Lei 12.741/2012)."
+              num
+            />
+          )}
+        </div>
+      </section>
+
+      <PreviaValores valor={valor} aliquotaIss={aliquotaIss} incide={incide} />
+    </>
+  );
+}
+
+/** Resultado da consulta à prefeitura, embaixo do serviço: só aparece quando há algo a fazer. */
+function SituacaoPrefeitura({ consulta }: { consulta: ReturnType<typeof useConferencia> }) {
+  const c = consulta.data;
+  if (consulta.isFetching)
+    return (
+      <p className="dica-grade" aria-live="polite">
+        <Spinner /> Consultando a prefeitura no Sistema Nacional…
+      </p>
+    );
+  if (consulta.error)
+    return (
+      <p className="dica-grade campo__erro" aria-live="polite">
+        {consulta.error instanceof Error ? consulta.error.message : "Não foi possível consultar a prefeitura."}
+      </p>
+    );
+  if (!c || c.situacao === "encontrado") return null;
+  if (c.situacao === "nao_encontrado")
+    return (
+      <div className="aviso" style={{ marginTop: 12 }} aria-live="polite">
+        <div>
+          <strong>A prefeitura não tem este serviço cadastrado</strong>
+          {c.mensagem}
+          {c.detalhe && <small style={{ display: "block", marginTop: 4 }}>Resposta do Sistema Nacional: {c.detalhe}</small>}
+        </div>
+      </div>
+    );
+  if (!c.municipio) return null; // sem um município só para consultar (a ajuda do município de incidência explica)
+  return (
+    <p className="dica-grade" aria-live="polite">
+      {c.mensagem}{" "}
+      <button type="button" className="btn-texto" onClick={consulta.consultarDeNovo}>
+        Consultar de novo
+      </button>
+    </p>
+  );
+}
+
+/** CST e classificação do IBS/CBS em listas, como no portal; as do Anexo VIII para o serviço vêm primeiro. */
+function CamposIbsCbs({
+  valor,
+  onChange,
+  servico,
+}: {
+  valor: DadosTributacao;
+  onChange: (t: DadosTributacao) => void;
+  servico: ServicoDetalhe | null | undefined;
+}) {
+  const op = useOpcoes().data;
+  const [livre, setLivre] = useState(false);
+  const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
+  const classes = (op?.ibscbs_classes ?? []) as ClasseIbsCbs[];
+  const cst = (valor.ibscbs_c_class_trib || "").slice(0, 3);
+  const sugeridas = new Set(servico?.c_class_trib.map((c) => c.codigo));
+  const doCst = classes.filter((c) => c.cst === cst);
+  const atual = classes.find((c) => c.valor === valor.ibscbs_c_class_trib);
+  const opcao = (c: ClasseIbsCbs) => (
+    <option key={c.valor} value={c.valor}>
+      {c.valor} - {c.descricao}
+      {reducao(c)}
+    </option>
+  );
+  const escolherCst = (novo: string) => {
+    // Ao trocar o CST, fica a classificação indicada para o serviço (se houver nesse CST) ou a primeira dele.
+    const lista = classes.filter((c) => c.cst === novo);
+    const escolhida = lista.find((c) => sugeridas.has(c.valor)) ?? lista[0];
+    if (escolhida) set("ibscbs_c_class_trib", escolhida.valor);
+  };
+  return (
+    <>
+      <div className="grade-form">
+        <Selecao
+          rotulo="Código de Situação Tributária"
+          valor={cst || null}
+          opcoes={op?.ibscbs_cst}
+          onChange={(v) => v && escolherCst(v)}
+          ajuda="Os 3 primeiros dígitos da classificação."
+        />
+        {livre ? (
+          <Texto
+            rotulo="Código de Classificação Tributária"
+            valor={valor.ibscbs_c_class_trib}
+            onChange={(v) => set("ibscbs_c_class_trib", v.replace(/\D/g, "").slice(0, 6))}
+            ajuda="6 dígitos, da tabela oficial de classificação tributária."
+            num
+          />
+        ) : (
+          <label className="campo largo">
+            <span>Código de Classificação Tributária</span>
+            <select
+              value={valor.ibscbs_c_class_trib}
+              onChange={(e) => (e.target.value === "__outro" ? setLivre(true) : set("ibscbs_c_class_trib", e.target.value))}
+            >
+              {!atual && valor.ibscbs_c_class_trib && (
+                <option value={valor.ibscbs_c_class_trib}>{valor.ibscbs_c_class_trib} - fora da tabela para NFS-e</option>
+              )}
+              {servico && doCst.some((c) => sugeridas.has(c.valor)) && (
+                <optgroup label={`Indicadas para ${codigoServicoTela(servico.codigo)} (Anexo VIII)`}>
+                  {doCst.filter((c) => sugeridas.has(c.valor)).map(opcao)}
+                </optgroup>
+              )}
+              <optgroup label={`CST ${cst || "—"}`}>{doCst.filter((c) => !sugeridas.has(c.valor)).map(opcao)}</optgroup>
+              <option value="__outro">Outro código…</option>
+            </select>
+            <small>Algumas classificações reduzem ou isentam o IBS/CBS: confirme a do seu serviço com a contabilidade.</small>
+          </label>
+        )}
+        <Selecao
+          rotulo="Uso ou consumo pessoal"
+          valor={valor.ibscbs_ind_final}
+          opcoes={op?.ibscbs_ind_final}
+          vazio="Não informar"
+          onChange={(v) => set("ibscbs_ind_final", v)}
+        />
+      </div>
+      {servico && servico.c_class_trib.some((c) => c.cst !== cst) && (
+        <p className="dica-grade">
+          O Anexo VIII também indica para {codigoServicoTela(servico.codigo)}:{" "}
+          {servico.c_class_trib
+            .filter((c) => c.cst !== cst)
+            .map((c, i) => (
+              <span key={c.codigo}>
+                {i > 0 && "; "}
+                <button type="button" className="btn-texto num" onClick={() => set("ibscbs_c_class_trib", c.codigo)}>
+                  {c.codigo}
+                </button>{" "}
+                {c.nome}
+                {reducao(c)}
+              </span>
+            ))}
+          .
+        </p>
+      )}
     </>
   );
 }
@@ -915,36 +1015,64 @@ const RETENCOES: Record<string, [boolean, boolean, boolean]> = {
   "8": [false, false, true],
   "9": [true, false, true],
 };
-/** Opções de tpRetPisCofins que retêm alguma coisa. */
-const RETEM_PIS_COFINS_CSLL = new Set(Object.keys(RETENCOES).filter((k) => RETENCOES[k].some(Boolean)));
 
-/** Exemplo numa nota de R$ 1.000,00 com os percentuais da tributação. */
-function PreviaTributos({ valor, exigeAliquota }: { valor: DadosTributacao; exigeAliquota: boolean }) {
-  const base = 1000;
-  const [pisRet, cofinsRet] = (valor.cst_pis_cofins && RETENCOES[valor.tp_ret_pis_cofins ?? ""]) || [false, false];
+const reais = (v: number) => moeda(v.toFixed(2));
+
+/**
+ * Prévia dos valores da NFS-e, no formato da revisão do Emissor Nacional, numa nota de exemplo. O ISSQN usa a
+ * alíquota do Simples (quando a Sefin exige) ou a que a prefeitura cadastrou; sem ela, fica para a Sefin calcular.
+ */
+function PreviaValores({ valor, aliquotaIss, incide }: { valor: DadosTributacao; aliquotaIss: string | null; incide: boolean }) {
+  const [exemplo, setExemplo] = useState("1.000,00");
+  const base = Number(exemplo.replace(/\./g, "").replace(",", ".")) || 0;
+  const [pisRet, cofinsRet, csllRet] = (valor.cst_pis_cofins && RETENCOES[valor.tp_ret_pis_cofins ?? ""]) || [false, false, false];
+  const issRetido = incide && ["2", "3"].includes(valor.tp_ret_issqn);
+  const iss = aliquotaIss ? de(base, aliquotaIss) : null;
   const pis = valor.cst_pis_cofins ? de(base, valor.p_aliq_pis) : 0;
   const cofins = valor.cst_pis_cofins ? de(base, valor.p_aliq_cofins) : 0;
-  const itens: [string, number, boolean][] = [
-    ["ISS retido", exigeAliquota ? de(base, valor.p_aliq_iss) : 0, true],
-    ["IRRF", de(base, valor.p_ret_irrf), true],
-    ["CSLL", de(base, valor.p_ret_csll), true],
-    ["INSS", de(base, valor.p_ret_cp), true],
-    [pisRet ? "PIS retido" : "PIS", pis, pisRet],
-    [cofinsRet ? "COFINS retida" : "COFINS", cofins, cofinsRet],
-  ];
-  const visiveis = itens.filter(([, v]) => v > 0);
-  if (!visiveis.length) return null;
-  const liquido = base - visiveis.filter(([, , r]) => r).reduce((t, [, v]) => t + v, 0);
-  return (
-    <div className="info-caixa" style={{ flexDirection: "column", gap: 4 }}>
-      <strong>Numa nota de {moeda("1000")}</strong>
-      <span>
-        {visiveis.map(([n, v, r]) => `${n} ${moeda(v.toFixed(2))}${r ? "" : " (informado, não retido)"}`).join(" · ")}
-      </span>
-      <span>
-        Valor líquido: <b className="num">{moeda(liquido.toFixed(2))}</b>
-        {!exigeAliquota && ["2", "3"].includes(valor.tp_ret_issqn) ? " menos o ISS retido, calculado pela Sefin com a alíquota do município" : ""}
-      </span>
+  const irrf = de(base, valor.p_ret_irrf);
+  const csll = csllRet ? de(base, valor.p_ret_csll) : 0;
+  const cp = de(base, valor.p_ret_cp);
+  const retidos = (issRetido ? iss ?? 0 : 0) + (pisRet ? pis : 0) + (cofinsRet ? cofins : 0) + irrf + csll + cp;
+  const linha = (rotulo: string, v: ReactNode, destaque = false) => (
+    <div className={`previa-nfse__linha${destaque ? " previa-nfse__linha--total" : ""}`}>
+      <dt>{rotulo}</dt>
+      <dd className={typeof v === "string" && /\d/.test(v) ? "num" : undefined}>{v}</dd>
     </div>
+  );
+  return (
+    <section className="previa-nfse">
+      <div className="previa-nfse__cabeca">
+        <h3 className="secao-titulo">Prévia dos valores da NFS-e</h3>
+        <label className="previa-nfse__exemplo">
+          <span>Numa nota de R$</span>
+          <input className="num" inputMode="decimal" value={exemplo} onChange={(e) => setExemplo(e.target.value.replace(/[^\d.,]/g, ""))} />
+        </label>
+      </div>
+      <h4>ISSQN calculado</h4>
+      <dl>
+        {linha("Serviço prestado", reais(base))}
+        {linha("Base de cálculo", incide ? reais(base) : "—")}
+        {linha("Alíquota aplicada", !incide ? "—" : aliquotaIss ? `${pctTela(aliquotaIss)}%` : "a da prefeitura")}
+        {linha(issRetido ? "ISSQN retido" : "ISSQN", !incide ? reais(0) : iss !== null ? reais(iss) : "calculado pela Sefin")}
+      </dl>
+      <h4>Tributação federal</h4>
+      <dl>
+        {linha(pisRet ? "PIS - Retido" : "PIS - Débito Apuração Própria", reais(pis))}
+        {linha(cofinsRet ? "COFINS - Retida" : "COFINS - Débito Apuração Própria", reais(cofins))}
+        {linha("Imposto de Renda Retido na Fonte (IRRF)", reais(irrf))}
+        {linha("Contribuições Sociais - Retidas", reais(csll))}
+        {linha("Contribuição Previdenciária - Retida", reais(cp))}
+      </dl>
+      <h4>Valor líquido da NFS-e</h4>
+      <dl>
+        {linha("Serviço prestado", reais(base))}
+        {linha("Valor total de tributos retidos", reais(retidos))}
+        {linha("Valor líquido da NFS-e", reais(base - retidos), true)}
+      </dl>
+      {issRetido && iss === null && (
+        <p className="dica-grade">O ISSQN retido também sai do líquido; a Sefin calcula com a alíquota da prefeitura.</p>
+      )}
+    </section>
   );
 }

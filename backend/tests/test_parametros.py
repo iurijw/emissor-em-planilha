@@ -78,7 +78,7 @@ def test_codigo_municipal_invalido(config_fiscal, mun, trecho):
 
 
 def test_dica_da_e0312():
-    assert "Conferir na prefeitura" in dica_para("E0312", "")
+    assert "a tela consulta a prefeitura" in dica_para("E0312", "")
 
 
 # --- parametrização do município (ADN) -----------------------------------------------------------------

@@ -125,11 +125,6 @@ C_IND_OP = {
     "100501": "Bens móveis imateriais e direitos, operação onerosa: domicílio do adquirente (tomador)",
     "100601": "Bens móveis imateriais e direitos, operação não onerosa: domicílio do destinatário (tomador)",
 }
-# Sugestões de cClassTrib (tabela oficial de classificação tributária do IBS e da CBS). O campo aceita qualquer
-# código de 6 dígitos; o CST é sempre os 3 primeiros dígitos (regra E0959).
-C_CLASS_TRIB_SUGESTOES = {
-    "000001": "Situações tributadas integralmente pelo IBS e CBS",
-}
 IND_FINAL = {"0": "Não", "1": "Sim (uso ou consumo pessoal)"}
 # Subitens da LC 116 que exigem tpOper (E0903): locação/cessão de imóvel, factoring, administração de fundos...
 SUBITENS_EXIGEM_TP_OPER = ("2505", "1509", "1712", "1005")
@@ -196,6 +191,25 @@ def _servicos_nacionais() -> dict[str, Any]:
 
 def fontes_servicos() -> list[str]:
     return _servicos_nacionais()["fontes"]
+
+
+def csts_ibscbs() -> list[dict[str, str]]:
+    """CST do IBS/CBS que têm alguma classificação para NFS-e (ordem do código)."""
+    return [{"valor": c, "descricao": n} for c, n in sorted(_servicos_nacionais()["csts"].items())]
+
+
+def classes_ibscbs() -> list[dict[str, Any]]:
+    """cClassTrib vigentes para NFS-e, com o CST (3 primeiros dígitos), nome e redução do IBS e da CBS."""
+    return [
+        {
+            "valor": c,
+            "descricao": v["nome"],
+            "cst": v["cst"],
+            "reducao_ibs": v["reducao_ibs"],
+            "reducao_cbs": v["reducao_cbs"],
+        }
+        for c, v in _servicos_nacionais()["classes"].items()
+    ]
 
 
 def formatar_c_trib_nac(codigo: str | None) -> str:
