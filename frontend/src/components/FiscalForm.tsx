@@ -216,8 +216,19 @@ function Texto(props: {
   );
 }
 
-/** Dados da empresa (prestador) e regime tributário: valem para todas as tributações. */
-export function CamposEmpresa({ valor, onChange }: { valor: Fiscal; onChange: (f: Fiscal) => void }) {
+/**
+ * Dados da empresa (prestador) e regime tributário: valem para todas as tributações. Com `pedirTotTribSN`, quem
+ * passa a ME/EPP informa aqui o % do Simples da tributação padrão (lá o campo só aparece depois de salvar o regime).
+ */
+export function CamposEmpresa({
+  valor,
+  onChange,
+  pedirTotTribSN = false,
+}: {
+  valor: Fiscal;
+  onChange: (f: Fiscal) => void;
+  pedirTotTribSN?: boolean;
+}) {
   const op = useOpcoes().data;
   const set = <K extends keyof Fiscal>(k: K, v: Fiscal[K]) => onChange({ ...valor, [k]: v });
   return (
@@ -263,6 +274,15 @@ export function CamposEmpresa({ valor, onChange }: { valor: Fiscal; onChange: (f
               opcoes={op?.reg_ap_trib_sn}
               vazio="Não informar"
               onChange={(v) => set("reg_ap_trib_sn", v)}
+            />
+          )}
+          {valor.op_simp_nac === "3" && pedirTotTribSN && (
+            <Texto
+              rotulo="% aproximado de tributos (Simples)"
+              valor={pctTela(valor.p_tot_trib_sn)}
+              onChange={(v) => set("p_tot_trib_sn", pctDado(v))}
+              ajuda="Obrigatório para ME/EPP (E0712). Vai para a tributação padrão; as outras tributações têm o próprio campo."
+              num
             />
           )}
           <Selecao
