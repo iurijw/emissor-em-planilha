@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "Emissor em Planilha"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 # Vai na tag <verAplic> da DPS (máx. 20 caracteres).
 VER_APLIC = f"EmPlanilha_{APP_VERSION}"
 
