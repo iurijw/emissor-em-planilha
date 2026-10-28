@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from emissor import config
 from emissor.api.app import create_app
 from emissor.nfse.client import SefinClient, gzip_b64
 from emissor.services import emissao as emissao_service
@@ -143,6 +144,8 @@ def test_fluxo_completo(api, sefin, pfx_bytes, nfse_exemplo_bytes):
     assert "NFSe-0103" in r.headers["content-disposition"]
     r = api.get(f"/api/emissoes/{eid}/pdf")
     assert r.status_code == 200 and r.content.startswith(b"%PDF")
+    assert "NFSe-0103" in r.headers["content-disposition"] and ".pdf" in r.headers["content-disposition"]
+    assert not list(config.PDF_DIR.rglob("*.pdf"))  # o PDF é gerado no download, não fica guardado
 
     ids_zip = [e["id"] for e in lista["itens"]]
     r = api.post("/api/emissoes/zip", json={"ids": ids_zip + ids_zip, "conteudo": "ambos"})  # repetidos entram 1x

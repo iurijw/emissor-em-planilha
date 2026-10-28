@@ -19,6 +19,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from reportlab import rl_config
 from reportlab.graphics import renderPDF
 from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.shapes import Drawing
@@ -35,6 +36,9 @@ from emissor.nfse.constants import URL_CONSULTA_PUBLICA
 from emissor.nfse.danfse.fonts import Fontes, carregar_fontes
 from emissor.nfse.documentos import formatar_documento
 from emissor.nfse.xml_reader import NFSeDoc
+
+# Imagens em binário (sem ASCII85): o PDF fica ~15% menor e sai mais rápido, o que pesa no ZIP em massa.
+rl_config.useA85 = 0
 
 LOGO = Path(__file__).parent / "assets" / "logo_nfse_horizontal.png"
 
