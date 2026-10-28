@@ -154,6 +154,12 @@ def test_fluxo_completo(api, sefin, pfx_bytes, nfse_exemplo_bytes):
     assert len([n for n in nomes if n.startswith("xml/")]) == 3
     assert len([n for n in nomes if n.startswith("pdf/")]) == 3
 
+    # Todas as notas do filtro, sem escolher uma a uma (vai além da página da lista)
+    r = api.get("/api/emissoes/zip", params={"conteudo": "xml", "status": "autorizada"})
+    assert r.status_code == 200 and len(zipfile.ZipFile(io.BytesIO(r.content)).namelist()) == 3
+    assert api.get("/api/emissoes/zip", params={"q": "ninguém com esse nome"}).status_code == 400
+    assert api.get("/api/emissoes/zip", params={"conteudo": "doc"}).status_code == 400
+
     # Segunda emissão para o mesmo cliente/valor no mês gera aviso de duplicidade
     val = api.post("/api/tabela/validar", json={"linha_ids": [ids[0]]}).json()
     assert any("Já existe NFS-e" in a for a in val["linhas"][0]["avisos"])

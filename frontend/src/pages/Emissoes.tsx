@@ -28,9 +28,14 @@ export function Emissoes() {
   const [aberta, setAberta] = useState<number | null>(null);
   const [baixando, setBaixando] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState<Emissao[] | null>(null);
+  // Todas as notas do filtro, não só as da página (o ZIP sai pelos filtros, sem a lista de ids).
+  const [todoFiltro, setTodoFiltro] = useState(false);
   const qc = useQueryClient();
 
-  useEffect(() => setPagina(1), [filtro]);
+  useEffect(() => {
+    setPagina(1);
+    setTodoFiltro(false);
+  }, [filtro]);
   const params = useMemo(() => {
     const p = new URLSearchParams({ pagina: String(pagina), por_pagina: "50" });
     if (filtro.lote) p.set("lote_id", filtro.lote);
@@ -52,7 +57,9 @@ export function Emissoes() {
   const itens = lista.data?.itens ?? [];
   const selecionaveis = itens.filter(temArquivos);
   const todasMarcadas = selecionaveis.length > 0 && selecionaveis.every((e) => marcadas.has(e.id));
-  const cancelaveis = [...marcadas.values()].filter((e) => e.pode_cancelar);
+  const cancelaveis = todoFiltro ? [] : [...marcadas.values()].filter((e) => e.pode_cancelar);
+  const total = lista.data?.total ?? 0;
+  const haMaisPaginas = total > itens.length;
 
   function alternar(e: Emissao) {
     setMarcadas((m) => {
@@ -76,7 +83,27 @@ export function Emissoes() {
     }
   }
 
+  function limparSelecao() {
+    setMarcadas(new Map());
+    setTodoFiltro(false);
+  }
+
   async function baixarZip(conteudo: "xml" | "pdf" | "ambos") {
+    if (todoFiltro) {
+      // Download do próprio navegador: vai direto para o disco e mostra o progresso, mesmo com milhares de PDFs.
+      const p = new URLSearchParams(params);
+      p.delete("pagina");
+      p.delete("por_pagina");
+      p.set("conteudo", conteudo);
+      const a = document.createElement("a");
+      a.href = `/api/emissoes/zip?${p}`;
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast(`Download das ${total} notas iniciado. Com muitas notas ele leva alguns minutos; acompanhe pelos downloads do navegador.`, "ok");
+      return;
+    }
     setBaixando(conteudo);
     try {
       await baixar("/api/emissoes/zip", { ids: [...marcadas.keys()], conteudo });
@@ -165,28 +192,45 @@ export function Emissoes() {
 
       <div className="barra" style={{ paddingTop: 0 }}>
         <span style={{ color: "var(--grafite)" }}>
-          {marcadas.size ? <><b className="num" style={{ color: "var(--tinta)" }}>{marcadas.size}</b> selecionada(s)</> : "Selecione notas para baixar ou cancelar em lote"}
+          {todoFiltro ? (
+            <>Todas as <b className="num" style={{ color: "var(--tinta)" }}>{total}</b> do filtro selecionadas</>
+          ) : marcadas.size ? (
+            <><b className="num" style={{ color: "var(--tinta)" }}>{marcadas.size}</b> selecionada(s)</>
+          ) : (
+            "Selecione notas para baixar ou cancelar em lote"
+          )}
         </span>
-        <button className="btn btn--pequeno" disabled={!marcadas.size || !!baixando} onClick={() => baixarZip("ambos")}>
+        {todasMarcadas && haMaisPaginas && !todoFiltro && (
+          <button className="btn btn--pequeno btn--fantasma" onClick={() => setTodoFiltro(true)}>
+            Selecionar todas as <span className="num">{total}</span> do filtro
+          </button>
+        )}
+        <button className="btn btn--pequeno" disabled={(!marcadas.size && !todoFiltro) || !!baixando} onClick={() => baixarZip("ambos")}>
           {baixando === "ambos" && <Spinner />} Baixar XML + PDF
         </button>
-        <button className="btn btn--pequeno" disabled={!marcadas.size || !!baixando} onClick={() => baixarZip("xml")}>
+        <button className="btn btn--pequeno" disabled={(!marcadas.size && !todoFiltro) || !!baixando} onClick={() => baixarZip("xml")}>
           {baixando === "xml" && <Spinner />} Só XML
         </button>
-        <button className="btn btn--pequeno" disabled={!marcadas.size || !!baixando} onClick={() => baixarZip("pdf")}>
+        <button className="btn btn--pequeno" disabled={(!marcadas.size && !todoFiltro) || !!baixando} onClick={() => baixarZip("pdf")}>
           {baixando === "pdf" && <Spinner />} Só PDF
         </button>
         <span className="barra__sep" />
         <button
           className="btn btn--pequeno btn--perigo"
           disabled={!cancelaveis.length}
-          title={marcadas.size && !cancelaveis.length ? "Nenhuma das selecionadas está autorizada" : undefined}
+          title={
+            todoFiltro
+              ? "Para cancelar, marque as notas uma a uma"
+              : marcadas.size && !cancelaveis.length
+                ? "Nenhuma das selecionadas está autorizada"
+                : undefined
+          }
           onClick={() => setCancelando(cancelaveis)}
         >
           Cancelar{cancelaveis.length ? ` (${cancelaveis.length})` : ""}…
         </button>
-        {marcadas.size > 0 && (
-          <button className="btn btn--pequeno btn--fantasma" onClick={() => setMarcadas(new Map())}>
+        {(marcadas.size > 0 || todoFiltro) && (
+          <button className="btn btn--pequeno btn--fantasma" onClick={limparSelecao}>
             Limpar seleção
           </button>
         )}
@@ -202,13 +246,14 @@ export function Emissoes() {
                   type="checkbox"
                   aria-label="Selecionar as notas desta página"
                   checked={todasMarcadas}
-                  onChange={() =>
+                  onChange={() => {
+                    if (todasMarcadas) setTodoFiltro(false);
                     setMarcadas((m) => {
                       const n = new Map(m);
                       selecionaveis.forEach((e) => (todasMarcadas ? n.delete(e.id) : n.set(e.id, e)));
                       return n;
-                    })
-                  }
+                    });
+                  }}
                 />
               </th>
               <th>NFS-e</th>
@@ -242,7 +287,10 @@ export function Emissoes() {
                     aria-label={`Selecionar nota de ${e.tomador_nome}`}
                     disabled={!temArquivos(e)}
                     checked={marcadas.has(e.id)}
-                    onChange={() => alternar(e)}
+                    onChange={() => {
+                      setTodoFiltro(false);
+                      alternar(e);
+                    }}
                   />
                 </td>
                 <td className={`num clicavel ${temArquivos(e) && e.status !== "autorizada" ? "riscado" : ""}`} onClick={() => setAberta(e.id)}>{e.numero_nfse ?? "—"}</td>

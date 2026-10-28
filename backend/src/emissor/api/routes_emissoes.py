@@ -189,6 +189,35 @@ def _detalhe(e: Emissao) -> dict[str, Any]:
     return emissao_detalhe(e, eventos_service.eventos_da_emissao(e.id))
 
 
+@router.get("/emissoes/zip")
+def baixar_zip_filtradas(
+    status: str | None = None,
+    ambiente: str | None = None,
+    de: date | None = None,
+    ate: date | None = None,
+    q: str | None = None,
+    lote_id: str | None = None,
+    conteudo: str = "ambos",
+) -> Response:
+    """ZIP de todas as notas dos filtros da aba Emissões (não só as da página). Por GET para o navegador baixar
+    direto para o disco, com o progresso dele, sem guardar centenas de MB na memória da página."""
+    if conteudo not in CONTEUDOS_ZIP:
+        raise HTTPException(400, "Conteúdo deve ser xml, pdf ou ambos.")
+    filtros = _filtros(status, ambiente, de, ate, q, lote_id)
+    with sessao() as s:
+        emissoes = s.exec(
+            select(Emissao)
+            .where(*filtros, Emissao.status.in_(COM_ARQUIVOS))
+            .order_by(Emissao.id)
+            .limit(MAX_NOTAS_ZIP + 1)
+        ).all()
+    if len(emissoes) > MAX_NOTAS_ZIP:
+        raise HTTPException(400, f"São mais de {MAX_NOTAS_ZIP} notas: filtre por um período menor.")
+    if not emissoes:
+        raise HTTPException(400, "Nenhuma nota autorizada nos filtros escolhidos.")
+    return _resposta_zip(emissoes, conteudo)
+
+
 @router.get("/emissoes/{emissao_id}")
 def detalhe(emissao_id: int) -> dict[str, Any]:
     return _detalhe(_emissao(emissao_id))
@@ -294,7 +323,8 @@ def baixar_pdf(emissao_id: int, inline: bool = False) -> Response:
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'{disp}; filename="{nome}"'})
 
 
-MAX_NOTAS_ZIP = 5000
+MAX_NOTAS_ZIP = 20000
+CONTEUDOS_ZIP = ("xml", "pdf", "ambos")
 
 
 class ZipEntrada(BaseModel):
@@ -304,7 +334,7 @@ class ZipEntrada(BaseModel):
 
 @router.post("/emissoes/zip")
 def baixar_zip(entrada: ZipEntrada) -> Response:
-    if entrada.conteudo not in ("xml", "pdf", "ambos"):
+    if entrada.conteudo not in CONTEUDOS_ZIP:
         raise HTTPException(400, "Conteúdo deve ser xml, pdf ou ambos.")
     if not entrada.ids:
         raise HTTPException(400, "Selecione ao menos uma nota.")
@@ -315,10 +345,14 @@ def baixar_zip(entrada: ZipEntrada) -> Response:
         emissoes = [e for e in (s.get(Emissao, i) for i in ids) if e and e.status in COM_ARQUIVOS]
     if not emissoes:
         raise HTTPException(400, "Nenhuma das notas selecionadas foi autorizada.")
+    return _resposta_zip(emissoes, entrada.conteudo)
+
+
+def _resposta_zip(emissoes: list[Emissao], conteudo: str) -> Response:
     # Enviado aos poucos, nota a nota: com os PDFs gerados na hora, milhares de notas levam minutos, e o
     # navegador (e o proxy da hospedagem) recebem dados desde o início em vez de esperar o arquivo inteiro.
     return StreamingResponse(
-        _zip_em_partes(emissoes, entrada.conteudo),
+        _zip_em_partes(emissoes, conteudo),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="nfse-{datetime.now():%Y%m%d-%H%M}.zip"'},
     )

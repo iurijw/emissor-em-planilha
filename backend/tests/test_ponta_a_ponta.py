@@ -677,6 +677,8 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     ok(api.get("/api/sincronizacao"))
     z = ok(api.post("/api/emissoes/zip", json={"ids": [i["id"] for i in itens], "conteudo": "ambos"}))
     assert len(zipfile.ZipFile(io.BytesIO(z.content)).namelist()) == 5  # 2 XML + 1 evento + 2 PDF
+    z = ok(api.get("/api/emissoes/zip", params={"conteudo": "pdf", "ambiente": "2"}))  # todas as do filtro
+    assert len(zipfile.ZipFile(io.BytesIO(z.content)).namelist()) == 2
     rel = ok(api.get("/api/emissoes/relatorio", params={"formato": "csv"}))
     assert rel.content.decode("utf-8-sig").count("\n") == 3  # cabeçalho + 2 notas
     assert sim.rejeicoes == []

@@ -227,7 +227,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `POST /api/avulsa/validar`, `POST /api/avulsa` | nota avulsa |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
 | `GET /api/emissoes/relatorio?formato=xlsx\|csv` (mesmos filtros da lista) | planilha das notas filtradas |
-| `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip`, `POST /api/emissoes/{id}/verificar` | emissões |
+| `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip` (ids), `GET /api/emissoes/zip?conteudo=` (todas as do filtro, até 20.000), `POST /api/emissoes/{id}/verificar` | emissões |
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
@@ -712,5 +712,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-27 | Tela de tributação na ordem e com os nomes do Emissor Nacional; serviço buscado na lista nacional (Anexos B e VIII); `cTribMun` só com 3 dígitos | Pedido do Iuri: quem emite já conhece o portal; códigos digitados errado geravam E0312 e recusa no XSD |
 | 2026-10-27 | Consulta do serviço na prefeitura (parametrização do ADN) só como aviso, nunca bloqueando | Antecipa a E0312, mas a rota não tem documentação oficial: uma resposta mal interpretada não pode impedir a emissão |
 | 2026-10-27 | NFS-e achada pelo Id da DPS só é adotada se `dhEmi`, tomador e valor baterem com a DPS enviada; senão a nota fica rejeitada e o lote para | Outro sistema emitindo com o mesmo CNPJ e série fez a 0.1.0 registrar notas de outros clientes como emitidas (as notas pedidas nunca saíram) |
-| 2026-10-28 | DANFSe gerado só no download (individual e ZIP em partes); PDFs já gravados mantidos; imagens do PDF sem ASCII85 | Pedido do Iuri: o PDF (~148 KB) era ~3/4 do espaço por nota no volume de 1 GB da hospedagem; o XML basta para refazê-lo |
+| 2026-10-28 | DANFSe gerado só no download (individual e ZIP em partes); PDFs já gravados mantidos; imagens do PDF sem ASCII85; "Selecionar todas as N do filtro" na aba Emissões baixa o ZIP por `GET` com os filtros (download do navegador, direto para o disco) | Pedido do Iuri: o PDF (~148 KB) era ~3/4 do espaço por nota no volume de 1 GB da hospedagem; o XML basta para refazê-lo |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
