@@ -201,7 +201,7 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
 | `EMISSOR_PORT` | `8000` | Porta |
 | `EMISSOR_HOST` | `0.0.0.0` | Endereço em que o servidor escuta |
 | `EMISSOR_IPS_PERMITIDOS` | _(vazio = todos)_ | Faixas de IP que podem acessar, separadas por vírgula, ex.: `192.168.0.0/24` |
-| `EMISSOR_DATA_DIR` | `./data` | Banco, certificado criptografado, XML/PDF emitidos e logs |
+| `EMISSOR_DATA_DIR` | `./data` | Banco, certificado criptografado, XMLs emitidos e logs |
 | `EMISSOR_FONT_DIR` | | Pasta extra com Arial/Microsoft Sans Serif para o DANFSe |
 | `EMISSOR_SECRET_KEY` | _(arquivo `data/secret.key`)_ | Chave que criptografa o certificado e os segredos de 2FA; defina para guardá-la fora de `data/` |
 | `EMISSOR_CONVITE_INICIAL` | _(gerado em `data/primeiro-acesso.txt`)_ | Código para criar o primeiro administrador (hospedagem) |
@@ -235,7 +235,7 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
 - O certificado e a senha ficam criptografados em `data/`, com a chave em `data/secret.key` (ou em
   `EMISSOR_SECRET_KEY`). O arquivo `.pfx` nunca
   é devolvido pela página.
-- **Faça backup da pasta `data/`** (banco, XMLs e PDFs emitidos, certificado) e não a compartilhe.
+- **Faça backup da pasta `data/`** (banco, XMLs emitidos, certificado; o PDF é refeito a partir do XML) e não a compartilhe.
 - Senha, chave privada e certificado nunca vão para os logs. O arquivo de diagnóstico tem os dados das notas
   (clientes e valores): envie só para quem pode vê-los.
 
@@ -286,7 +286,7 @@ Em **Configurações → Diagnóstico**, baixe o arquivo de diagnóstico e abra 
 Tabela (cliente, CNPJ/CPF, valor, descrição)
    └─► DPS 1.01 ─► validação nos XSD oficiais ─► assinatura XMLDSig (RSA-SHA256)
           └─► Sefin Nacional (REST + mTLS com o certificado A1)
-                 └─► NFS-e autorizada ─► XML salvo + DANFSe em PDF (NT 008/2026)
+                 └─► NFS-e autorizada ─► XML salvo (DANFSe em PDF gerado no download, NT 008/2026)
 
 Cancelamento: pedido de evento 101101 assinado ─► Sefin Nacional ─► evento salvo, PDF com marca CANCELADA
 Situação:     Ambiente Nacional (ADN, distribuição por NSU) ─► eventos feitos fora do sistema

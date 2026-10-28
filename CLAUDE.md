@@ -166,8 +166,9 @@ Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base 
   na coluna 2). `gerar_danfse(xml, cancelada=, substituida=)` → bytes do PDF.
 - Fontes: Arial/Microsoft Sans Serif **do sistema operacional** (não redistribuídas); fallback
   Liberation Sans/Arimo e, por último, Helvetica, com aviso no log (`fonts.py`, `EMISSOR_FONT_DIR`).
-- Logo oficial NFS-e em `assets/` (baixada de gov.br). QR Code vetorial do próprio ReportLab; decodificação
-  conferida com OpenCV.
+- Logo oficial NFS-e em `assets/` (baixada de gov.br), decodificada e comprimida uma vez por processo (`_logo`) e
+  copiada em cada DANFSe. QR Code vetorial (`qrencoder` do ReportLab, um caminho só); decodificação conferida com
+  OpenCV. Com isso e as imagens sem ASCII85, um DANFSe sai em ~1/4 do tempo de antes (0,09 → 0,02 s aqui).
 - Prestador: dados cadastrais vêm de `infNFSe/emit` (a DPS só tem CNPJ/contato).
 - Destinatário: sem grupo IBSCBS → "DESTINATÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e"; com
   `indDest=0` → "O DESTINATÁRIO É O PRÓPRIO TOMADOR/ADQUIRENTE" (não se afirma nada fora do XML).
@@ -199,7 +200,8 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 - Validação prévia (`POST /api/tabela/validar`): erros bloqueiam; avisos (sem endereço, CNPJ não ATIVO,
   mesma nota já autorizada no mês para o mesmo cliente e valor) só alertam.
 - Arquivos: `data/xml|pdf/<homologacao|producao>/AAAA/MM/AAAAMMDD_NFSe-NNNN_<PRESTADOR>-para-<TOMADOR>_R<valor>.*`.
-  PDF regenerado sob demanda se faltar.
+  O PDF **não é gravado** na emissão (desde a 0.7.1): é gerado do XML a cada download, com a marca d'água da situação;
+  o das notas antigas continua em `data/pdf` e é usado até a nota ser cancelada/substituída (aí é apagado).
 - Erros HTTP sempre como `{"mensagem": str, "detalhes": [...]}`; 500 inclui `request_id` (mesmo do log).
   `SefinError` que chega à API vira 400 (rejeição/validação local) ou 502 (certificado, Sefin/ADN fora do ar) com
   `sefin` = `{tipo, resumo, mensagens[{codigo, descricao, complemento, dica}]}`; a tela mostra código e "Como resolver".
@@ -225,7 +227,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `POST /api/avulsa/validar`, `POST /api/avulsa` | nota avulsa |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
 | `GET /api/emissoes/relatorio?formato=xlsx\|csv` (mesmos filtros da lista) | planilha das notas filtradas |
-| `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip`, `POST /api/emissoes/{id}/verificar` | emissões |
+| `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip` (ids), `GET /api/emissoes/zip?conteudo=` (todas as do filtro, até 20.000), `POST /api/emissoes/{id}/verificar` | emissões |
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
@@ -519,8 +521,8 @@ emissor-em-planilha/
 - **Datas:** `dhEmi` = agora em America/Sao_Paulo (com offset, ex. `-03:00`) menos uma pequena
   margem para relógio (evita "data de emissão posterior ao processamento"); `dCompet` = data de `dhEmi`.
 - **`verAplic`** = `EmPlanilha_<versão>` (o XSD limita a 20 caracteres).
-- **Armazenamento:** XML da NFS-e autorizada e PDF DANFSe salvos em `data/xml/...` e `data/pdf/...`
-  (ver "API e emissão"). Download em massa gera ZIP sob demanda.
+- **Armazenamento:** só o XML da NFS-e autorizada fica em `data/xml/...`; o DANFSe é gerado no download (ver "API e
+  emissão"). O ZIP em massa sai em partes (`StreamingResponse`), nota a nota, para não esperar minutos sem resposta.
 - **Clientes (tomadores):** cadastro próprio (CNPJ/CPF, razão social, endereço, IM, e-mail).
   Fontes: XMLs importados (onboarding ou tela Clientes) → BrasilAPI (`/api/cnpj/v1/{cnpj}`) para CNPJ novo →
   edição manual. Linha da tabela sem cadastro completo é sinalizada antes da emissão.
@@ -710,4 +712,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-27 | Tela de tributação na ordem e com os nomes do Emissor Nacional; serviço buscado na lista nacional (Anexos B e VIII); `cTribMun` só com 3 dígitos | Pedido do Iuri: quem emite já conhece o portal; códigos digitados errado geravam E0312 e recusa no XSD |
 | 2026-10-27 | Consulta do serviço na prefeitura (parametrização do ADN) só como aviso, nunca bloqueando | Antecipa a E0312, mas a rota não tem documentação oficial: uma resposta mal interpretada não pode impedir a emissão |
 | 2026-10-27 | NFS-e achada pelo Id da DPS só é adotada se `dhEmi`, tomador e valor baterem com a DPS enviada; senão a nota fica rejeitada e o lote para | Outro sistema emitindo com o mesmo CNPJ e série fez a 0.1.0 registrar notas de outros clientes como emitidas (as notas pedidas nunca saíram) |
+| 2026-10-28 | DANFSe gerado só no download (individual e ZIP em partes); PDFs já gravados mantidos; imagens do PDF sem ASCII85; "Selecionar todas as N do filtro" na aba Emissões baixa o ZIP por `GET` com os filtros (download do navegador, direto para o disco) | Pedido do Iuri: o PDF (~148 KB) era ~3/4 do espaço por nota no volume de 1 GB da hospedagem; o XML basta para refazê-lo |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

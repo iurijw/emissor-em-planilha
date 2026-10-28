@@ -33,7 +33,6 @@ from emissor.logging_setup import bind_context
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
 from emissor.nfse.constants import Ambiente
-from emissor.nfse.danfse.render import gerar_danfse
 from emissor.nfse.documentos import documento_valido, formatar_documento
 from emissor.nfse.dps_builder import DpsBuildError
 from emissor.nfse.emissao import (
@@ -616,7 +615,7 @@ def _vincular_linha(s: Session, e: Emissao) -> None:
 
 
 def finalizar_autorizada(emissao_id: int, r: ResultadoEmissao) -> Emissao:
-    """Grava XML/PDF da NFS-e autorizada e atualiza o registro."""
+    """Grava o XML da NFS-e autorizada e atualiza o registro (o PDF é gerado só no download)."""
     doc = NFSeDoc.from_bytes(r.nfse_xml)
     with sessao() as s:
         e = s.get(Emissao, emissao_id)
@@ -625,19 +624,11 @@ def finalizar_autorizada(emissao_id: int, r: ResultadoEmissao) -> Emissao:
         base = arquivos.nome_base(data, doc.numero, prestador, e.tomador_nome, e.valor)
         xml_path = arquivos.caminho_xml(e.ambiente, data, base)
         xml_path.write_bytes(r.nfse_xml)
-        pdf_rel = None
-        try:
-            pdf_path = arquivos.caminho_pdf(e.ambiente, data, base)
-            pdf_path.write_bytes(gerar_danfse(r.nfse_xml))
-            pdf_rel = arquivos.relativo(pdf_path)
-        except Exception:
-            log.exception("falha ao gerar DANFSe; será gerado sob demanda", extra={"chave": r.chave_acesso})
         e.status = "autorizada"
         e.chave_acesso = r.chave_acesso
         e.numero_nfse = doc.numero
         e.dh_processamento = doc.data_processamento
         e.xml_path = arquivos.relativo(xml_path)
-        e.pdf_path = pdf_rel
         e.alertas_json = json.dumps([asdict(a) for a in r.alertas], ensure_ascii=False) if r.alertas else None
         e.erro_json = None
         e.recuperada = r.recuperada

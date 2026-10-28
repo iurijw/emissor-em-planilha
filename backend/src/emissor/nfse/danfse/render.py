@@ -13,19 +13,23 @@ Serif 7 pt, QR Code ≥ 1,52 cm, campo sem informação → "-", texto longo →
 
 from __future__ import annotations
 
+import copy
+import functools
 import io
+import itertools
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from reportlab.graphics import renderPDF
-from reportlab.graphics.barcode.qr import QrCodeWidget
-from reportlab.graphics.shapes import Drawing
+from reportlab import rl_config
+from reportlab.graphics.barcode import qrencoder
+from reportlab.lib.boxstuff import aspectRatioFix
 from reportlab.lib.colors import CMYKColor
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfdoc
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen.canvas import Canvas
 
@@ -35,6 +39,9 @@ from emissor.nfse.constants import URL_CONSULTA_PUBLICA
 from emissor.nfse.danfse.fonts import Fontes, carregar_fontes
 from emissor.nfse.documentos import formatar_documento
 from emissor.nfse.xml_reader import NFSeDoc
+
+# Imagens em binário (sem ASCII85): o PDF fica ~15% menor e sai mais rápido, o que pesa no ZIP em massa.
+rl_config.useA85 = 0
 
 LOGO = Path(__file__).parent / "assets" / "logo_nfse_horizontal.png"
 
@@ -732,11 +739,10 @@ class GeradorDanfse:
         f = self.fontes
         g.sombra(ESQ, 0.30, LARG, 1.18)
         if LOGO.exists():
-            img = ImageReader(str(LOGO))
-            iw, ih = img.getSize()
+            iw, ih = _logo()[0].width, _logo()[0].height
             w = 4.00
             h = min(0.85, w * ih / iw)
-            g.c.drawImage(img, 0.49 * cm, g.ry(0.44 + h), w * cm, h * cm, mask="auto", preserveAspectRatio=True)
+            _desenhar_logo(g.c, 0.49 * cm, g.ry(0.44 + h), w * cm, h * cm)
         g.centro(5.41, W2, 0.30 + 0.42, "DANFSe v2.0", f.rotulo_negrito, 9)
         g.centro(5.41, W2, 0.30 + 0.78, "Documento Auxiliar da NFS-e", f.rotulo_negrito, 9)
         if self.doc.tp_amb == "2":
@@ -818,12 +824,7 @@ class GeradorDanfse:
                 )
         # QR Code
         url = URL_CONSULTA_PUBLICA.format(chave=self.doc.chave)
-        qr = QrCodeWidget(url, barLevel="M", barBorder=0)
-        x1, y1, x2, y2 = qr.getBounds()
-        lado = 1.52 * cm
-        dr = Drawing(lado, lado, transform=[lado / (x2 - x1), 0, 0, lado / (y2 - y1), 0, 0])
-        dr.add(qr)
-        renderPDF.draw(dr, g.c, 17.48 * cm, g.ry(1.67 + 1.52))
+        _desenhar_qr(g.c, url, 17.48 * cm, g.ry(1.67 + 1.52), 1.52 * cm)
         for i, ln in enumerate(g.quebrar(TEXTO_QR, self.fontes.conteudo, 6, 4.72)[:3]):
             g.texto(15.80, 3.36 + _pt_cm(6) + i * 0.23, ln, self.fontes.conteudo, 6)
         g.linha_h(4.34)
@@ -883,6 +884,66 @@ class GeradorDanfse:
         c.rotate(55)
         c.drawCentredString(0, -30, self.marca)
         c.restoreState()
+
+
+@functools.cache
+def _logo() -> tuple[pdfdoc.PDFImageXObject, pdfdoc.PDFImageXObject | None]:
+    """Logo decodificada e comprimida uma vez por processo (era metade do tempo de cada DANFSe).
+
+    Os objetos guardados nunca entram num documento: cada DANFSe recebe cópias (o ReportLab marca o objeto com o
+    nome que ele tem no documento em que foi registrado).
+    """
+    img = pdfdoc.PDFImageXObject("LogoNFSe", ImageReader(str(LOGO)), mask="auto")
+    mascara = getattr(img, "_smask", None)
+    if mascara is not None:
+        del img._smask
+        mascara.name = "LogoNFSeMascara"
+    return img, mascara
+
+
+def _desenhar_logo(c: Canvas, x: float, y: float, w: float, h: float) -> None:
+    """O mesmo que ``Canvas.drawImage(..., mask="auto", preserveAspectRatio=True)``, com a logo já pronta."""
+    modelo, modelo_mascara = _logo()
+    doc = c._doc
+    img = copy.copy(modelo)
+    nome = doc.getXObjectName(img.name)
+    c._currentPageHasImages = 1
+    c._setXObjects(img)
+    doc.Reference(img, nome)
+    doc.addForm(img.name, img)
+    if modelo_mascara is not None:
+        mascara = copy.copy(modelo_mascara)
+        c._setXObjects(mascara)
+        img.smask = doc.Reference(mascara, doc.getXObjectName(mascara.name))
+    x, y, w, h, _ = aspectRatioFix(True, "c", x, y, w, h, img.width, img.height)
+    c.saveState()
+    c.translate(x, y)
+    c.scale(w, h)
+    c._code.append(f"/{nome} Do")
+    c.restoreState()
+    c._formsinuse.append(img.name)
+
+
+def _desenhar_qr(c: Canvas, texto: str, x: float, y: float, lado: float) -> None:
+    """QR Code vetorial (nível M, sem margem) num caminho só: o ``QrCodeWidget`` criava um objeto por módulo e
+    desenhava duas vezes, o que era um terço do tempo de cada DANFSe."""
+    qr = qrencoder.QRCode(None, qrencoder.QRErrorCorrectLevel.M)
+    qr.addData(texto)
+    qr.make()
+    n = qr.getModuleCount()
+    passo = lado / n
+    p = c.beginPath()
+    for r, linha in enumerate(qr.modules):
+        col = 0
+        for escuro, grupo in itertools.groupby(map(bool, linha)):
+            qtd = len(list(grupo))
+            if escuro:
+                p.rect(x + col * passo, y + lado - (r + 1) * passo, qtd * passo, passo)
+            col += qtd
+    c.saveState()
+    c.setFillColor(PRETO)
+    c.drawPath(p, stroke=0, fill=1)
+    c.restoreState()
 
 
 def gerar_danfse(nfse_xml: bytes, *, cancelada: bool = False, substituida: bool = False) -> bytes:

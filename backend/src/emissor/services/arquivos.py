@@ -1,4 +1,6 @@
-"""Onde e com que nome ficam DPS, XML e PDF de cada emissão.
+"""Onde e com que nome ficam DPS e XML de cada emissão.
+
+O PDF é gerado no download; o das notas emitidas até a 0.7 continua em ``data/pdf`` e é usado enquanto existir.
 
 Padrão de nome dos arquivos:
 ``AAAAMMDD_NFSe-NNNN_<PRESTADOR>-para-<TOMADOR>_R<valor>``.
@@ -37,10 +39,6 @@ def _pasta(raiz: Path, ambiente: str, data: datetime) -> Path:
 
 def caminho_xml(ambiente: str, data: datetime, base: str) -> Path:
     return _pasta(config.XML_DIR, ambiente, data) / f"{base}.xml"
-
-
-def caminho_pdf(ambiente: str, data: datetime, base: str) -> Path:
-    return _pasta(config.PDF_DIR, ambiente, data) / f"{base}.pdf"
 
 
 def caminho_dps(ambiente: str, id_dps: str) -> Path:

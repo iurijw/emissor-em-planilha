@@ -16,13 +16,16 @@ import pytest
 from fastapi.testclient import TestClient
 from lxml import etree
 
+from emissor import config
 from emissor.api.app import create_app
+from emissor.db import Emissao, sessao
 from emissor.nfse.client import SefinClient, gzip_b64, ungzip_b64
 from emissor.nfse.constants import NS_NFSE, Ambiente
 from emissor.nfse.errors import SefinError, TipoErro
 from emissor.nfse.eventos import EventoDoc, enviar_cancelamento, preparar_cancelamento
 from emissor.nfse.signer import assinar, verificar
 from emissor.nfse.xsd import validar_evento, validar_pedido_evento
+from emissor.services import arquivos
 from emissor.services import emissao as emissao_service
 from emissor.services import eventos as eventos_service
 
@@ -301,7 +304,6 @@ def test_distribuicao_adn(client, falsa, certificado):
     assert (d.nsu, d.tipo_documento, d.tipo_evento, d.chave_acesso) == (1, "EVENTO", "CANCELAMENTO", CHAVE)
     assert EventoDoc.from_bytes(d.xml).tipo == "101101"
     # O log da troca não guarda os XMLs embutidos (vão para data/xml).
-    from emissor import config
 
     logs = list(config.SEFIN_LOG_DIR.rglob("*adn_dfe_resp.json"))
     assert logs and all("caracteres omitidos" in p.read_text() or "LoteDFe" in p.read_text() for p in logs)
@@ -377,7 +379,16 @@ def _emitir_duas(api, pfx_bytes, nfse_exemplo_bytes) -> list[dict]:
 
 def test_cancelar_pela_api(api, falsa, pfx_bytes, nfse_exemplo_bytes, monkeypatch):
     e1, e2 = _emitir_duas(api, pfx_bytes, nfse_exemplo_bytes)
-    api.get(f"/api/emissoes/{e1['id']}/pdf")  # PDF já gerado antes do cancelamento
+    # Nota de uma versão que ainda gravava o PDF na emissão
+    antigo = config.PDF_DIR / "homologacao" / "antigo.pdf"
+    antigo.parent.mkdir(parents=True, exist_ok=True)
+    antigo.write_bytes(b"%PDF-antigo")
+    with sessao() as s:
+        reg = s.get(Emissao, e1["id"])
+        reg.pdf_path = arquivos.relativo(antigo)
+        s.add(reg)
+        s.commit()
+    assert api.get(f"/api/emissoes/{e1['id']}/pdf").content == b"%PDF-antigo"  # o guardado continua valendo
     marcas = []
     original = eventos_service.gerar_danfse
     monkeypatch.setattr(eventos_service, "gerar_danfse", lambda xml, **kw: marcas.append(kw) or original(xml, **kw))
@@ -396,7 +407,10 @@ def test_cancelar_pela_api(api, falsa, pfx_bytes, nfse_exemplo_bytes, monkeypatc
     ev = d["eventos"][0]
     assert (ev["tipo"], ev["origem"], ev["descricao"]) == ("101101", "sistema", "Cancelamento de NFS-e")
     assert ev["motivo"] == "Serviço não prestado — Serviço não foi prestado neste mês"
-    assert marcas == [{"cancelada": True, "substituida": False}]  # DANFSe refeito com a marca d'água
+    assert not antigo.exists()  # o PDF guardado sem a marca d'água foi apagado
+    assert marcas == []
+    assert api.get(f"/api/emissoes/{e1['id']}/pdf").content.startswith(b"%PDF-1")
+    assert marcas == [{"cancelada": True, "substituida": False}]  # DANFSe gerado no download com a marca d'água
     assert b"<CNPJAutor>11444777000161</CNPJAutor>" in falsa.pedidos[0]
     assert b"<tpAmb>2</tpAmb>" in falsa.pedidos[0]
 

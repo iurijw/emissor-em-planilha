@@ -142,20 +142,20 @@ def gerar_pdf(e: Emissao, nfse_xml: bytes) -> bytes:
 
 
 def _regerar_pdf(e: Emissao) -> None:
-    """Refaz o PDF já gravado com a marca CANCELADA/SUBSTITUÍDA (ou apaga para gerar sob demanda)."""
-    xml = arquivos.absoluto(e.xml_path)
+    """Apaga o PDF guardado (notas emitidas até a 0.7): o do download passa a sair com a marca d'água."""
     pdf = arquivos.absoluto(e.pdf_path)
-    if not (xml and xml.is_file() and pdf):
+    if pdf is None:
         return
     try:
-        pdf.write_bytes(gerar_pdf(e, xml.read_bytes()))
-    except Exception:
-        log.exception("falha ao refazer o DANFSe; será gerado sob demanda", extra={"emissao_id": e.id})
-        with sessao() as s:
-            reg = s.get(Emissao, e.id)
-            reg.pdf_path = None
-            s.add(reg)
-            s.commit()
+        pdf.unlink(missing_ok=True)
+    except OSError:
+        log.exception("falha ao apagar o DANFSe antigo", extra={"emissao_id": e.id})
+        return
+    with sessao() as s:
+        reg = s.get(Emissao, e.id)
+        reg.pdf_path = None
+        s.add(reg)
+        s.commit()
 
 
 def eventos_da_emissao(emissao_id: int) -> list[EventoNFSe]:
