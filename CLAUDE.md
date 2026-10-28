@@ -166,8 +166,9 @@ Implementamos um **módulo fiscal próprio e enxuto** sobre bibliotecas de base 
   na coluna 2). `gerar_danfse(xml, cancelada=, substituida=)` → bytes do PDF.
 - Fontes: Arial/Microsoft Sans Serif **do sistema operacional** (não redistribuídas); fallback
   Liberation Sans/Arimo e, por último, Helvetica, com aviso no log (`fonts.py`, `EMISSOR_FONT_DIR`).
-- Logo oficial NFS-e em `assets/` (baixada de gov.br). QR Code vetorial do próprio ReportLab; decodificação
-  conferida com OpenCV.
+- Logo oficial NFS-e em `assets/` (baixada de gov.br), decodificada e comprimida uma vez por processo (`_logo`) e
+  copiada em cada DANFSe. QR Code vetorial (`qrencoder` do ReportLab, um caminho só); decodificação conferida com
+  OpenCV. Com isso e as imagens sem ASCII85, um DANFSe sai em ~1/4 do tempo de antes (0,09 → 0,02 s aqui).
 - Prestador: dados cadastrais vêm de `infNFSe/emit` (a DPS só tem CNPJ/contato).
 - Destinatário: sem grupo IBSCBS → "DESTINATÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e"; com
   `indDest=0` → "O DESTINATÁRIO É O PRÓPRIO TOMADOR/ADQUIRENTE" (não se afirma nada fora do XML).
