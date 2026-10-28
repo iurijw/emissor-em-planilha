@@ -402,6 +402,32 @@ a { color: var(--azul-texto); }
 .topo__usuario a:hover { text-decoration: underline; }
 .topo__usuario a.topo__assinatura { color: var(--grafite); font-weight: 500; margin-right: 8px; }
 .faixa-suspenso { border-radius: 0; border-width: 0 0 1px; justify-content: center; }
+
+/* ---------- Assinatura: fim do teste grátis ---------- */
+.faixa-assinatura {
+  display: flex; align-items: center; gap: 10px 20px; flex-wrap: wrap; justify-content: center;
+  padding: 10px 24px; background: var(--azul-fundo); color: #07384f; border-bottom: 1px solid #b3e0f4; font-size: 13.5px;
+}
+.faixa-assinatura p { margin: 0; max-width: 90ch; text-wrap: pretty; }
+.faixa-assinatura strong { font-weight: 650; }
+.faixa-assinatura--encerrado { background: var(--aviso-fundo); color: #4d3500; border-bottom-color: #f0d38a; }
+.faixa-assinatura__acoes { display: flex; gap: 6px; flex-shrink: 0; }
+.faixa-assinatura__dica { color: inherit; opacity: 0.85; font-size: 12.5px; }
+.assinatura-resumo { margin: 0 0 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--linha); border-radius: var(--raio); }
+.assinatura-resumo div { padding: 12px 14px; }
+.assinatura-resumo div + div { border-left: 1px solid var(--linha); }
+.assinatura-resumo dt { font-size: 12px; color: var(--grafite); margin-bottom: 4px; }
+.assinatura-resumo dd { margin: 0; font-weight: 600; color: var(--tinta); }
+.assinatura-resumo dd.num { font-size: 18px; font-weight: 600; }
+.assinatura-texto { margin: 0 0 12px; max-width: 70ch; color: var(--tinta); }
+.assinatura-acordo { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; font-weight: 600; margin: 4px 0 12px; cursor: pointer; }
+.assinatura-acordo input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--azul); flex-shrink: 0; }
+.assinatura-reativando { display: flex; gap: 10px; align-items: center; margin: 0 0 8px; }
+@media (max-width: 640px) {
+  .faixa-assinatura { padding: 10px 16px; justify-content: flex-start; }
+  .assinatura-resumo { grid-template-columns: 1fr; }
+  .assinatura-resumo div + div { border-left: 0; border-top: 1px solid var(--linha); }
+}
 .qr-2fa { width: 200px; height: 200px; align-self: center; image-rendering: pixelated; }
 .codigos-recuperacao { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; font-size: 14px; }
 @media (max-width: 900px) {

@@ -229,6 +229,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
+| `GET /api/assinatura`, `POST /api/assinatura/confirmar\|recusar` (hospedagem: aceite no fim do teste) | assinatura |
 | `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
 | `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}`, `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
@@ -599,6 +600,14 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   `pages/Conta.tsx`, `pages/Usuarios.tsx`; 401 com `login: true` dispara `emissor:sessao-expirada`. Operador não vê
   Configurações nem Usuários. `copiar()` em `ui.tsx` funciona em HTTP (sem `navigator.clipboard`).
 - Aviso no app quando o certificado estiver a ≤ 30 dias do vencimento.
+- **Aceite no fim do teste** (2026-10-28, `assinatura.py`, `components/Assinatura.tsx`): na hospedagem
+  (`EMISSOR_ASSINATURA_API` + `EMISSOR_EMAIL_TOKEN`), o painel marca a assinatura nova para acabar no fim do teste e o
+  app pergunta. `GET /api/assinatura` (qualquer usuário; cache de 2 min; painel fora do ar = `disponivel: false`) dá a
+  situação; nos últimos 3 dias uma faixa sob a do ambiente pede a confirmação e, nas últimas 24 h, o diálogo abre
+  sozinho para o administrador (uma vez por dia). `POST /api/assinatura/confirmar` (admin, com o "estou de acordo")
+  cobra na hora; `POST /api/assinatura/recusar` só registra. Sem aceite, o painel suspende a instância e a faixa troca
+  o aviso de suspensão por "Continuar e assinar", que funciona com a instância suspensa (`PERMITIDAS_SUSPENSO`) e
+  espera o `/api/saude` voltar sem suspensão para recarregar. Tudo na auditoria (`assinatura_*`).
 - Hospedagem: com `EMISSOR_URL_ASSINATURA`, o administrador vê o link "Assinatura" no topo e a seção "Assinatura" em
   Minha conta (portal do Stripe: cartão, faturas, cancelamento); sem a variável (instalação própria) nada aparece.
 
@@ -710,4 +719,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-27 | Tela de tributação na ordem e com os nomes do Emissor Nacional; serviço buscado na lista nacional (Anexos B e VIII); `cTribMun` só com 3 dígitos | Pedido do Iuri: quem emite já conhece o portal; códigos digitados errado geravam E0312 e recusa no XSD |
 | 2026-10-27 | Consulta do serviço na prefeitura (parametrização do ADN) só como aviso, nunca bloqueando | Antecipa a E0312, mas a rota não tem documentação oficial: uma resposta mal interpretada não pode impedir a emissão |
 | 2026-10-27 | NFS-e achada pelo Id da DPS só é adotada se `dhEmi`, tomador e valor baterem com a DPS enviada; senão a nota fica rejeitada e o lote para | Outro sistema emitindo com o mesmo CNPJ e série fez a 0.1.0 registrar notas de outros clientes como emitidas (as notas pedidas nunca saíram) |
+| 2026-10-28 | Cobrança no fim do teste só com o aceite do administrador no app; sem aceite, suspensão como num cancelamento e "Continuar e assinar" a qualquer momento | Pedido do Iuri: ninguém deve ser cobrado sem saber; o painel marca a assinatura no Stripe para acabar no fim do teste |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

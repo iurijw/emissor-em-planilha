@@ -27,6 +27,10 @@ const ACAO: Record<string, string> = {
   lote_interrompido: "Interrompeu lote",
   nota_cancelada: "Cancelou NFS-e",
   cancelamento_recusado: "Cancelamento de NFS-e não concluído",
+  assinatura_confirmada: "Confirmou a assinatura",
+  assinatura_recusada: "Confirmação da assinatura recusada pelo cartão",
+  assinatura_falhou: "Confirmação da assinatura não concluída",
+  assinatura_nao_continuar: "Disse que não vai continuar com a assinatura",
 };
 
 function dataHora(s: string | null) {

@@ -214,6 +214,7 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
 | `EMISSOR_COOKIE_SECURE` | _(automático)_ | `1` força o cookie de sessão só em HTTPS; `0` desliga |
 | `EMISSOR_SUSPENSO` | | `1` deixa o sistema só para consulta e download (assinatura da hospedagem suspensa) |
 | `EMISSOR_URL_ASSINATURA` | | Link para regularizar a assinatura, mostrado quando suspenso |
+| `EMISSOR_ASSINATURA_API` | | Só na hospedagem: endereço do painel para o aceite da cobrança no fim do teste grátis |
 
 ## Segurança
 

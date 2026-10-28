@@ -1,4 +1,4 @@
-"""Login, primeiro acesso, convites, conta do usuário (senha e 2FA), usuários e auditoria."""
+"""Login, primeiro acesso, convites, conta do usuário (senha e 2FA), usuários, auditoria e assinatura da hospedagem."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ import os
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from emissor import auth, config
+from emissor import assinatura, auth, config
 from emissor.api.deps import AdminAtual, UsuarioAtual, ip_cliente
 
 router = APIRouter()
@@ -258,3 +258,42 @@ def redefinir(usuario_id: int, entrada: Redefinir, admin: AdminAtual) -> dict[st
 @router.get("/auditoria")
 def auditoria(_admin: AdminAtual, pagina: int = 1) -> dict[str, Any]:
     return auth.listar_auditoria(pagina)
+
+
+# --- assinatura da hospedagem (aceite da cobrança no fim do teste) -------------------------------
+
+
+def _erro_assinatura(e: assinatura.AssinaturaError) -> HTTPException:
+    return HTTPException(e.status, {"mensagem": str(e), "cartao_recusado": e.cartao_recusado})
+
+
+@router.get("/assinatura")
+def ver_assinatura(acesso: UsuarioAtual, atualizar: bool = False) -> dict[str, Any]:
+    return assinatura.situacao(forcar=atualizar) | {"pode_confirmar": acesso.admin}
+
+
+@router.post("/assinatura/confirmar")
+def confirmar_assinatura(admin: AdminAtual) -> dict[str, Any]:
+    if not assinatura.ligada():
+        raise HTTPException(404, "Esta instalação não tem assinatura.")
+    try:
+        r = assinatura.confirmar()
+    except assinatura.AssinaturaError as e:
+        auth.auditar("assinatura_recusada" if e.cartao_recusado else "assinatura_falhou", str(e), admin)
+        raise _erro_assinatura(e) from e
+    auth.auditar(
+        "assinatura_confirmada", "retomada depois do fim do teste" if r.get("reativar") else "fim do teste", admin
+    )
+    return r
+
+
+@router.post("/assinatura/recusar")
+def recusar_assinatura(admin: AdminAtual) -> dict[str, Any]:
+    if not assinatura.ligada():
+        raise HTTPException(404, "Esta instalação não tem assinatura.")
+    try:
+        r = assinatura.recusar()
+    except assinatura.AssinaturaError as e:
+        raise _erro_assinatura(e) from e
+    auth.auditar("assinatura_nao_continuar", None, admin)
+    return r
