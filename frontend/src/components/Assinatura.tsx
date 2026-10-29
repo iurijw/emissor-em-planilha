@@ -1,5 +1,6 @@
 // Aceite da cobrança no fim do teste grátis (só na hospedagem): faixa nos últimos dias do teste, diálogo de
-// confirmação e "Continuar e assinar" depois que o teste acabou sem aceite (instância suspensa).
+// confirmação (a primeira cobrança fica para o fim do teste) e "Continuar e assinar" depois que o teste acabou sem
+// aceite (instância suspensa; aí a cobrança é na hora).
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
@@ -57,7 +58,7 @@ function valorCurto(s: SituacaoAssinatura): string {
 
 function disponivelAte(s: SituacaoAssinatura): string | null {
   if (!s.suspensa_desde) return null;
-  const d = new Date(new Date(s.suspensa_desde).getTime() + (s.dias_ate_parar ?? 15) * 86_400_000);
+  const d = new Date(new Date(s.suspensa_desde).getTime() + (s.dias_ate_parar ?? 20) * 86_400_000);
   return d.toLocaleDateString("pt-BR");
 }
 
@@ -107,8 +108,9 @@ export function FaixaAssinatura() {
             </>
           ) : (
             <>
-              <strong>Seu teste grátis termina {quandoTermina(s.teste_ate!)}.</strong> Para continuar emitindo, confirme a
-              assinatura de {s.valor}. Sem a confirmação, nada é cobrado e a emissão fica bloqueada.
+              <strong>Seu teste grátis termina {quandoTermina(s.teste_ate!)}.</strong> Para continuar emitindo depois dele,
+              confirme a assinatura de {s.valor}; a primeira cobrança só acontece no fim do teste. Sem a confirmação,
+              nada é cobrado e a emissão fica bloqueada.
             </>
           )}
         </p>
@@ -143,19 +145,24 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
   const encerrado = s.situacao === "teste_encerrado";
   const valor = valorCurto(s);
   const cartao = s.cartao ?? "o cartão cadastrado na assinatura";
+  // No teste a primeira cobrança é no fim dele; depois que ele acabou, é na hora.
+  const fim = !encerrado && s.teste_ate ? new Date(s.teste_ate) : null;
+  const dataCobranca = fim ? fim.toLocaleDateString("pt-BR") : null;
+  const diaCobranca = (fim ?? new Date()).getDate();
 
   async function confirmar() {
     setOcupado(true);
     setErro(null);
     try {
-      const r = await api.post<{ ok: boolean; reativar?: boolean }>("/api/assinatura/confirmar");
+      const r = await api.post<{ ok: boolean; reativar?: boolean; cobranca_em?: string | null }>("/api/assinatura/confirmar");
       if (r.reativar) {
         setReativando(true);
         await aguardarReativacao();
         location.reload();
         return;
       }
-      toast("Assinatura confirmada. Obrigado por continuar com o Emissor em Planilha.");
+      const em = r.cobranca_em ? new Date(r.cobranca_em).toLocaleDateString("pt-BR") : dataCobranca;
+      toast(`Assinatura confirmada.${em ? ` A primeira cobrança será em ${em}.` : ""} Obrigado por continuar com o Emissor em Planilha.`);
       await qc.invalidateQueries({ queryKey: ["assinatura"] });
       fechar();
     } catch (e) {
@@ -187,15 +194,18 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
             Agora não
           </button>
           <button className="btn btn--primario" onClick={confirmar} disabled={!acordo || ocupado}>
-            {ocupado && <Spinner />} Confirmar e pagar {valor}
+            {ocupado && <Spinner />} {dataCobranca ? "Confirmar a assinatura" : `Confirmar e pagar ${valor}`}
           </button>
         </>
       }
     >
       <dl className="assinatura-resumo">
         <div>
-          <dt>Cobrança agora</dt>
-          <dd className="num">{valor}</dd>
+          <dt>{dataCobranca ? "Primeira cobrança" : "Cobrança agora"}</dt>
+          <dd>
+            <span className="num">{valor}</span>
+            {dataCobranca && <> em <span className="num">{dataCobranca}</span>, no fim do teste</>}
+          </dd>
         </div>
         <div>
           <dt>Cartão</dt>
@@ -204,19 +214,20 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
         <div>
           <dt>Próximas cobranças</dt>
           <dd>
-            {valor} todo dia {new Date().getDate()}, automaticamente
+            {valor} todo dia {diaCobranca}, automaticamente
           </dd>
         </div>
       </dl>
       <p className="assinatura-texto">
         {encerrado
           ? "A emissão volta a funcionar assim que o pagamento for aprovado. As notas, os clientes e as configurações continuam como estavam."
-          : "O teste grátis termina agora e o sistema continua funcionando sem interrupção."}{" "}
+          : `Nada é cobrado agora: o teste grátis continua até ${dataCobranca ?? "o fim"} e o sistema segue funcionando sem interrupção.`}{" "}
         Você pode cancelar quando quiser no portal da assinatura, sem multa nem fidelidade.
       </p>
       <label className="assinatura-acordo">
         <input type="checkbox" checked={acordo} onChange={(e) => setAcordo(e.target.checked)} disabled={ocupado} />
-        Estou de acordo com a cobrança de {valor} agora e com a renovação automática todo mês.
+        Estou de acordo com a cobrança de {valor} {dataCobranca ? `em ${dataCobranca}` : "agora"} e com a renovação automática
+        todo mês.
       </label>
       {recusado ? (
         <div className="erro-caixa" role="alert">
@@ -282,7 +293,7 @@ function DialogoNaoContinuar({ s, fechar }: { s: SituacaoAssinatura; fechar: () 
     >
       <p className="assinatura-texto">
         Nada é cobrado. O sistema funciona normalmente até o fim do teste, {quandoTermina(s.teste_ate!)}. Depois, a emissão
-        fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 15} dias.
+        fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 20} dias.
       </p>
       <p className="assinatura-texto">
         Se mudar de ideia, é só clicar em <strong>Continuar e assinar</strong> no aviso do topo, a qualquer momento: a

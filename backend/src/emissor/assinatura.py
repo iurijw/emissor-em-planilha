@@ -1,7 +1,8 @@
 """Aceite da cobrança no fim do teste grátis (só na hospedagem).
 
 O painel da hospedagem marca a assinatura nova para acabar no fim do teste; o emissor pergunta ao administrador se ele
-quer continuar. Aceitar cobra o cartão na hora (e as próximas cobranças são automáticas); sem aceite, no fim do teste
+quer continuar. Aceitar mantém a assinatura: a primeira cobrança acontece no fim do teste e as próximas são
+automáticas; sem aceite, no fim do teste
 a assinatura acaba e a instância fica suspensa (só consulta e download). "Continuar e assinar" funciona a qualquer
 momento: o painel cria outra assinatura com o mesmo cartão e reativa a instância (ela reinicia).
 
@@ -97,7 +98,8 @@ def situacao(forcar: bool = False) -> dict[str, Any]:
 
 
 def confirmar() -> dict[str, Any]:
-    """Aceita a cobrança: cobra o cartão agora. ``reativar`` = a instância vai reiniciar sem a suspensão."""
+    """Aceita a cobrança. No teste, ela fica para o fim dele (``cobranca_em``); depois do fim, cobra agora e
+    ``reativar`` = a instância vai reiniciar sem a suspensão."""
     try:
         return _pedir("POST", "/confirmar")
     finally:
