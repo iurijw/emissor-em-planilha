@@ -46,7 +46,7 @@ function Assinatura({ url }: { url: string }) {
         informado ao assinar: o Stripe manda para ele um e-mail de acesso.
       </p>
       <p className="acesso__dica" style={{ marginBottom: 12 }}>
-        Ao cancelar, o emissor funciona até o fim do período já pago e depois fica 20 dias só para consulta e download das
+        Ao cancelar, o emissor funciona até o fim do período já pago e depois fica 35 dias só para consulta e download das
         notas.{" "}
         <a href="https://emissoremplanilha.com/guia/cancelar-assinatura" target="_blank" rel="noreferrer">
           Como cancelar a assinatura
