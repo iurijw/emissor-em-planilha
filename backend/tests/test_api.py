@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from emissor import config
 from emissor.api.app import create_app
 from emissor.nfse.client import SefinClient, gzip_b64
 from emissor.services import emissao as emissao_service
@@ -143,6 +144,8 @@ def test_fluxo_completo(api, sefin, pfx_bytes, nfse_exemplo_bytes):
     assert "NFSe-0103" in r.headers["content-disposition"]
     r = api.get(f"/api/emissoes/{eid}/pdf")
     assert r.status_code == 200 and r.content.startswith(b"%PDF")
+    assert "NFSe-0103" in r.headers["content-disposition"] and ".pdf" in r.headers["content-disposition"]
+    assert not list(config.PDF_DIR.rglob("*.pdf"))  # o PDF é gerado no download, não fica guardado
 
     ids_zip = [e["id"] for e in lista["itens"]]
     r = api.post("/api/emissoes/zip", json={"ids": ids_zip + ids_zip, "conteudo": "ambos"})  # repetidos entram 1x
@@ -150,6 +153,12 @@ def test_fluxo_completo(api, sefin, pfx_bytes, nfse_exemplo_bytes):
     nomes = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
     assert len([n for n in nomes if n.startswith("xml/")]) == 3
     assert len([n for n in nomes if n.startswith("pdf/")]) == 3
+
+    # Todas as notas do filtro, sem escolher uma a uma (vai além da página da lista)
+    r = api.get("/api/emissoes/zip", params={"conteudo": "xml", "status": "autorizada"})
+    assert r.status_code == 200 and len(zipfile.ZipFile(io.BytesIO(r.content)).namelist()) == 3
+    assert api.get("/api/emissoes/zip", params={"q": "ninguém com esse nome"}).status_code == 400
+    assert api.get("/api/emissoes/zip", params={"conteudo": "doc"}).status_code == 400
 
     # Segunda emissão para o mesmo cliente/valor no mês gera aviso de duplicidade
     val = api.post("/api/tabela/validar", json={"linha_ids": [ids[0]]}).json()
