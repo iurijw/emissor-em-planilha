@@ -61,7 +61,7 @@ function valorCurto(s: SituacaoAssinatura): string {
 
 function disponivelAte(s: SituacaoAssinatura): string | null {
   if (!s.suspensa_desde) return null;
-  const d = new Date(new Date(s.suspensa_desde).getTime() + (s.dias_ate_parar ?? 20) * 86_400_000);
+  const d = new Date(new Date(s.suspensa_desde).getTime() + (s.dias_ate_parar ?? 35) * 86_400_000);
   return d.toLocaleDateString("pt-BR");
 }
 
@@ -331,7 +331,7 @@ function DialogoNaoContinuar({ s, fechar }: { s: SituacaoAssinatura; fechar: () 
     >
       <p className="assinatura-texto">
         Nada é cobrado. O sistema funciona normalmente até o fim do teste, {quandoTermina(s.teste_ate!)}. Depois, a emissão
-        fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 20} dias.
+        fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 35} dias.
       </p>
       <p className="assinatura-texto">
         Se mudar de ideia, é só clicar em <strong>Continuar e assinar</strong> no aviso do topo, a qualquer momento: a
