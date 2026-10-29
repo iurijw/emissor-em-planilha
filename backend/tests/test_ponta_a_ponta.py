@@ -604,6 +604,10 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
         assert api.post(caminho, json=corpo).status_code in (400, 404, 410)
     ok(api.post(f"/api/usuarios/{op_id}/redefinir", json={}))
     ok(api.get("/api/auditoria"))
+    # Assinatura da hospedagem: sem o painel (instalação própria) não há nada a confirmar.
+    assert ok(api.get("/api/assinatura")).json() == {"disponivel": False, "pode_confirmar": True}
+    ok(api.post("/api/assinatura/confirmar"), 404)
+    ok(api.post("/api/assinatura/recusar"), 404)
 
     # Onboarding e configurações
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)

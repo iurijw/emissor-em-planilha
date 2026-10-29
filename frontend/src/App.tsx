@@ -11,6 +11,7 @@ import { Emissoes } from "./pages/Emissoes";
 import { Emitir } from "./pages/Emitir";
 import { Onboarding } from "./pages/Onboarding";
 import { ErroCaixa } from "./ui";
+import { FaixaAssinatura, useAssinatura } from "./components/Assinatura";
 
 const ROTAS = [
   { id: "emitir", rotulo: "Emitir notas", admin: false },
@@ -106,7 +107,10 @@ function MenuUsuario({ usuario, urlAssinatura }: { usuario: UsuarioSessao; urlAs
 export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessao }) {
   const [rota, setRota] = useState<Rota>(rotaAtual());
   const status = useStatus();
+  const assinatura = useAssinatura();
   const admin = usuario.papel === "admin";
+  // Teste acabou sem aceite: a faixa da assinatura explica e oferece "Continuar e assinar" no lugar do aviso comum.
+  const testeEncerrado = assinatura.data?.disponivel && assinatura.data.situacao === "teste_encerrado";
 
   useEffect(() => {
     const h = () => setRota(rotaAtual());
@@ -123,9 +127,16 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
     );
   const s = status.data;
   if (!s.onboarding_concluido) {
-    if (admin) return <Onboarding status={s} />;
+    if (admin)
+      return (
+        <>
+          <FaixaAssinatura />
+          <Onboarding status={s} />
+        </>
+      );
     return (
       <div className="pagina pagina--estreita">
+        <FaixaAssinatura />
         <div className="info-caixa">
           <span>
             O sistema ainda não foi configurado. Peça a um administrador para concluir a configuração inicial (certificado digital,
@@ -143,11 +154,12 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
   return (
     <>
       <FaixaAmbiente status={s} admin={admin} />
-      {sessao.suspenso && (
+      {sessao.suspenso && !testeEncerrado && (
         <div className="aviso faixa-suspenso" role="alert">
           <AvisoSuspenso sessao={sessao} />
         </div>
       )}
+      <FaixaAssinatura />
       <header className="topo">
         <a className="marca" href="#/emitir">
           <img src="/logo.svg" alt="" />
