@@ -264,7 +264,7 @@ def auditoria(_admin: AdminAtual, pagina: int = 1) -> dict[str, Any]:
 
 
 def _erro_assinatura(e: assinatura.AssinaturaError) -> HTTPException:
-    return HTTPException(e.status, {"mensagem": str(e), "cartao_recusado": e.cartao_recusado})
+    return HTTPException(e.status, {"mensagem": str(e), "cartao_recusado": e.cartao_recusado, "pagar_url": e.pagar_url})
 
 
 @router.get("/assinatura")

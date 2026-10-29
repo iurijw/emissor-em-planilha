@@ -95,6 +95,24 @@ def test_cartao_recusado(admin, painel):
     assert _acoes(admin)[0] == "assinatura_recusada"
 
 
+def test_cartao_recusado_com_link_para_pagar(admin, painel):
+    """Cartão recusado na retomada: a tela recebe a página do Stripe para pagar com outro cartão (só do Stripe)."""
+    painel.respostas["POST /confirmar"] = (
+        402,
+        {
+            "erro": "O cartão foi recusado.",
+            "cartao_recusado": True,
+            "pagar_url": "https://checkout.stripe.com/c/pay/cs_1",
+        },
+    )
+    assert admin.post("/api/assinatura/confirmar").json()["pagar_url"] == "https://checkout.stripe.com/c/pay/cs_1"
+    painel.respostas["POST /confirmar"] = (
+        402,
+        {"erro": "x", "cartao_recusado": True, "pagar_url": "https://golpe.exemplo/stripe.com"},
+    )
+    assert admin.post("/api/assinatura/confirmar").json()["pagar_url"] is None
+
+
 def test_confirmar_com_a_instancia_suspensa(admin, painel, monkeypatch):
     """Depois do fim do teste a instância está suspensa, mas "Continuar e assinar" precisa funcionar."""
     monkeypatch.setenv("EMISSOR_SUSPENSO", "1")

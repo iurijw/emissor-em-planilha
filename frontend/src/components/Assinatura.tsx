@@ -1,5 +1,6 @@
 // Aceite da cobrança no fim do teste grátis (só na hospedagem): faixa nos últimos dias do teste, diálogo de
-// confirmação e "Continuar e assinar" depois que o teste acabou sem aceite (instância suspensa).
+// confirmação (a primeira cobrança fica para o fim do teste) e "Continuar e assinar" com a instância suspensa por
+// qualquer motivo (teste sem aceite, assinatura cancelada, mensalidade não paga; aí a cobrança é na hora).
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
@@ -15,6 +16,9 @@ export interface SituacaoAssinatura {
   dias_ate_parar?: number;
   valor?: string;
   cartao?: string | null;
+  /** Suspensa (fora do teste): "pagamento" = mensalidade em aberto; "encerrada" = assinatura nova. */
+  motivo?: "pagamento" | "encerrada" | null;
+  em_aberto?: string | null;
   pode_confirmar: boolean;
 }
 
@@ -57,7 +61,7 @@ function valorCurto(s: SituacaoAssinatura): string {
 
 function disponivelAte(s: SituacaoAssinatura): string | null {
   if (!s.suspensa_desde) return null;
-  const d = new Date(new Date(s.suspensa_desde).getTime() + (s.dias_ate_parar ?? 15) * 86_400_000);
+  const d = new Date(new Date(s.suspensa_desde).getTime() + (s.dias_ate_parar ?? 20) * 86_400_000);
   return d.toLocaleDateString("pt-BR");
 }
 
@@ -71,7 +75,7 @@ export function FaixaAssinatura() {
   const [dialogo, setDialogo] = useState<"confirmar" | "nao" | null>(null);
   const s = q.data;
   const noTeste = !!s?.disponivel && s.situacao === "teste" && !!s.perguntar && !!s.teste_ate;
-  const encerrado = !!s?.disponivel && s.situacao === "teste_encerrado";
+  const encerrado = !!s?.disponivel && (s.situacao === "teste_encerrado" || s.situacao === "suspensa");
   const horas = s ? horasRestantes(s) : Infinity;
 
   useEffect(() => {
@@ -96,8 +100,14 @@ export function FaixaAssinatura() {
         <p>
           {encerrado ? (
             <>
-              <strong>O teste grátis terminou sem a confirmação da assinatura.</strong> A emissão está bloqueada; as notas
-              emitidas continuam disponíveis para consulta e download
+              <strong>
+                {s.situacao === "teste_encerrado"
+                  ? "O teste grátis terminou sem a confirmação da assinatura."
+                  : s.motivo === "pagamento"
+                    ? "A mensalidade da assinatura não foi paga."
+                    : "A assinatura foi encerrada."}
+              </strong>{" "}
+              A emissão está bloqueada; as notas emitidas continuam disponíveis para consulta e download
               {disponivelAte(s) ? ` até ${disponivelAte(s)}` : ""}.
             </>
           ) : recusou ? (
@@ -107,15 +117,16 @@ export function FaixaAssinatura() {
             </>
           ) : (
             <>
-              <strong>Seu teste grátis termina {quandoTermina(s.teste_ate!)}.</strong> Para continuar emitindo, confirme a
-              assinatura de {s.valor}. Sem a confirmação, nada é cobrado e a emissão fica bloqueada.
+              <strong>Seu teste grátis termina {quandoTermina(s.teste_ate!)}.</strong> Para continuar emitindo depois dele,
+              confirme a assinatura de {s.valor}; a primeira cobrança só acontece no fim do teste. Sem a confirmação,
+              nada é cobrado e a emissão fica bloqueada.
             </>
           )}
         </p>
         {s.pode_confirmar ? (
           <div className="faixa-assinatura__acoes">
             <button className="btn btn--pequeno btn--primario" onClick={() => setDialogo("confirmar")}>
-              {encerrado ? "Continuar e assinar" : recusou ? "Quero continuar" : "Continuar com a assinatura"}
+              {encerrado ? (s.motivo === "pagamento" ? "Pagar e reativar" : "Continuar e assinar") : recusou ? "Quero continuar" : "Continuar com a assinatura"}
             </button>
             {!encerrado && !recusou && (
               <button className="btn btn--pequeno btn--fantasma" onClick={() => setDialogo("nao")}>
@@ -140,22 +151,29 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<unknown>(null);
   const [reativando, setReativando] = useState(false);
-  const encerrado = s.situacao === "teste_encerrado";
-  const valor = valorCurto(s);
+  const [pagandoFora, setPagandoFora] = useState(false);
+  const encerrado = s.situacao === "teste_encerrado" || s.situacao === "suspensa";
+  const emAberto = s.situacao === "suspensa" && s.motivo === "pagamento";
+  const valor = emAberto && s.em_aberto ? s.em_aberto.replace(" ", "\u00a0") : valorCurto(s);
   const cartao = s.cartao ?? "o cartão cadastrado na assinatura";
+  // No teste a primeira cobrança é no fim dele; depois que ele acabou, é na hora.
+  const fim = !encerrado && s.teste_ate ? new Date(s.teste_ate) : null;
+  const dataCobranca = fim ? fim.toLocaleDateString("pt-BR") : null;
+  const diaCobranca = (fim ?? new Date()).getDate();
 
   async function confirmar() {
     setOcupado(true);
     setErro(null);
     try {
-      const r = await api.post<{ ok: boolean; reativar?: boolean }>("/api/assinatura/confirmar");
+      const r = await api.post<{ ok: boolean; reativar?: boolean; cobranca_em?: string | null }>("/api/assinatura/confirmar");
       if (r.reativar) {
         setReativando(true);
         await aguardarReativacao();
         location.reload();
         return;
       }
-      toast("Assinatura confirmada. Obrigado por continuar com o Emissor em Planilha.");
+      const em = r.cobranca_em ? new Date(r.cobranca_em).toLocaleDateString("pt-BR") : dataCobranca;
+      toast(`Assinatura confirmada.${em ? ` A primeira cobrança será em ${em}.` : ""} Obrigado por continuar com o Emissor em Planilha.`);
       await qc.invalidateQueries({ queryKey: ["assinatura"] });
       fechar();
     } catch (e) {
@@ -166,7 +184,25 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
   }
 
   const recusado = erro instanceof ApiError && erro.corpo?.cartao_recusado === true;
+  const pagarUrl = recusado && typeof (erro as ApiError).corpo?.pagar_url === "string" ? ((erro as ApiError).corpo!.pagar_url as string) : null;
   const fecharSeLivre = ocupado || reativando ? undefined : fechar;
+
+  /** Pagamento na página do Stripe (outra aba): o emissor religa sozinho quando o pagamento chega ao painel. */
+  async function pagarFora() {
+    setPagandoFora(true);
+    await aguardarReativacao(30 * 60_000);
+    location.reload();
+  }
+
+  if (pagandoFora)
+    return (
+      <Dialogo titulo="Pagar com outro cartão">
+        <p className="assinatura-reativando">
+          <Spinner /> Conclua o pagamento na página do Stripe, que abriu em outra aba. Assim que ele for aprovado, o emissor
+          religa sozinho e esta página recarrega.
+        </p>
+      </Dialogo>
+    );
 
   if (reativando)
     return (
@@ -179,7 +215,7 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
 
   return (
     <Dialogo
-      titulo={encerrado ? "Continuar e assinar" : "Continuar com a assinatura"}
+      titulo={encerrado ? (emAberto ? "Pagar e reativar" : "Continuar e assinar") : "Continuar com a assinatura"}
       fechar={fecharSeLivre}
       rodape={
         <>
@@ -187,15 +223,18 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
             Agora não
           </button>
           <button className="btn btn--primario" onClick={confirmar} disabled={!acordo || ocupado}>
-            {ocupado && <Spinner />} Confirmar e pagar {valor}
+            {ocupado && <Spinner />} {dataCobranca ? "Confirmar a assinatura" : `Confirmar e pagar ${valor}`}
           </button>
         </>
       }
     >
       <dl className="assinatura-resumo">
         <div>
-          <dt>Cobrança agora</dt>
-          <dd className="num">{valor}</dd>
+          <dt>{dataCobranca ? "Primeira cobrança" : emAberto ? "Mensalidade em aberto" : "Cobrança agora"}</dt>
+          <dd>
+            <span className="num">{valor}</span>
+            {dataCobranca && <> em <span className="num">{dataCobranca}</span>, no fim do teste</>}
+          </dd>
         </div>
         <div>
           <dt>Cartão</dt>
@@ -204,25 +243,35 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
         <div>
           <dt>Próximas cobranças</dt>
           <dd>
-            {valor} todo dia {new Date().getDate()}, automaticamente
+            {valor} todo dia {diaCobranca}, automaticamente
           </dd>
         </div>
       </dl>
       <p className="assinatura-texto">
         {encerrado
           ? "A emissão volta a funcionar assim que o pagamento for aprovado. As notas, os clientes e as configurações continuam como estavam."
-          : "O teste grátis termina agora e o sistema continua funcionando sem interrupção."}{" "}
+          : `Nada é cobrado agora: o teste grátis continua até ${dataCobranca ?? "o fim"} e o sistema segue funcionando sem interrupção.`}{" "}
         Você pode cancelar quando quiser no portal da assinatura, sem multa nem fidelidade.
       </p>
       <label className="assinatura-acordo">
         <input type="checkbox" checked={acordo} onChange={(e) => setAcordo(e.target.checked)} disabled={ocupado} />
-        Estou de acordo com a cobrança de {valor} agora e com a renovação automática todo mês.
+        Estou de acordo com a cobrança de {valor} {dataCobranca ? `em ${dataCobranca}` : "agora"} e com a renovação automática
+        todo mês.
       </label>
       {recusado ? (
         <div className="erro-caixa" role="alert">
           <div>
             <strong>{(erro as ApiError).message}</strong>
-            Troque o cartão em Minha conta, no botão Gerenciar assinatura, e tente de novo.
+            {pagarUrl ? (
+              <>
+                Pague com outro cartão na página do Stripe.{" "}
+                <a className="btn btn--pequeno btn--primario" href={pagarUrl} target="_blank" rel="noreferrer" onClick={pagarFora}>
+                  Pagar com outro cartão
+                </a>
+              </>
+            ) : (
+              "Troque o cartão em Minha conta, no botão Gerenciar assinatura, e tente de novo."
+            )}
           </div>
         </div>
       ) : (
@@ -233,8 +282,8 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
 }
 
 /** A instância reinicia sem a suspensão: espera o /api/saude dizer que voltou. */
-async function aguardarReativacao(): Promise<void> {
-  const limite = Date.now() + 3 * 60_000;
+async function aguardarReativacao(espera = 3 * 60_000): Promise<void> {
+  const limite = Date.now() + espera;
   while (Date.now() < limite) {
     await new Promise((r) => setTimeout(r, 3000));
     try {
@@ -282,7 +331,7 @@ function DialogoNaoContinuar({ s, fechar }: { s: SituacaoAssinatura; fechar: () 
     >
       <p className="assinatura-texto">
         Nada é cobrado. O sistema funciona normalmente até o fim do teste, {quandoTermina(s.teste_ate!)}. Depois, a emissão
-        fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 15} dias.
+        fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 20} dias.
       </p>
       <p className="assinatura-texto">
         Se mudar de ideia, é só clicar em <strong>Continuar e assinar</strong> no aviso do topo, a qualquer momento: a
