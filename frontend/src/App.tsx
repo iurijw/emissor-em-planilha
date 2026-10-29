@@ -109,8 +109,10 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
   const status = useStatus();
   const assinatura = useAssinatura();
   const admin = usuario.papel === "admin";
-  // Teste acabou sem aceite: a faixa da assinatura explica e oferece "Continuar e assinar" no lugar do aviso comum.
-  const testeEncerrado = assinatura.data?.disponivel && assinatura.data.situacao === "teste_encerrado";
+  // Suspensa (teste sem aceite, cancelada, mensalidade não paga): a faixa da assinatura explica e oferece
+  // "Continuar e assinar" no lugar do aviso comum.
+  const testeEncerrado =
+    assinatura.data?.disponivel && (assinatura.data.situacao === "teste_encerrado" || assinatura.data.situacao === "suspensa");
 
   useEffect(() => {
     const h = () => setRota(rotaAtual());

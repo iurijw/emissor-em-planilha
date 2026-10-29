@@ -4,7 +4,9 @@ O painel da hospedagem marca a assinatura nova para acabar no fim do teste; o em
 quer continuar. Aceitar mantém a assinatura: a primeira cobrança acontece no fim do teste e as próximas são
 automáticas; sem aceite, no fim do teste
 a assinatura acaba e a instância fica suspensa (só consulta e download). "Continuar e assinar" funciona a qualquer
-momento: o painel cria outra assinatura com o mesmo cartão e reativa a instância (ela reinicia).
+momento e com a instância suspensa por qualquer motivo: o painel paga a mensalidade em aberto ou cria outra assinatura
+com o mesmo cartão e reativa a instância (ela reinicia); com o cartão recusado, devolve ``pagar_url`` (página do
+Stripe para pagar com outro cartão).
 
 Variáveis definidas pelo painel: ``EMISSOR_ASSINATURA_API`` (endereço desta instância no painel) e o mesmo
 ``EMISSOR_EMAIL_TOKEN`` do envio de e-mails. Sem elas (instalação própria), nada disso aparece.
@@ -33,10 +35,12 @@ _trava = threading.Lock()
 
 
 class AssinaturaError(Exception):
-    def __init__(self, mensagem: str, status: int = 502, cartao_recusado: bool = False):
+    def __init__(self, mensagem: str, status: int = 502, cartao_recusado: bool = False, pagar_url: str | None = None):
         super().__init__(mensagem)
         self.status = status
         self.cartao_recusado = cartao_recusado
+        # Cartão recusado: página do Stripe para pagar com outro cartão (fatura em aberto ou assinatura nova).
+        self.pagar_url = pagar_url
 
 
 def _env(nome: str) -> str:
@@ -69,8 +73,17 @@ def _pedir(metodo: str, caminho: str = "") -> dict[str, Any]:
             mensagem or f"O painel da assinatura respondeu com erro (HTTP {r.status_code}).",
             status=400 if r.status_code in (402, 409) else 502,
             cartao_recusado=bool(isinstance(dados, dict) and dados.get("cartao_recusado")),
+            pagar_url=_link_stripe(dados.get("pagar_url") if isinstance(dados, dict) else None),
         )
     return dados if isinstance(dados, dict) else {}
+
+
+def _link_stripe(url: Any) -> str | None:
+    """Só links HTTPS do Stripe vão para a tela (o painel é confiável, mas o link abre fora do sistema)."""
+    if not isinstance(url, str) or not url.startswith("https://"):
+        return None
+    host = url[8:].split("/", 1)[0]
+    return url if host.endswith(".stripe.com") or host == "stripe.com" else None
 
 
 def limpar_cache() -> None:

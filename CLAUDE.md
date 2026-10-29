@@ -610,7 +610,9 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   mantém a assinatura (a primeira cobrança fica para o fim do teste, `cobranca_em`; até a 0.8.0 cobrava na hora);
   `POST /api/assinatura/recusar` só registra. Sem aceite, o painel suspende a instância e a faixa troca
   o aviso de suspensão por "Continuar e assinar", que funciona com a instância suspensa (`PERMITIDAS_SUSPENSO`) e
-  espera o `/api/saude` voltar sem suspensão para recarregar. Tudo na auditoria (`assinatura_*`).
+  espera o `/api/saude` voltar sem suspensão para recarregar. Desde a 0.9.0 vale para **qualquer** suspensão
+  (`situacao` `suspensa`, com `motivo` `pagamento`/`encerrada`): "Pagar e reativar" / "Continuar e assinar"; com o
+  cartão recusado o painel devolve `pagar_url` (fatura ou Checkout do Stripe) e a tela espera o pagamento na outra aba. Tudo na auditoria (`assinatura_*`).
 - Hospedagem: com `EMISSOR_URL_ASSINATURA`, o administrador vê o link "Assinatura" no topo e a seção "Assinatura" em
   Minha conta (portal do Stripe: cartão, faturas, cancelamento); sem a variável (instalação própria) nada aparece.
 
@@ -725,4 +727,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-28 | Cobrança no fim do teste só com o aceite do administrador no app; sem aceite, suspensão como num cancelamento e "Continuar e assinar" a qualquer momento | Pedido do Iuri: ninguém deve ser cobrado sem saber; o painel marca a assinatura no Stripe para acabar no fim do teste |
 | 2026-10-28 | DANFSe gerado só no download (individual e ZIP em partes); PDFs já gravados mantidos; imagens do PDF sem ASCII85; "Selecionar todas as N do filtro" na aba Emissões baixa o ZIP por `GET` com os filtros (download do navegador, direto para o disco) | Pedido do Iuri: o PDF (~148 KB) era ~3/4 do espaço por nota no volume de 1 GB da hospedagem; o XML basta para refazê-lo |
 | 2026-10-29 | Confirmar durante o teste não cobra na hora: a primeira cobrança fica para o fim do teste; suspensa, a instância fica 20 dias só para consulta (eram 15) | Pedido do Iuri: cobrar dias antes do fim do teste não está certo; mais prazo para quem não pagou |
+| 2026-10-29 | "Continuar e assinar" para toda instância suspensa (mensalidade em aberto paga com o cartão salvo, assinatura nova com o mesmo cartão; recusado = link do Stripe `pagar_url`, só https de stripe.com); desligada, o painel mostra no endereço uma página para religar por 90 dias | Pedido do Iuri: o cliente precisa conseguir voltar em qualquer caso |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
