@@ -232,6 +232,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
 | `GET /api/assinatura`, `POST /api/assinatura/confirmar\|recusar` (hospedagem: aceite no fim do teste) | assinatura |
+| `GET /api/atualizacoes`, `PUT /api/atualizacoes/automatica`, `POST /api/atualizacoes/aplicar` (admin, só `iniciar.bat`) | versão e atualizações |
 | `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
 | `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}`, `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
@@ -459,6 +460,32 @@ digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 d�
   (substitui o "o tomador retém" de 2026-10-12); IBS/CBS com CST e cClassTrib em listas (sugestões do Anexo VIII
   primeiro); valor aproximado dos tributos; "Prévia dos valores da NFS-e" numa nota de exemplo. Nada mudou nos dados
   (`DadosTributacao`), só a tela. A tabela e o resto da nota avulsa ficaram como estavam (escolha do Iuri).
+
+### Versão e atualizações (2026-10-31)
+
+Ícone de seta no topo (`components/Atualizacoes.tsx`, ao lado do lugar reservado para a ajuda) que abre a linha do
+tempo das versões: as novas em cima, "Sua versão" marcada, as antigas apagadas. Fica azul com um ponto quando há versão
+nova. Mockups escolhidos pelo Iuri: ícone A + linha do tempo A.
+- **Texto das versões:** `backend/src/emissor/data/novidades.md`, uma seção `## X.Y.Z (DD/MM/AAAA)` por versão, escrita
+  para quem usa (sem PR nem nome de código). **Versão nova → seção nova** (`test_novidades_tem_a_versao_atual` e o
+  workflow "Publicar versão" recusam sem ela). O workflow põe a seção como `## Novidades` no início da release; as
+  instalações antigas leem dali as versões que ainda não têm (`atualizacoes._itens_da_release`).
+- **Tipo de instalação** (`atualizacoes.instalacao()`): `hospedagem` (`FLY_APP_NAME`: nunca consulta o GitHub nem
+  acende, o painel atualiza), `iniciar` (`EMISSOR_INSTALACAO=iniciar`, definido pelo `iniciar.bat`), `docker`
+  (`EMISSOR_INSTALACAO=docker` no `Dockerfile`; a tela mostra `git pull` + `docker compose up -d`) e `manual`.
+- Versões novas: `GET api.github.com/repos/<repo>/releases` (sem token: 60/h por IP), cache de 6 h (15 min se falhar);
+  sem acesso, só o histórico local e um aviso.
+- **Atualizar pela tela (só `iniciar`, só admin, sem lote em andamento):** `POST /api/atualizacoes/aplicar` grava
+  `data/atualizar-agora` e o servidor sai com o código 75; o `iniciar.bat` recomeça e roda `emissor-atualizar` antes de
+  abrir. Ele baixa `github.com/<repo>/archive/refs/tags/vX.Y.Z.zip` (confere a versão no `pyproject.toml` e caminhos),
+  copia o banco (sqlite backup, últimas 3) e o código (últimas 2) para `data/backups`, grava só os arquivos que mudaram,
+  apaga os que saíram só nas pastas do sistema (`ESPELHADAS`), nunca mexe em `data`, `temp`, `.venv`, `node_modules` e
+  `dist`, e volta o código anterior se a gravação falhar. Cópia com `.git` → `git pull --ff-only`. Resultado em
+  `data/atualizacao-resultado.json` (a falha aparece na janela). Sai com 3 quando atualizou: o `iniciar.bat` recomeça
+  pelo arquivo novo. **O teste do código de saída e o recomeço ficam na mesma linha do comando** no `iniciar.bat`
+  (o cmd lê o .bat aos pedaços; o arquivo pode ter mudado). Conferido com o ZIP real da tag v0.9.0 (CRLF preservado).
+- **Atualização automática ao iniciar:** caixa na mesma janela (`PUT /api/atualizacoes/automatica`,
+  `data/atualizacao.json`); o `emissor-atualizar` confere a última release a cada abertura.
 
 ### Padrões que o onboarding extrai dos XMLs
 
@@ -729,4 +756,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-29 | Confirmar durante o teste não cobra na hora: a primeira cobrança fica para o fim do teste; suspensa, a instância fica 20 dias só para consulta (eram 15) | Pedido do Iuri: cobrar dias antes do fim do teste não está certo; mais prazo para quem não pagou |
 | 2026-10-29 | Suspensa, a instância fica 35 dias só para consulta antes de desligar (eram 20); no último dia do teste sem confirmação o painel manda um e-mail pedindo para confirmar | Pedido do Iuri: o emissor costuma ser aberto uma vez por mês; quem não abre o app no fim do teste não veria o aviso |
 | 2026-10-29 | "Continuar e assinar" para toda instância suspensa (mensalidade em aberto paga com o cartão salvo, assinatura nova com o mesmo cartão; recusado = link do Stripe `pagar_url`, só https de stripe.com); desligada, o painel mostra no endereço uma página para religar por 90 dias | Pedido do Iuri: o cliente precisa conseguir voltar em qualquer caso |
+| 2026-10-31 | Ícone de atualizações com a linha do tempo das versões; na instalação pelo `iniciar.bat`, "Atualizar agora" e atualização automática ao iniciar (código da tag, backup do banco e do código, `data` intocada); Docker só mostra o comando; hospedagem sem aviso | Pedido do Iuri; o contêiner precisaria do Docker do computador para se atualizar, risco desnecessário |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

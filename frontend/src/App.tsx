@@ -12,6 +12,7 @@ import { Emitir } from "./pages/Emitir";
 import { Onboarding } from "./pages/Onboarding";
 import { ErroCaixa } from "./ui";
 import { FaixaAssinatura, useAssinatura } from "./components/Assinatura";
+import { Atualizacoes } from "./components/Atualizacoes";
 
 const ROTAS = [
   { id: "emitir", rotulo: "Emitir notas", admin: false },
@@ -186,6 +187,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </span>
           )}
         </div>
+        <Atualizacoes />
         <MenuUsuario usuario={usuario} urlAssinatura={sessao.url_assinatura} />
       </header>
       {(s.avisos.length > 0 || s.problemas.length > 0) && rotaVisivel !== "configuracoes" && (

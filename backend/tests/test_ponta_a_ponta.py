@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from lxml import etree
 from openpyxl import load_workbook
 
-from emissor import auth
+from emissor import auth, config
 from emissor.api.app import create_app
 from emissor.db import agora
 from emissor.nfse.certificate import Certificado
@@ -608,6 +608,10 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     assert ok(api.get("/api/assinatura")).json() == {"disponivel": False, "pode_confirmar": True}
     ok(api.post("/api/assinatura/confirmar"), 404)
     ok(api.post("/api/assinatura/recusar"), 404)
+    # Versão e atualizações: fora do iniciar.bat não há atualização pela tela.
+    assert ok(api.get("/api/atualizacoes")).json()["versao_atual"] == config.APP_VERSION
+    ok(api.put("/api/atualizacoes/automatica", json={"automatica": True}), 404)
+    ok(api.post("/api/atualizacoes/aplicar"), 404)
 
     # Onboarding e configurações
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)

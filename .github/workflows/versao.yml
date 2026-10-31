@@ -40,12 +40,26 @@ jobs:
             echo "::error::backend/pyproject.toml está na versão $PACOTE; atualize para $VERSAO na main antes de publicar"
             exit 1
           fi
+      # O texto para o usuário vem de backend/src/emissor/data/novidades.md; o app mostra os itens da seção
+      # "## Novidades" da release às instalações que ainda não têm a versão.
+      - name: Separar as novidades
+        env:
+          VERSAO: ${{ inputs.versao }}
+        run: |
+          ITENS=$(awk -v v="$VERSAO" '/^## /{dentro = ($2 == v); next} dentro && NF' backend/src/emissor/data/novidades.md)
+          if [[ -z "$ITENS" ]]; then
+            echo "::error::Sem a seção \"## $VERSAO (DD/MM/AAAA)\" em backend/src/emissor/data/novidades.md"
+            exit 1
+          fi
+          printf '## Novidades\n\n%s\n\n' "$ITENS" > "$RUNNER_TEMP/novidades.md"
+          cat "$RUNNER_TEMP/novidades.md"
       - name: Criar a release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSAO: ${{ inputs.versao }}
         run: |
-          gh release create "v$VERSAO" --repo "$GITHUB_REPOSITORY" --target main --title "$VERSAO" --generate-notes
+          gh release create "v$VERSAO" --repo "$GITHUB_REPOSITORY" --target main --title "$VERSAO" \
+            --notes-file "$RUNNER_TEMP/novidades.md" --generate-notes
       # Tags criadas com o token do workflow não disparam outros workflows; a imagem é pedida explicitamente.
       - name: Gerar a imagem Docker
         env:

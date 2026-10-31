@@ -1,6 +1,6 @@
 [project]
 name = "emissor"
-version = "0.9.0"
+version = "0.10.0"
 description = "Emissor em Planilha: emissão de NFS-e Nacional (Sefin) em lote a partir de uma planilha"
 authors = [
     { name = "Iuri JW", email = "iuriwissmann@gmail.com" }
@@ -25,6 +25,7 @@ dependencies = [
 [project.scripts]
 emissor = "emissor:main"
 emissor-admin = "emissor.admin_cli:main"
+emissor-atualizar = "emissor.atualizacoes:main"
 
 [build-system]
 requires = ["uv_build>=0.8.13,<0.9.0"]
