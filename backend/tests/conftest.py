@@ -30,7 +30,7 @@ def data_dir_isolado(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PDF_DIR", tmp_path / "data" / "pdf")
     monkeypatch.setattr(config, "SECRET_KEY_FILE", tmp_path / "data" / "secret.key")
     monkeypatch.setattr(config, "DB_FILE", tmp_path / "data" / "emissor.db")
-    from emissor import assinatura, auth, db
+    from emissor import assinatura, atualizacoes, auth, db
     from emissor.services import certificado as cert_service
     from emissor.services import emissao as emissao_service
     from emissor.services import eventos as eventos_service
@@ -39,12 +39,16 @@ def data_dir_isolado(tmp_path, monkeypatch):
     # Sem consulta à prefeitura (ADN) fora dos testes ponta a ponta, que ligam com o ADN simulado.
     monkeypatch.setattr(parametros, "ATIVA", False)
     parametros.limpar_cache()
+    # Sem consulta às versões no GitHub.
+    monkeypatch.setattr(atualizacoes, "ATIVA", False)
+    atualizacoes.limpar_cache()
     for var in (
         "EMISSOR_CONVITE_INICIAL",
         "EMISSOR_SUSPENSO",
         "EMISSOR_URL_ASSINATURA",
         "EMISSOR_SECRET_KEY",
         "EMISSOR_ASSINATURA_API",
+        "EMISSOR_INSTALACAO",
     ):
         monkeypatch.delenv(var, raising=False)
     assinatura.limpar_cache()

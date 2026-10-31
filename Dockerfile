@@ -22,6 +22,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TZ=America/Sao_Paulo \
     EMISSOR_DATA_DIR=/data \
+    EMISSOR_INSTALACAO=docker \
     PATH="/app/backend/.venv/bin:$PATH"
 
 # O uv só é usado no build (montado, não fica na imagem).

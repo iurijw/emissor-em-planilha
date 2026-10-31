@@ -89,8 +89,12 @@ Depois:
 4. Abra `http://localhost:8000` neste computador, ou `http://<nome-do-computador>:8000` nos outros. A janela mostra
    os dois endereços.
 
-Para **atualizar**, baixe a versão nova (ou `git pull`) e rode o `iniciar.bat` de novo: ele percebe que o código
-mudou e refaz o que for preciso. Para iniciar junto com o Windows, coloque um atalho do `iniciar.bat` na pasta que
+Para **atualizar**, clique no ícone de seta no topo (ele fica azul quando sai versão nova) e em **Atualizar para
+X.Y.Z** (só o administrador): o sistema fecha, baixa a versão nova do GitHub e abre de novo em 1 a 2 minutos. Na
+mesma janela dá para marcar **Atualizar automaticamente ao iniciar**. A pasta `data` não é alterada e, antes de cada
+atualização, uma cópia do banco e do código anterior vai para `data\backups`. Numa cópia feita com `git clone`, a
+atualização é um `git pull`. Também dá para atualizar à mão: baixe a versão nova (ou `git pull`) e rode o
+`iniciar.bat` de novo; ele percebe que o código mudou e refaz o que for preciso. Para iniciar junto com o Windows, coloque um atalho do `iniciar.bat` na pasta que
 abre com <kbd>Win</kbd>+<kbd>R</kbd> → `shell:startup`.
 
 ### Opção 2 — Docker (Windows, Linux ou macOS)
@@ -102,7 +106,8 @@ docker compose up -d
 ```
 
 - Os dados ficam na pasta `./data` (é ela que vai no backup).
-- Para atualizar: `git pull` e `docker compose up -d` de novo (a imagem é refeita sozinha).
+- Para atualizar: `git pull` e `docker compose up -d` de novo (a imagem é refeita sozinha). O ícone de seta no topo
+  do sistema avisa quando sai versão nova e mostra esses comandos.
 - Log: `docker compose logs -f` · Parar: `docker compose down`.
 - O DANFSe usa Liberation Sans, de mesmas medidas da Arial exigida pela NT 008. No Windows dá para usar as fontes
   originais: veja as linhas comentadas em [`docker-compose.yaml`](../docker-compose.yaml).

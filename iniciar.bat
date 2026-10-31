@@ -11,6 +11,8 @@ rem   set EMISSOR_PORT=8000
 rem   set EMISSOR_IPS_PERMITIDOS=192.168.0.0/24
 
 if not defined EMISSOR_PORT set EMISSOR_PORT=8000
+rem Liga o botao "Atualizar agora" e a atualizacao automatica na tela do sistema.
+set EMISSOR_INSTALACAO=iniciar
 
 rem pushd funciona tambem em unidade de rede (caminho UNC)
 pushd "%~dp0" || (
@@ -20,6 +22,13 @@ pushd "%~dp0" || (
 )
 
 where uv >nul 2>nul || goto :sem_uv
+
+rem Atualiza o sistema se o administrador pediu pela tela ou se a atualizacao automatica esta ligada
+rem (a pasta data nao e alterada; antes, uma copia do banco vai para data\backups). Quando atualiza, este
+rem arquivo pode ter mudado: por isso o teste e o recomeco ficam na mesma linha do comando.
+pushd backend
+uv run --locked --no-dev emissor-atualizar & if errorlevel 3 if not errorlevel 4 ("%~f0" & exit /b)
+popd
 
 rem A pagina precisa ser gerada se frontend\dist nao existe ou se algum arquivo do frontend
 rem e mais novo que ela (codigo atualizado).
@@ -42,7 +51,8 @@ echo  Nos outros computadores: http://%COMPUTERNAME%:%EMISSOR_PORT%
 echo  Para encerrar, feche esta janela ou aperte Ctrl+C.
 echo.
 
-uv run --locked --no-dev emissor
+rem Saida 75 = o administrador pediu "Atualizar agora": recomeca para atualizar e abrir a versao nova.
+uv run --locked --no-dev emissor & if errorlevel 75 if not errorlevel 76 ("%~f0" & exit /b)
 
 echo.
 echo Emissor em Planilha foi encerrado.

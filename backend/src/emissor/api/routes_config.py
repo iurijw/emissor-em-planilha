@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import re
+import threading
 import zipfile
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -16,8 +17,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlmodel import func, select
 
-from emissor import auth, config
-from emissor.api.deps import AdminAtual
+from emissor import atualizacoes, auth, config
+from emissor.api.deps import AdminAtual, UsuarioAtual
 from emissor.api.serial import CAMPOS_FISCAIS, cliente_dict, fiscal_dict
 from emissor.db import Cliente, Emissao, LinhaTabela, Lote, agora, obter_config, sessao
 from emissor.logging_setup import get_context
@@ -457,3 +458,46 @@ def diagnostico(_admin: AdminAtual, dias: int = 7) -> Response:
     return Response(
         buf.getvalue(), media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{nome}"'}
     )
+
+
+# --- versão e atualizações -----------------------------------------------------------------------
+
+
+@router.get("/atualizacoes")
+def ver_atualizacoes(acesso: UsuarioAtual, atualizar: bool = False) -> dict[str, Any]:
+    return atualizacoes.situacao(acesso.admin, forcar=atualizar)
+
+
+class AtualizacaoAutomaticaIn(BaseModel):
+    automatica: bool
+
+
+def _exigir_iniciar() -> None:
+    if atualizacoes.instalacao() != "iniciar":
+        raise HTTPException(404, "A atualização pela tela só existe na instalação aberta pelo iniciar.bat (Windows).")
+
+
+@router.put("/atualizacoes/automatica")
+def definir_atualizacao_automatica(corpo: AtualizacaoAutomaticaIn, admin: AdminAtual) -> dict[str, Any]:
+    _exigir_iniciar()
+    atualizacoes.definir_automatica(corpo.automatica)
+    auth.auditar("atualizacao_automatica", "ligada" if corpo.automatica else "desligada", admin)
+    return {"automatica": corpo.automatica}
+
+
+@router.post("/atualizacoes/aplicar")
+def aplicar_atualizacao(admin: AdminAtual) -> dict[str, Any]:
+    """Pede a atualização e fecha o servidor; o iniciar.bat atualiza o código e abre o sistema de novo."""
+    _exigir_iniciar()
+    sit = atualizacoes.situacao(True, forcar=True)
+    if not sit["novas"]:
+        raise HTTPException(409, sit["erro"] or f"O sistema já está na versão mais recente ({sit['versao_atual']}).")
+    with sessao() as s:
+        if s.exec(select(Lote).where(Lote.status == "em_andamento")).first():
+            raise HTTPException(409, "Há notas sendo emitidas. Espere o lote terminar para atualizar.")
+    atualizacoes.pedir_atualizacao(sit["ultima"])
+    auth.auditar("atualizacao_pedida", f"{sit['versao_atual']} → {sit['ultima']}", admin)
+    log.info("atualização pedida: o servidor vai fechar", extra={"de": sit["versao_atual"], "para": sit["ultima"]})
+    # Responde antes de fechar.
+    threading.Timer(1.5, atualizacoes.encerrar_para_atualizar).start()
+    return {"de": sit["versao_atual"], "para": sit["ultima"]}

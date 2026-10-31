@@ -31,6 +31,8 @@ const ACAO: Record<string, string> = {
   assinatura_recusada: "Confirmação da assinatura recusada pelo cartão",
   assinatura_falhou: "Confirmação da assinatura não concluída",
   assinatura_nao_continuar: "Disse que não vai continuar com a assinatura",
+  atualizacao_pedida: "Pediu a atualização do sistema",
+  atualizacao_automatica: "Alterou a atualização automática",
 };
 
 function dataHora(s: string | null) {
