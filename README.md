@@ -5,7 +5,8 @@
 <h1 align="center">Emissor em Planilha</h1>
 
 <p align="center">
-  Emita dezenas de <strong>NFS-e do Padrão Nacional</strong> de uma vez, a partir de uma tabela que funciona como o Excel.
+  Emissor de <strong>NFS-e Nacional</strong> gratuito e de código aberto: emita dezenas de notas de serviço de uma vez,
+  a partir de uma planilha que funciona como o Excel.
 </p>
 
 <p align="center">
@@ -25,6 +26,14 @@
 >
 > **[Assinar em emissoremplanilha.com →](https://emissoremplanilha.com)**
 
+## Para quem é
+
+Para quem emite muitas notas de serviço todo mês (escritórios de contabilidade, consultorias, escolas, prestadores com
+carteira fixa de clientes) e cansou de preencher uma por uma no Emissor Nacional do gov.br. É uma **alternativa
+gratuita** para a emissão em lote: o programa é **open source** (código aberto), grátis para instalar e usar no seu
+computador ou servidor, e emite pela API oficial da Sefin Nacional com o seu certificado digital A1. Se preferir não
+instalar nada, existe a versão hospedada, paga (veja acima).
+
 ## O que ele faz
 
 - **Tabela tipo Excel** com cliente, CNPJ/CPF, valor e descrição. Cole do Excel, edite várias células de uma vez e
@@ -35,7 +44,7 @@
 
 ## Rodar por conta própria
 
-O programa é livre e gratuito. No computador que vai servir o sistema:
+O programa é livre, gratuito e de código aberto: não tem mensalidade nem limite de notas. No computador que vai servir o sistema:
 
 - **Windows:** instale o [uv](https://docs.astral.sh/uv/getting-started/installation/) e o
   [Node.js](https://nodejs.org/) LTS, baixe o projeto e dê dois cliques em **`iniciar.bat`**.
