@@ -187,6 +187,7 @@ Atalhos da tabela:
 | Repetir um valor para baixo | Arraste o canto da seleção (alça de preenchimento) |
 | Limpar células | <kbd>Delete</kbd> |
 | Ordenar | Clique no título da coluna (de novo para inverter) |
+| Desfazer ou refazer uma alteração | <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz e <kbd>Ctrl</kbd>+<kbd>Y</kbd> refaz (ou as setas no começo da barra); vale para edição, colagem, exclusão de linhas, ordenação e importação |
 | Substituir a tabela inteira | **Importar planilha** (`.xlsx` ou `.csv`), substituindo ou acrescentando linhas na aba aberta |
 
 Em **Usuários** (só administradores), convide as outras pessoas: o sistema gera um link de uso único para cada uma

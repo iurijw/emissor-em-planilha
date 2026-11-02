@@ -286,3 +286,42 @@ def test_diagnostico_sem_segredos(api, pfx_bytes, nfse_exemplo_bytes):
 def test_rota_api_inexistente_retorna_json(api):
     r = api.get("/api/nao-existe")
     assert r.status_code == 404
+
+
+def test_desfazer_exclusao_de_linha_religa_a_emissao(api):
+    """Linha excluída que volta pelo "Desfazer" mantém o id e a última emissão (se a emissão for dela)."""
+    from emissor.db import Emissao, LinhaTabela, sessao
+
+    linha = {"nome": "Cliente", "documento": "11222333000181", "valor": "10,00", "descricao": "Serviço"}
+    lid = api.put("/api/tabela", json={"linhas": [linha]}).json()["linhas"][0]["id"]
+    with sessao() as s:
+        em = Emissao(
+            linha_id=lid,
+            ambiente="2",
+            status="autorizada",
+            tomador_documento="11222333000181",
+            tomador_nome="Cliente",
+            valor="10.00",
+            descricao="Serviço",
+            numero_nfse="7",
+        )
+        alheia = Emissao(
+            linha_id=lid + 999, ambiente="2", tomador_documento="1", tomador_nome="x", valor="1", descricao="x"
+        )
+        s.add(em)
+        s.add(alheia)
+        s.commit()
+        ln = s.get(LinhaTabela, lid)
+        ln.ultima_emissao_id = em.id
+        s.add(ln)
+        s.commit()
+        em_id, alheia_id = em.id, alheia.id
+
+    assert api.put("/api/tabela", json={"linhas": []}).json()["linhas"] == []
+    r = api.put("/api/tabela", json={"linhas": [{**linha, "id": lid, "ultima_emissao_id": em_id}]}).json()["linhas"]
+    assert r[0]["id"] == lid and r[0]["ultima_emissao"]["numero_nfse"] == "7"
+
+    # Emissão de outra linha não é religada.
+    api.put("/api/tabela", json={"linhas": []})
+    r = api.put("/api/tabela", json={"linhas": [{**linha, "id": lid, "ultima_emissao_id": alheia_id}]}).json()["linhas"]
+    assert r[0]["id"] == lid and r[0]["ultima_emissao"] is None

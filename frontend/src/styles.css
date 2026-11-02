@@ -275,6 +275,10 @@ a { color: var(--azul-texto); }
 .barra__sep { width: 1px; height: 22px; background: var(--linha); margin: 0 4px; }
 .barra__resumo { margin-left: auto; display: flex; align-items: center; gap: 14px; color: var(--grafite); font-size: 13px; }
 .barra__resumo b { color: var(--tinta); }
+.barra__historico { display: inline-flex; gap: 2px; }
+.btn--icone { width: 30px; padding: 0; justify-content: center; }
+.btn--icone svg { display: block; }
+.barra__passo { color: var(--tinta); font-weight: 500; animation: aparece 0.15s ease-out; }
 .grade-caixa { flex: 1; min-height: 280px; border: 1px solid var(--linha-forte); border-radius: 8px; overflow: hidden; background: var(--folha); }
 .dica-grade { font-size: 12px; color: var(--grafite); margin-top: 8px; }
 .dica-grade kbd { font-family: var(--f-num); font-size: 11px; border: 1px solid var(--linha-forte); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; background: var(--folha); }
