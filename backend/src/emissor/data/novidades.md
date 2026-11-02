@@ -7,6 +7,13 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.11.0 (02/11/2026)
+
+- Desfazer e refazer na tabela, como no Excel: Ctrl+Z volta a última alteração e Ctrl+Y a refaz. Também há dois
+  botões no começo da barra da tabela, que mostram o que vão desfazer.
+- Vale para digitar, colar, preencher pela alça, limpar células, incluir e excluir linhas, ordenar e importar
+  planilha. Uma linha excluída volta com a última emissão dela.
+
 ## 0.10.0 (31/10/2026)
 
 - Novo ícone de atualizações no topo: mostra a sua versão e o que mudou em cada uma.

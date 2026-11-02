@@ -258,6 +258,11 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
     local via HTTP**. Colagem própria: `keybindings={{paste:false}}` + listener de `paste` lendo `e.clipboardData`
     (`parseTSV` trata aspas/quebras do Excel). Colar além da última linha cria linhas.
   - Canvas: fontes precisam carregar antes do desenho (`document.fonts.ready` → remonta a grade).
+- **Desfazer/refazer** (2026-11-02): Ctrl+Z / Ctrl+Y (ou Ctrl+Shift+Z) com o foco na grade, e botões na barra.
+  Cada `alterar(fn, rotulo)` guarda a tabela inteira de antes (até 100 passos, por aba; trocar de aba limpa); desfazer
+  envia esse estado no `PUT /api/tabela` como qualquer edição. Nome vindo da Receita (`rotulo` null) não entra no
+  histórico. Linha excluída que volta: o servidor recria com o **mesmo id** se ninguém o usa e religa
+  `ultima_emissao_id` só se a emissão tem `linha_id` igual. Importar planilha também pode ser desfeito.
 - Tabela salva sozinha (debounce 500 ms, fila sequencial de PUTs); CNPJs novos são consultados automaticamente
   (uma vez por sessão) e preenchem o nome só se estiver vazio — **o nome da tabela prevalece** sobre o da Receita.
 - `index.html` servido com `Cache-Control: no-cache` (atualizações chegam aos navegadores; `/assets` tem hash).
