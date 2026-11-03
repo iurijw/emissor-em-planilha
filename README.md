@@ -10,6 +10,13 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/iurijw/emissor-em-planilha/releases/latest"><img src="https://img.shields.io/github/v/release/iurijw/emissor-em-planilha?label=vers%C3%A3o&color=0098D7" alt="Versão mais recente"></a>
+  <a href="https://github.com/iurijw/emissor-em-planilha/actions/workflows/testes.yml"><img src="https://img.shields.io/github/actions/workflow/status/iurijw/emissor-em-planilha/testes.yml?branch=main&label=testes" alt="Testes"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-AGPL--3.0-020202" alt="Licença AGPL-3.0"></a>
+  <a href="https://emissoremplanilha.com"><img src="https://img.shields.io/badge/hospedado-emissoremplanilha.com-0098D7" alt="Versão hospedada"></a>
+</p>
+
+<p align="center">
   <img src="docs/img/demo-emissao.gif" alt="Demonstração: edição em massa na tabela, colagem do Excel, emissão de 10 notas com uma rejeição explicada, download dos PDFs e o DANFSe gerado" width="900">
 </p>
 
@@ -60,9 +67,16 @@ Instalação detalhada, uso, configuração, segurança e desenvolvimento: **[gu
 Encontrou um erro ou tem uma ideia? [Abra um relato](https://github.com/iurijw/emissor-em-planilha/issues/new/choose).
 O relato é público: não inclua dados reais de clientes, senhas nem o certificado.
 
+Quer contribuir? Veja [como contribuir](CONTRIBUTING.md). Falhas de segurança vão por e-mail, conforme
+[SECURITY.md](SECURITY.md).
+
 ## Aviso
 
 Projeto independente, **sem vínculo** com a Receita Federal, o Comitê Gestor da NFS-e ou a Sefin Nacional. Notas
 emitidas em Produção têm validade jurídica: teste em homologação e confira os padrões fiscais com o seu contador.
 
-<!-- LICENÇA: escolher (ex.: MIT) e adicionar o arquivo LICENSE na raiz. -->
+## Licença
+
+Software livre sob a [GNU AGPL-3.0](LICENSE): você pode usar, estudar, modificar e redistribuir à vontade, sem
+garantia. Quem oferecer uma versão modificada para outras pessoas usarem pela rede precisa disponibilizar o código
+dessa versão sob a mesma licença.
