@@ -5,6 +5,7 @@ description = "Emissor em Planilha: emissão de NFS-e Nacional (Sefin) em lote a
 authors = [
     { name = "Iuri JW", email = "iuriwissmann@gmail.com" }
 ]
+license = "AGPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [
     "argon2-cffi>=23.1.0",
