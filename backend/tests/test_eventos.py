@@ -230,6 +230,18 @@ class SefinAdnFalsa:
         m = re.search(r"/contribuintes/DFe/(\d+)$", path)
         if m:
             assert req.url.params.get("lote") == "true"
+            if req.url.params.get("cnpjConsulta") != CNPJ_PRESTADOR:
+                # Como o ADN real desde 03/11/2026: sem cnpjConsulta, recusa sem dizer o motivo.
+                return httpx.Response(
+                    400,
+                    json={
+                        "TipoConsulta": "InscricaoCertificado",
+                        "StatusProcessamento": "REJEICAO",
+                        "LoteDFe": [],
+                        "Alertas": [],
+                        "Erros": [],
+                    },
+                )
             nsu = int(m.group(1))
             return self._adn([d for d in self.adn if d["NSU"] > nsu][: self.lote_adn])
         m = re.search(r"/contribuintes/NFSe/(\d{50})/Eventos$", path)
@@ -295,10 +307,13 @@ def test_ja_cancelada_e0840_recupera_evento_existente(client, falsa, certificado
 
 
 def test_distribuicao_adn(client, falsa, certificado):
-    assert client.distribuicao_dfe(0).documentos == []  # 404 com corpo = nada a distribuir
+    with pytest.raises(SefinError, match="recusou") as exc:  # sem cnpjConsulta, como o ADN desde 03/11/2026
+        client.distribuicao_dfe(0)
+    assert "sem dizer o motivo" in exc.value.mensagens[0].descricao
+    assert client.distribuicao_dfe(0, cnpj_consulta=CNPJ_PRESTADOR).documentos == []  # 404 com corpo = nada
     _, pedido = _pedido(certificado)
     falsa.distribuir(evento_de(pedido), "EVENTO", CHAVE, "CANCELAMENTO")
-    lote = client.distribuicao_dfe(0)
+    lote = client.distribuicao_dfe(0, cnpj_consulta=CNPJ_PRESTADOR)
     assert lote.status == "DOCUMENTOS_LOCALIZADOS"
     d = lote.documentos[0]
     assert (d.nsu, d.tipo_documento, d.tipo_evento, d.chave_acesso) == (1, "EVENTO", "CANCELAMENTO", CHAVE)

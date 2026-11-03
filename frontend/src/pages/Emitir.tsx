@@ -113,6 +113,17 @@ function ordenar(ls: LinhaLocal[], { col, dir }: Ordem, clientes: Map<string, Cl
   });
 }
 
+// ---- desfazer / refazer (Ctrl+Z / Ctrl+Y) ----
+// Cada passo guarda a tabela inteira de antes (as linhas são imutáveis, então é só uma referência).
+// Desfazer manda esse estado ao servidor como uma edição qualquer; a linha excluída volta com o
+// mesmo id e a última emissão (o servidor confere que a emissão é dela).
+type Passo = { linhas: LinhaLocal[]; ordem: Ordem | null; rotulo: string };
+const LIMITE_PASSOS = 100;
+const CAMPOS: (keyof Linha)[] = ["id", "nome", "documento", "valor", "descricao"];
+const mesmaLinha = (a: LinhaLocal | undefined, b: LinhaLocal | undefined) => !!a && !!b && CAMPOS.every((k) => a[k] === b[k]);
+const mesmoConteudo = (a: LinhaLocal[], b: LinhaLocal[]) => a.length === b.length && a.every((l, i) => mesmaLinha(l, b[i]));
+const plural = (n: number, um: string, varios: string) => (n === 1 ? um : `${n} ${varios}`);
+
 function situacaoTexto(ln: LinhaLocal, cli: Cliente | undefined): { texto: string; tema?: Partial<Theme> } {
   const e = ln.ultima_emissao;
   if (e) {
@@ -152,6 +163,23 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const [abaId, setAbaId] = useState<number | null>(null);
   const [editarAba, setEditarAba] = useState<Aba | "nova" | null>(null);
   const [avulsa, setAvulsa] = useState(false);
+  const linhasRef = useRef(linhas);
+  linhasRef.current = linhas;
+  const ordemRef = useRef(ordem);
+  ordemRef.current = ordem;
+  const definirLinhas = (ls: LinhaLocal[]) => {
+    linhasRef.current = ls;
+    setLinhas(ls);
+  };
+  const pilhaDesfazer = useRef<Passo[]>([]);
+  const pilhaRefazer = useRef<Passo[]>([]);
+  const [, setPassos] = useState(0); // só para redesenhar os botões quando as pilhas mudam
+  const [avisoPasso, setAvisoPasso] = useState<string | null>(null);
+  const limparPassos = () => {
+    pilhaDesfazer.current = [];
+    pilhaRefazer.current = [];
+    setPassos((n) => n + 1);
+  };
 
   const abasQ = useQuery({ queryKey: ["abas"], queryFn: () => api.get<Aba[]>("/api/abas") });
   const abas = abasQ.data ?? [];
@@ -185,9 +213,10 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
     await fila.current;
     try {
       const r = await api.get<{ aba_id: number; linhas: Linha[] }>(`/api/tabela${id ? `?aba_id=${id}` : ""}`);
+      if (r.aba_id !== abaRef.current) limparPassos(); // o histórico é de uma aba só
       abaRef.current = r.aba_id;
       setAbaId(r.aba_id);
-      setLinhas(deServidor(r.linhas));
+      definirLinhas(deServidor(r.linhas));
       setSalvando("ok");
       setCarregado(true);
       setErroCarga(null);
@@ -219,11 +248,18 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         fila.current = fila.current.then(async () => {
           try {
             const r = await api.put<{ linhas: Linha[] }>(`/api/tabela${destino ? `?aba_id=${destino}` : ""}`, {
-              linhas: estado.map(({ id, nome, documento, valor, descricao }) => ({ id, nome, documento, valor, descricao })),
+              linhas: estado.map(({ id, nome, documento, valor, descricao, ultima_emissao }) => ({
+                id,
+                nome,
+                documento,
+                valor,
+                descricao,
+                ultima_emissao_id: ultima_emissao?.id ?? null,
+              })),
             });
             setErroSalvar(null);
             if (minha === versao.current) {
-              setLinhas(deServidor(r.linhas));
+              definirLinhas(deServidor(r.linhas));
               setSalvando("ok");
             }
           } catch (e) {
@@ -238,16 +274,85 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
     [],
   );
 
+  // rotulo = nome do passo no "Desfazer"; null = mudança automática (nome vindo da Receita), fora do histórico.
   const alterar = useCallback(
-    (fn: (atual: LinhaLocal[]) => LinhaLocal[]) => {
-      setLinhas((atual) => {
-        const novo = fn(atual);
-        salvar(novo);
-        return novo;
-      });
+    (fn: (atual: LinhaLocal[]) => LinhaLocal[], rotulo: string | null, ordemNova?: Ordem | null) => {
+      const atual = linhasRef.current;
+      const novo = fn(atual);
+      const mudouOrdem = ordemNova !== undefined && ordemNova !== ordemRef.current;
+      if (mesmoConteudo(atual, novo) && !mudouOrdem) return; // ex.: Enter sem mudar o texto
+      if (rotulo) {
+        pilhaDesfazer.current = [...pilhaDesfazer.current.slice(-(LIMITE_PASSOS - 1)), { linhas: atual, ordem: ordemRef.current, rotulo }];
+        pilhaRefazer.current = [];
+        setPassos((n) => n + 1);
+      }
+      if (ordemNova !== undefined) {
+        ordemRef.current = ordemNova;
+        setOrdem(ordemNova);
+      }
+      definirLinhas(novo);
+      salvar(novo);
     },
     [salvar],
   );
+
+  // Volta (ou refaz) um passo e seleciona as células que mudaram, como no Excel.
+  const andarPasso = useCallback(
+    (direcao: "desfazer" | "refazer") => {
+      const de = direcao === "desfazer" ? pilhaDesfazer : pilhaRefazer;
+      const para = direcao === "desfazer" ? pilhaRefazer : pilhaDesfazer;
+      const passo = de.current.at(-1);
+      if (!passo) return;
+      const atual = linhasRef.current;
+      de.current = de.current.slice(0, -1);
+      para.current = [...para.current, { linhas: atual, ordem: ordemRef.current, rotulo: passo.rotulo }];
+      setPassos((n) => n + 1);
+      ordemRef.current = passo.ordem;
+      setOrdem(passo.ordem);
+      definirLinhas(passo.linhas);
+      salvar(passo.linhas);
+      setAvisoPasso(`${direcao === "desfazer" ? "Desfeito" : "Refeito"}: ${passo.rotulo}`);
+
+      const novo = passo.linhas;
+      const vaziaSel = { columns: CompactSelection.empty(), rows: CompactSelection.empty() };
+      let x0 = Infinity, x1 = -1, y0 = Infinity, y1 = -1;
+      if (atual.length === novo.length) {
+        novo.forEach((l, y) =>
+          EDITAVEIS.forEach((id) => {
+            const a = atual[y];
+            const campo = id as Exclude<ColId, "situacao">;
+            if (a && l[campo] === a[campo]) return;
+            const x = COLUNAS.findIndex((c) => c.id === id);
+            x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+          }),
+        );
+      } else {
+        // Linhas entraram ou saíram: marca a primeira posição diferente.
+        const y = novo.findIndex((l, i) => !mesmaLinha(l, atual[i]));
+        const alvoY = y < 0 ? Math.max(novo.length - 1, 0) : y;
+        if (novo.length) [x0, x1, y0, y1] = [0, 0, alvoY, alvoY];
+      }
+      if (y1 < 0) setSelecao(vaziaSel);
+      else {
+        setSelecao({
+          ...vaziaSel,
+          current: { cell: [x0, y0], range: { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 }, rangeStack: [] },
+        });
+        grade.current?.scrollTo(x0, y0);
+      }
+    },
+    [salvar],
+  );
+  const podeDesfazer = pilhaDesfazer.current.length > 0;
+  const podeRefazer = pilhaRefazer.current.length > 0;
+  const proximoDesfazer = pilhaDesfazer.current.at(-1)?.rotulo;
+  const proximoRefazer = pilhaRefazer.current.at(-1)?.rotulo;
+
+  useEffect(() => {
+    if (!avisoPasso) return;
+    const t = window.setTimeout(() => setAvisoPasso(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [avisoPasso]);
 
   // ---- consulta automática de CNPJs sem cadastro ----
   useEffect(() => {
@@ -269,7 +374,8 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       .then((r) => {
         const nomes = new Map(r.resultados.filter((x) => x.ok).map((x) => [x.documento, x.nome!]));
         const falhas = r.resultados.filter((x) => !x.ok);
-        if (nomes.size) alterar((ls) => ls.map((l) => (!l.nome && nomes.has(l.documento) ? { ...l, nome: nomes.get(l.documento)! } : l)));
+        if (nomes.size)
+          alterar((ls) => ls.map((l) => (!l.nome && nomes.has(l.documento) ? { ...l, nome: nomes.get(l.documento)! } : l)), null);
         if (falhas.length)
           toast(`${falhas.length} CNPJ(s) sem dados na Receita: ${falhas[0].erro} Complete o cadastro em Clientes.`, "erro");
         qc.invalidateQueries({ queryKey: ["clientes"] });
@@ -326,7 +432,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   selecaoRef.current = selecao;
 
   const aplicarEdicoes = useCallback(
-    (novos: readonly { location: Item; value: EditableGridCell }[]) => {
+    (novos: readonly { location: Item; value: EditableGridCell }[], rotulo: string) => {
       alterar((atual) => {
         const r = [...atual];
         for (const { location: [c, row], value } of novos) {
@@ -341,7 +447,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
           }
         }
         return r;
-      });
+      }, rotulo);
     },
     [alterar],
   );
@@ -354,7 +460,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         while (r.length <= row) r.push(vazia());
         r[row] = { ...r[row], nome: c.nome, documento: c.documento };
         return r;
-      });
+      }, "Escolher cliente");
       // Próximo dado a digitar é o valor: leva o cursor para lá (depois que o editor fechar).
       const colValor = COLUNAS.findIndex((col) => col.id === "valor");
       window.setTimeout(() => {
@@ -397,11 +503,11 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
           const alvos: { location: Item; value: EditableGridCell }[] = [];
           for (let y = faixa.y; y < faixa.y + faixa.height; y++)
             for (let x = faixa.x; x < faixa.x + faixa.width; x++) alvos.push({ location: [x, y], value });
-          aplicarEdicoes(alvos);
+          aplicarEdicoes(alvos, `Preencher ${alvos.length} células`);
           return true;
         }
       }
-      aplicarEdicoes(novos);
+      aplicarEdicoes(novos, novos.length === 1 ? "Editar célula" : `Alterar ${novos.length} células`);
       return true;
     },
     [aplicarEdicoes],
@@ -418,7 +524,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             edits.push({ location: [x0 + dx, y0 + dy], value: { kind: GridCellKind.Text, data: v, displayData: v, allowOverlay: true } });
         }),
       );
-      aplicarEdicoes(edits);
+      aplicarEdicoes(edits, edits.length === 1 ? "Colar" : `Colar ${edits.length} células`);
     },
     [aplicarEdicoes],
   );
@@ -448,11 +554,30 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
     return () => window.removeEventListener("paste", aoColar, true);
   }, [colar]);
 
+  // Ctrl+Z desfaz; Ctrl+Y ou Ctrl+Shift+Z refaz. Só com o foco na grade (ou em nada): num campo
+  // de texto, inclusive o editor de célula aberto, vale o desfazer do próprio campo.
+  useEffect(() => {
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const tecla = e.key.toLowerCase();
+      const direcao = tecla === "z" ? (e.shiftKey ? "refazer" : "desfazer") : tecla === "y" && !e.shiftKey ? "refazer" : null;
+      if (!direcao) return;
+      const ativo = document.activeElement;
+      const naGrade = !!ativo && !!caixaGrade.current?.contains(ativo) && !ativo.closest("input, textarea, [contenteditable]");
+      const semFoco = !ativo || ativo === document.body;
+      if (!naGrade && !(semFoco && !document.querySelector(".veu, .gaveta"))) return;
+      e.preventDefault();
+      andarPasso(direcao);
+    };
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, [andarPasso]);
+
   const onDelete = useCallback(
     (sel: GridSelection) => {
       if (sel.rows.length > 0) {
         const remover = new Set(sel.rows.toArray());
-        alterar((atual) => atual.filter((_, i) => !remover.has(i)));
+        alterar((atual) => atual.filter((_, i) => !remover.has(i)), `Excluir ${plural(remover.size, "linha", "linhas")}`);
         setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
         return false;
       }
@@ -467,8 +592,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       const col = COLUNAS[c]?.id;
       if (!col) return;
       const nova: Ordem = { col, dir: ordem?.col === col && ordem.dir === 1 ? -1 : 1 };
-      setOrdem(nova);
-      alterar((atual) => ordenar(atual, nova, clientesRef.current));
+      alterar((atual) => ordenar(atual, nova, clientesRef.current), `Ordenar por ${COLUNAS[c].title}`, nova);
       // Seleção por índice apontaria para outras linhas depois de reordenar.
       setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
     },
@@ -540,7 +664,27 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       </div>
 
       <div className="barra">
-        <button className="btn btn--pequeno" onClick={() => alterar((a) => [...a, vazia()])}>
+        <div className="barra__historico" role="group" aria-label="Histórico de alterações">
+          <button
+            className="btn btn--pequeno btn--icone"
+            disabled={!podeDesfazer}
+            onClick={() => andarPasso("desfazer")}
+            aria-label={proximoDesfazer ? `Desfazer: ${proximoDesfazer}` : "Desfazer"}
+            title={proximoDesfazer ? `Desfazer: ${proximoDesfazer} (Ctrl+Z)` : "Nada para desfazer"}
+          >
+            <IconeHistorico />
+          </button>
+          <button
+            className="btn btn--pequeno btn--icone"
+            disabled={!podeRefazer}
+            onClick={() => andarPasso("refazer")}
+            aria-label={proximoRefazer ? `Refazer: ${proximoRefazer}` : "Refazer"}
+            title={proximoRefazer ? `Refazer: ${proximoRefazer} (Ctrl+Y)` : "Nada para refazer"}
+          >
+            <IconeHistorico refazer />
+          </button>
+        </div>
+        <button className="btn btn--pequeno" onClick={() => alterar((a) => [...a, vazia()], "Nova linha")}>
           + Linha
         </button>
         <button className="btn btn--pequeno" disabled={!linhasMarcadas.length} onClick={() => onDelete(selecao)}>
@@ -566,13 +710,14 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
               const presentes = new Set(linhas.map((l) => l.documento));
               const novas = aba.clientes.filter((c) => !presentes.has(c.documento));
               if (!novas.length) return toast("Todos os clientes da aba já estão na tabela.");
-              alterar((a) => [...a, ...novas.map((c) => ({ ...vazia(), nome: c.nome, documento: c.documento }))]);
+              alterar((a) => [...a, ...novas.map((c) => ({ ...vazia(), nome: c.nome, documento: c.documento }))], "Clientes da aba");
             }}
           >
             + Clientes da aba
           </button>
         )}
         <div className="barra__resumo">
+          {avisoPasso && <span className="barra__passo">{avisoPasso}</span>}
           {consultando && (
             <span>
               <Spinner /> {consultando}
@@ -622,7 +767,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             width="100%"
             height="100%"
             trailingRowOptions={{ hint: "Nova linha…", sticky: true, tint: true }}
-            onRowAppended={() => alterar((a) => [...a, vazia()])}
+            onRowAppended={() => alterar((a) => [...a, vazia()], "Nova linha")}
             onCellClicked={([c, r]) => {
               if (COLUNAS[c]?.id === "situacao" && linhas[r]?.ultima_emissao) setDetalhe(linhas[r]);
             }}
@@ -638,7 +783,8 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       />
       <p className="dica-grade">
         Selecione várias células arrastando ou com <kbd>Shift</kbd>, digite e tecle <kbd>Enter</kbd> para aplicar o valor a todas.
-        Cole direto do Excel com <kbd>Ctrl</kbd>+<kbd>V</kbd>, arraste o canto da seleção para repetir valores e use
+        Cole direto do Excel com <kbd>Ctrl</kbd>+<kbd>V</kbd>, desfaça com <kbd>Ctrl</kbd>+<kbd>Z</kbd> (refaça com
+        <kbd>Ctrl</kbd>+<kbd>Y</kbd>), arraste o canto da seleção para repetir valores e use
         <kbd>Delete</kbd> para limpar. Marque linhas à esquerda para emitir só elas. Clique no título de uma coluna para
         ordenar (clique de novo para inverter).
       </p>
@@ -648,8 +794,13 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
           abaId={abaId}
           fechar={() => setImportar(false)}
           concluido={(ls) => {
+            // Já está salva no servidor; entra no histórico para poder voltar à tabela de antes.
             versao.current++;
-            setLinhas(deServidor(ls));
+            pilhaDesfazer.current = [...pilhaDesfazer.current.slice(-(LIMITE_PASSOS - 1)), { linhas: linhasRef.current, ordem: ordemRef.current, rotulo: "Importar planilha" }];
+            pilhaRefazer.current = [];
+            setPassos((n) => n + 1);
+            definirLinhas(deServidor(ls));
+            ordemRef.current = null;
             setOrdem(null);
             setImportar(false);
             qc.invalidateQueries({ queryKey: ["abas"] });
@@ -693,6 +844,16 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         />
       )}
     </div>
+  );
+}
+
+// Seta curva de "desfazer"; espelhada para "refazer".
+function IconeHistorico({ refazer = false }: { refazer?: boolean }) {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" style={refazer ? { transform: "scaleX(-1)" } : undefined}>
+      <path d="M7.5 4.5 3.5 8.5l4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 8.5h7.5a5 5 0 0 1 0 10H9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   );
 }
 

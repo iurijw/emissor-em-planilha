@@ -258,6 +258,11 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
     local via HTTP**. Colagem própria: `keybindings={{paste:false}}` + listener de `paste` lendo `e.clipboardData`
     (`parseTSV` trata aspas/quebras do Excel). Colar além da última linha cria linhas.
   - Canvas: fontes precisam carregar antes do desenho (`document.fonts.ready` → remonta a grade).
+- **Desfazer/refazer** (2026-11-02): Ctrl+Z / Ctrl+Y (ou Ctrl+Shift+Z) com o foco na grade, e botões na barra.
+  Cada `alterar(fn, rotulo)` guarda a tabela inteira de antes (até 100 passos, por aba; trocar de aba limpa); desfazer
+  envia esse estado no `PUT /api/tabela` como qualquer edição. Nome vindo da Receita (`rotulo` null) não entra no
+  histórico. Linha excluída que volta: o servidor recria com o **mesmo id** se ninguém o usa e religa
+  `ultima_emissao_id` só se a emissão tem `linha_id` igual. Importar planilha também pode ser desfeito.
 - Tabela salva sozinha (debounce 500 ms, fila sequencial de PUTs); CNPJs novos são consultados automaticamente
   (uma vez por sessão) e preenchem o nome só se estiver vazio — **o nome da tabela prevalece** sobre o da Receita.
 - `index.html` servido com `Cache-Control: no-cache` (atualizações chegam aos navegadores; `/assets` tem hash).
@@ -327,6 +332,9 @@ Pesquisa (OpenAPI oficiais da Sefin e do ADN Contribuinte e regras do Anexo II, 
   NFS-e e eventos em que o CNPJ aparece) e `GET /NFSe/{chave}/Eventos`. Respostas em PascalCase
   (`StatusProcessamento`, `LoteDFe[{NSU, ChaveAcesso, TipoDocumento, TipoEvento, ArquivoXml}]`); 404 **com corpo**
   = nada encontrado, 400 com corpo = rejeição; sem `StatusProcessamento` → resposta não veio do serviço.
+  **`cnpjConsulta` obrigatório desde 03/11/2026** (0.11.1): sem ele o ADN responde 400 `REJEICAO` com `Erros` vazio e
+  `TipoConsulta: InscricaoCertificado` (visto numa instalação própria); com o CNPJ do prestador a consulta é `CnpjBase`
+  e funciona. Outra raiz sem procuração → E2245.
   Sem limite de consulta documentado (na NF-e, consultar de novo em < 1 h após chegar ao fim gera "consumo indevido").
 
 Implementação (`nfse/eventos.py`, `services/eventos.py`, tabelas `evento_nfse` e `sincronizacao_adn`):
@@ -757,4 +765,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-10-29 | Suspensa, a instância fica 35 dias só para consulta antes de desligar (eram 20); no último dia do teste sem confirmação o painel manda um e-mail pedindo para confirmar | Pedido do Iuri: o emissor costuma ser aberto uma vez por mês; quem não abre o app no fim do teste não veria o aviso |
 | 2026-10-29 | "Continuar e assinar" para toda instância suspensa (mensalidade em aberto paga com o cartão salvo, assinatura nova com o mesmo cartão; recusado = link do Stripe `pagar_url`, só https de stripe.com); desligada, o painel mostra no endereço uma página para religar por 90 dias | Pedido do Iuri: o cliente precisa conseguir voltar em qualquer caso |
 | 2026-10-31 | Ícone de atualizações com a linha do tempo das versões; na instalação pelo `iniciar.bat`, "Atualizar agora" e atualização automática ao iniciar (código da tag, backup do banco e do código, `data` intocada); Docker só mostra o comando; hospedagem sem aviso | Pedido do Iuri; o contêiner precisaria do Docker do computador para se atualizar, risco desnecessário |
+| 2026-11-03 | Distribuição do ADN sempre com `cnpjConsulta` = CNPJ do prestador | O ADN passou a recusar a consulta sem ele (REJEICAO sem código) em produção e na Produção Restrita |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

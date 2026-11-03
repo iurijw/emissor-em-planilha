@@ -501,6 +501,18 @@ class SefinSimulada:
         if m := re.fullmatch(r"/contribuintes/DFe/(\d+)", path):
             if req.url.params.get("lote") != "true":
                 return httpx.Response(400, json={"StatusProcessamento": "REJEICAO", "Erros": [{"Codigo": "SIM"}]})
+            if not re.fullmatch(r"[0-9A-Z]{14}", req.url.params.get("cnpjConsulta", "")):
+                # Como o ADN real desde 03/11/2026: sem cnpjConsulta, recusa sem dizer o motivo.
+                return httpx.Response(
+                    400,
+                    json={
+                        "TipoConsulta": "InscricaoCertificado",
+                        "StatusProcessamento": "REJEICAO",
+                        "LoteDFe": [],
+                        "Alertas": [],
+                        "Erros": [],
+                    },
+                )
             return self._lote([d for d in docs if d["NSU"] > int(m.group(1))][:50], tp_amb)
         if m := re.fullmatch(r"/contribuintes/NFSe/(\w{50})/Eventos", path):
             return self._lote(

@@ -54,6 +54,8 @@ def obter_tabela(aba_id: int | None = None) -> dict[str, Any]:
 
 class LinhaEntrada(BaseModel):
     id: int | None = None
+    # Só vale para linha excluída que volta pelo "Desfazer": religa a última emissão dela.
+    ultima_emissao_id: int | None = None
     nome: str = ""
     documento: str = ""
     valor: str | float | None = ""
@@ -71,6 +73,18 @@ def _normalizar_valor(v: str | float | None) -> str:
         return str(v or "").strip()  # mantém o texto para o usuário corrigir; a validação acusa
 
 
+def _linha_restaurada(s: Any, e: LinhaEntrada) -> LinhaTabela | None:
+    """Linha excluída que voltou pelo "Desfazer": recria com o mesmo id (se ninguém o usa) e a última emissão."""
+    if e.id is None or s.get(LinhaTabela, e.id) is not None:
+        return None
+    ln = LinhaTabela(id=e.id)
+    if e.ultima_emissao_id is not None:
+        em = s.get(Emissao, e.ultima_emissao_id)
+        if em is not None and em.linha_id == e.id:
+            ln.ultima_emissao_id = em.id
+    return ln
+
+
 @router.put("/tabela")
 def salvar_tabela(entrada: TabelaEntrada, aba_id: int | None = None) -> dict[str, Any]:
     """Substitui as linhas de uma aba (a grade envia o estado completo da aba após cada edição)."""
@@ -81,7 +95,8 @@ def salvar_tabela(entrada: TabelaEntrada, aba_id: int | None = None) -> dict[str
         for ordem, e in enumerate(entrada.linhas):
             ln = existentes.get(e.id) if e.id is not None else None
             if ln is None:
-                ln = LinhaTabela(aba_id=aba.id)
+                ln = _linha_restaurada(s, e) or LinhaTabela(aba_id=aba.id)
+                ln.aba_id = aba.id
             ln.ordem = ordem
             ln.nome = (e.nome or "").strip()
             ln.documento = normalizar_documento(e.documento) or ""
