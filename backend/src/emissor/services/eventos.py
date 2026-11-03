@@ -413,12 +413,15 @@ class Sincronizador:
             s.commit()
         nsu = cursor.ultimo_nsu
         erro = None
+        # Desde 03/11/2026 o ADN recusa (REJEICAO sem erro, TipoConsulta "InscricaoCertificado") a consulta
+        # sem cnpjConsulta; com o CNPJ do prestador ela volta a ser pela raiz do certificado ("CnpjBase").
+        consulta = cnpj if len(cnpj) == 14 else None
         try:
             with bind_context(sincronizacao=chave_cursor), _fabrica(self.client_factory)(amb, cert) as client:
                 for pagina in range(self.MAX_PAGINAS):
                     if pagina:
                         self.dormir(self.PAUSA_ENTRE_PAGINAS)
-                    lote = client.distribuicao_dfe(nsu)
+                    lote = client.distribuicao_dfe(nsu, cnpj_consulta=consulta)
                     docs = sorted(
                         (d for d in lote.documentos if d.nsu is not None and d.nsu > nsu), key=lambda d: d.nsu
                     )

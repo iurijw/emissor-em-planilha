@@ -349,10 +349,22 @@ class SefinClient:
                 )
             raise self._erro_http(resp, dados, "O Ambiente Nacional (ADN) recusou a consulta")
         if status.upper() == "REJEICAO":
+            mensagens = extrair_mensagens(_get(dados, "Erros") or [])
+            if not mensagens:
+                tipo = _get(dados, "TipoConsulta")
+                mensagens = [
+                    MensagemSefin(
+                        codigo=None,
+                        descricao=f"O ADN recusou sem dizer o motivo (HTTP {resp.status_code}"
+                        + (f", tipo de consulta {tipo})." if tipo else ")."),
+                        dica="Confira se o certificado é do CNPJ do prestador nas configurações. Se for, o ADN pode "
+                        "ter mudado: baixe o arquivo de diagnóstico e envie ao suporte.",
+                    )
+                ]
             raise SefinError(
                 TipoErro.REJEICAO,
                 "O Ambiente Nacional (ADN) recusou a consulta",
-                extrair_mensagens(_get(dados, "Erros") or []),
+                mensagens,
                 http_status=resp.status_code,
                 corpo=resp.text[:20000],
             )
