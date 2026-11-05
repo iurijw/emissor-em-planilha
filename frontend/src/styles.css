@@ -228,6 +228,7 @@ a { color: var(--azul-texto); }
 .mensagem-sefin code { font-family: var(--f-num); font-size: 12px; font-weight: 600; background: rgb(255 255 255 / 65%); padding: 1px 5px; border-radius: 3px; }
 .mensagem-sefin .dica { display: block; margin-top: 4px; color: var(--tinta); }
 .mensagem-sefin .dica::before { content: "Como resolver: "; font-weight: 650; }
+.aviso-homologacao { margin: 10px 0 0; padding: 8px 10px; border-left: 3px solid var(--azul); background: rgb(255 255 255 / 65%); color: var(--tinta); font-size: 13px; }
 
 /* ---------- Toasts ---------- */
 .toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 60; max-width: min(440px, calc(100vw - 40px)); }
