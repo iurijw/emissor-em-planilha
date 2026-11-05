@@ -7,8 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
-## 0.11.2 (05/11/2026)
+## 0.12.0 (05/11/2026)
 
+- Na nota avulsa, o endereço do tomador aparece logo abaixo do CNPJ/CPF, já preenchido com o do cadastro ou com o
+  que veio da Receita. Clique para abrir e corrigir: o que você mudar fica salvo no cadastro do cliente.
+- Uma etiqueta avisa quando o tomador está sem endereço ou com o endereço incompleto. Para CPF, o endereço é opcional.
 - Nota recusada na homologação agora avisa que o cadastro das empresas no ambiente de testes do governo costuma estar
   incompleto: recusas sobre a inscrição municipal ou o estabelecimento no município podem não acontecer em produção.
 - Explicação e "Como resolver" para as recusas E0120 (inscrição municipal fora do cadastro nacional) e E0084 (CNPJ

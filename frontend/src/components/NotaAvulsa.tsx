@@ -4,10 +4,11 @@ import { api, ApiError, dadosTributacao, type Cliente, type DadosTributacao } fr
 import { documentoValido, formatarDocumento, moeda, parseValor, soDocumento } from "../format";
 import { BotaoVariaveis, PreviaDescricao } from "./Variaveis";
 import { EmissaoFluxo, type CorpoAvulsa } from "../pages/EmissaoFluxo";
-import { Gaveta } from "../ui";
+import { ErroCaixa, Gaveta, Spinner } from "../ui";
 import { useTributacoes } from "./Abas";
 import { buscarClientes, normalizarBusca } from "./EditorNomeCliente";
 import { CamposTributacao } from "./FiscalForm";
+import { EnderecoTomador, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
 
 type Escolha = "padrao" | "propria" | number;
 
@@ -30,6 +31,9 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const [emitida, setEmitida] = useState(false);
   const [consulta, setConsulta] = useState<Consulta | null>(null);
   const consultados = useRef(new Set<string>());
+  const [endereco, setEndereco] = useState<Endereco>(enderecoDe(undefined));
+  const [salvando, setSalvando] = useState(false);
+  const [erroEndereco, setErroEndereco] = useState<unknown>(null);
 
   const sugestoes = useMemo(() => (focoNome ? buscarClientes(clientesQ.data ?? [], nome, 6) : []), [clientesQ.data, nome, focoNome]);
   const cadastro = clientesQ.data?.find((c) => c.documento === documento);
@@ -82,7 +86,14 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
       });
   }, [documento, cadastro, clientesQ.isSuccess, qc]);
 
+  // O endereço mostrado acompanha o cadastro (inclusive quando a Receita acaba de preencher).
+  useEffect(() => {
+    setEndereco(enderecoDe(cadastro));
+    setErroEndereco(null);
+  }, [documento, cadastro?.atualizado_em]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const consultaAtual = consulta?.documento === documento ? consulta : null;
+  const enderecoAlterado = !enderecosIguais(endereco, enderecoDe(cadastro)) && !(enderecoVazio(endereco) && !cadastro);
   const pronto = consultaAtual?.estado !== "buscando" && !!documento && !docInvalido && valorNum !== null && Number(valorNum) > 0 && descricao.trim() !== "";
 
   function escolherTributacao(e: Escolha) {
@@ -90,7 +101,32 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
     if (e === "propria" && !propria && trib.data?.padrao) setPropria(dadosTributacao(trib.data.padrao));
   }
 
-  function abrirConferencia() {
+  async function abrirConferencia() {
+    // Endereço mexido aqui: grava no cadastro antes, porque a nota usa o endereço do cadastro.
+    if (enderecoAlterado) {
+      setErroEndereco(null);
+      setSalvando(true);
+      try {
+        await api.put(`/api/clientes/${documento}`, {
+          nome: cadastro?.nome || nome.trim(),
+          c_mun: endereco.c_mun,
+          cep: endereco.cep,
+          logradouro: endereco.logradouro,
+          numero: endereco.numero,
+          complemento: endereco.complemento,
+          bairro: endereco.bairro,
+          fone: cadastro?.fone ?? null,
+          email: cadastro?.email ?? null,
+          inscricao_municipal: cadastro?.inscricao_municipal ?? null,
+        });
+        await qc.invalidateQueries({ queryKey: ["clientes"] });
+      } catch (e) {
+        setErroEndereco(e);
+        return;
+      } finally {
+        setSalvando(false);
+      }
+    }
     setConferir({
       nome: nome.trim(),
       documento,
@@ -117,7 +153,12 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             <button className="btn" onClick={fechar}>
               Cancelar
             </button>
-            <button className="btn btn--primario" disabled={!pronto || (escolha === "propria" && !propria)} onClick={abrirConferencia}>
+            <button
+              className="btn btn--primario"
+              disabled={!pronto || salvando || (escolha === "propria" && !propria)}
+              onClick={abrirConferencia}
+            >
+              {salvando && <Spinner />}
               Conferir e emitir{valorNum ? <span className="num">· {moeda(valorNum)}</span> : null}
             </button>
           </>
@@ -139,18 +180,14 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                   ) : (
                     <small>
                       {cadastro
-                        ? cadastro.endereco_completo
-                          ? "Cliente cadastrado, com endereço."
-                          : "Cadastro sem endereço: a nota sai sem o endereço."
+                        ? "Cliente cadastrado."
                         : consultaAtual?.estado === "buscando"
                           ? "Buscando a empresa na Receita…"
                           : consultaAtual?.estado === "falhou"
-                            ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."} A nota sai sem o endereço; complete em Clientes.`
+                            ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."}`
                             : documento.length === 11
-                              ? "CPF sem cadastro: a nota sai sem o endereço. Complete em Clientes."
-                              : documento
-                                ? "Sem cadastro: a nota sai sem o endereço."
-                                : " "}
+                              ? "CPF sem cadastro."
+                              : " "}
                     </small>
                   )}
                 </label>
@@ -199,6 +236,19 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                   )}
                 </label>
               </div>
+              {documento && !docInvalido && (
+                <div className="largo">
+                  <EnderecoTomador
+                    key={documento}
+                    valor={endereco}
+                    onChange={setEndereco}
+                    cpf={documento.length === 11}
+                    buscando={consultaAtual?.estado === "buscando"}
+                    municipio={endereco.c_mun && endereco.c_mun === cadastro?.c_mun ? cadastro.municipio : null}
+                  />
+                  {erroEndereco != null && <ErroCaixa erro={erroEndereco} titulo="Não foi possível salvar o endereço" />}
+                </div>
+              )}
               <label className="campo">
                 <span>Valor</span>
                 <input className="num" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" inputMode="decimal" />
