@@ -12,6 +12,16 @@ import { EnderecoTomador, enderecoDe, enderecosIguais, enderecoVazio, type Ender
 
 type Escolha = "padrao" | "propria" | number;
 
+/**
+ * O campo CNPJ/CPF também aceita o nome: texto com letra e espaço, letra acentuada ou letra sem nenhum número é
+ * nome (um CNPJ alfanumérico sempre tem números, e é digitado sem espaço).
+ */
+export function pareceNome(texto: string): boolean {
+  const t = texto.trim();
+  if (!/[A-Za-zÀ-ÿ]/.test(t)) return false;
+  return /\s/.test(t) || /[À-ÿ]/.test(t) || !/\d/.test(t);
+}
+
 /** Consulta na Receita de um CNPJ digitado sem cadastro (o servidor cadastra o cliente com o endereço). */
 type Consulta = { documento: string; estado: "buscando" | "falhou"; erro?: string };
 
@@ -21,7 +31,12 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const trib = useTributacoes();
   const clientesQ = useQuery({ queryKey: ["clientes"], queryFn: () => api.get<Cliente[]>("/api/clientes") });
   const [nome, setNome] = useState("");
-  const [documento, setDocumento] = useState("");
+  // Texto do campo CNPJ/CPF como digitado; o documento sai dele quando não é um nome.
+  const [docTexto, setDocTexto] = useState("");
+  const [focoDoc, setFocoDoc] = useState(false);
+  const docEhNome = pareceNome(docTexto);
+  const documento = docEhNome ? "" : soDocumento(docTexto);
+  const setDocumento = (d: string) => setDocTexto(formatarDocumento(d));
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
   const [escolha, setEscolha] = useState<Escolha>("padrao");
@@ -37,8 +52,15 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
 
   const sugestoes = useMemo(() => (focoNome ? buscarClientes(clientesQ.data ?? [], nome, 6) : []), [clientesQ.data, nome, focoNome]);
   const cadastro = clientesQ.data?.find((c) => c.documento === documento);
+  // Sugestões no campo CNPJ/CPF: pelo nome digitado ou pelo começo/trecho do número (o documento já completo, não).
+  const sugestoesDoc = useMemo(
+    () => (focoDoc && !cadastro ? buscarClientes(clientesQ.data ?? [], docTexto, 6) : []),
+    [clientesQ.data, docTexto, focoDoc, cadastro],
+  );
   const valorNum = parseValor(valor);
   const docInvalido = documento !== "" && !documentoValido(documento);
+  // Enquanto digita no campo, só acusa quando já tem o tamanho de um CNPJ.
+  const mostrarInvalido = docInvalido && (!focoDoc || documento.length >= 14);
   // Só o nome: procura um cadastro com esse nome exato; sem CNPJ/CPF a nota não pode sair.
   const porNome = useMemo(() => {
     const t = normalizarBusca(nome);
@@ -102,8 +124,9 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   }
 
   async function abrirConferencia() {
-    // Endereço mexido aqui: grava no cadastro antes, porque a nota usa o endereço do cadastro.
-    if (enderecoAlterado) {
+    // Endereço mexido aqui: grava no cadastro antes, porque a nota usa o endereço do cadastro. Tomador novo com nome
+    // (o CPF, que a Receita não traz) também entra no cadastro, para aparecer nas próximas notas.
+    if (enderecoAlterado || (!cadastro && nome.trim())) {
       setErroEndereco(null);
       setSalvando(true);
       try {
@@ -172,10 +195,38 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             <h3 className="secao-titulo">Tomador</h3>
             <div className="grade-form">
               <div className="largo tomador-ou">
-                <label className={`campo ${docInvalido ? "campo--erro" : ""}`}>
+                <label className={`campo ${mostrarInvalido ? "campo--erro" : ""}`} style={{ position: "relative" }}>
                   <span>CNPJ / CPF</span>
-                  <input className="num" autoFocus value={formatarDocumento(documento)} onChange={(e) => setDocumento(soDocumento(e.target.value))} />
-                  {docInvalido ? (
+                  <input
+                    className={docEhNome || !docTexto ? undefined : "num"}
+                    autoFocus
+                    value={docEhNome ? docTexto : formatarDocumento(documento)}
+                    onChange={(e) => setDocTexto(e.target.value)}
+                    onFocus={() => setFocoDoc(true)}
+                    onBlur={() =>
+                      window.setTimeout(() => {
+                        setFocoDoc(false);
+                        // Nome digitado aqui sem escolher da lista: passa para o campo do nome.
+                        setDocTexto((t) => {
+                          if (!pareceNome(t)) return t;
+                          setNome((n) => (n.trim() ? n : t.trim()));
+                          return "";
+                        });
+                      }, 150)
+                    }
+                    placeholder="Número ou nome do cliente"
+                  />
+                  {sugestoesDoc.length > 0 && (
+                    <Sugestoes
+                      clientes={sugestoesDoc}
+                      escolher={(c) => {
+                        setNome(c.nome);
+                        setDocumento(c.documento);
+                        setFocoDoc(false);
+                      }}
+                    />
+                  )}
+                  {mostrarInvalido ? (
                     <small className="campo__erro">CNPJ/CPF inválido.</small>
                   ) : (
                     <small>
@@ -186,7 +237,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                           : consultaAtual?.estado === "falhou"
                             ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."}`
                             : documento.length === 11
-                              ? "CPF sem cadastro."
+                              ? "CPF sem cadastro: com o nome, entra nos clientes ao conferir a nota."
                               : " "}
                     </small>
                   )}
@@ -204,26 +255,14 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                     placeholder="Digite para buscar no cadastro"
                   />
                   {sugestoes.length > 0 && (
-                    <ul className="lista-clientes lista-clientes--sugestoes lista-clientes--flutuante">
-                      {sugestoes.map((c) => (
-                        <li key={c.documento}>
-                          <button
-                            type="button"
-                            className="btn btn--fantasma"
-                            title={c.nome}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              setNome(c.nome);
-                              setDocumento(c.documento);
-                              setFocoNome(false);
-                            }}
-                          >
-                            <span>{c.nome}</span>
-                            <span className="num">{formatarDocumento(c.documento)}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                    <Sugestoes
+                      clientes={sugestoes}
+                      escolher={(c) => {
+                        setNome(c.nome);
+                        setDocumento(c.documento);
+                        setFocoNome(false);
+                      }}
+                    />
                   )}
                   {faltaDocumento ? (
                     <small className="campo__erro">
@@ -310,5 +349,20 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
         />
       )}
     </>
+  );
+}
+
+function Sugestoes({ clientes, escolher }: { clientes: Cliente[]; escolher: (c: Cliente) => void }) {
+  return (
+    <ul className="lista-clientes lista-clientes--sugestoes lista-clientes--flutuante">
+      {clientes.map((c) => (
+        <li key={c.documento}>
+          <button type="button" className="btn btn--fantasma" title={c.nome} onMouseDown={(e) => e.preventDefault()} onClick={() => escolher(c)}>
+            <span>{c.nome}</span>
+            <span className="num">{formatarDocumento(c.documento)}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
