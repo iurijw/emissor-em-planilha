@@ -15,6 +15,8 @@ export interface ErroEmissao {
   resumo: string;
   http_status?: number | null;
   mensagens: MensagemSefin[];
+  /** Recusa na homologação: o cadastro da Produção Restrita costuma estar incompleto. */
+  aviso?: string | null;
 }
 
 export type StatusEmissao =

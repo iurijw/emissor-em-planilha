@@ -115,6 +115,32 @@ def test_rejeicao_normalizada_sem_retentativa(fake, client, certificado, dps_inp
     assert err.mensagens[0].codigo == "E0010"
     assert "49999" in err.mensagens[0].dica
     assert [m for m, _ in fake.chamadas] == ["POST"]
+    assert "Produção Restrita" in err.as_dict()["aviso"]  # o cliente é da homologação
+
+
+def test_aviso_de_cadastro_so_em_recusa_da_homologacao(fake, certificado, dps_input):
+    corpo = {"erros": [{"Codigo": "E0120", "Descricao": "Inscrição municipal do prestador não cadastrada no CNC"}]}
+    for ambiente, tem_aviso in ((Ambiente.HOMOLOGACAO, True), (Ambiente.PRODUCAO, False)):
+        fake.post = [httpx.Response(400, json=corpo)]
+        with SefinClient(ambiente, certificado, transport=httpx.MockTransport(fake.handler)) as c:
+            with pytest.raises(SefinError) as exc:
+                _emitir(c, certificado, dps_input)
+        d = exc.value.as_dict()
+        assert ("aviso" in d) is tem_aviso
+        assert "Dados da empresa" in d["mensagens"][0]["dica"]
+
+
+def test_aviso_nas_recusas_ja_gravadas():
+    from emissor.db import Emissao
+
+    recusa = {"tipo": "rejeicao", "resumo": "Recusada", "mensagens": []}
+    e = Emissao(lote_id="l", ambiente="2", tomador_documento="1", tomador_nome="x", valor="1", descricao="d")
+    e.erro_json = json.dumps(recusa)
+    assert "aviso" in e.erro()
+    e.ambiente = "1"
+    assert "aviso" not in e.erro()
+    e.ambiente, e.erro_json = "2", json.dumps(recusa | {"tipo": "indisponivel"})
+    assert "aviso" not in e.erro()
 
 
 def test_certificado_recusado(fake, client, certificado, dps_input):

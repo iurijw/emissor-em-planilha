@@ -7,6 +7,13 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.11.2 (05/11/2026)
+
+- Nota recusada na homologação agora avisa que o cadastro das empresas no ambiente de testes do governo costuma estar
+  incompleto: recusas sobre a inscrição municipal ou o estabelecimento no município podem não acontecer em produção.
+- Explicação e "Como resolver" para as recusas E0120 (inscrição municipal fora do cadastro nacional) e E0084 (CNPJ
+  sem estabelecimento no município).
+
 ## 0.11.1 (03/11/2026)
 
 - Corrigida a mensagem "O Ambiente Nacional (ADN) recusou a consulta" ao atualizar a situação das notas. O Ambiente

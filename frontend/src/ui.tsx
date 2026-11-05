@@ -107,6 +107,7 @@ export function MensagensSefin({ erro }: { erro: ErroEmissao }) {
           </div>
         ))}
       </div>
+      {erro.aviso && <p className="aviso-homologacao">{erro.aviso}</p>}
     </div>
   );
 }

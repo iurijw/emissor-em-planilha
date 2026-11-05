@@ -312,7 +312,9 @@ class SefinClient:
         else:
             tipo = TipoErro.RESPOSTA_INVALIDA
             resumo = f"Resposta inesperada da Sefin (HTTP {st})"
-        return SefinError(tipo, resumo, mensagens, http_status=st, corpo=resp.text[:20000])
+        return SefinError(
+            tipo, resumo, mensagens, http_status=st, corpo=resp.text[:20000], ambiente=self.ambiente.value
+        )
 
     def _resposta_nfse(self, dados: Any, op: str) -> RespostaEmissao:
         b64 = _get(dados, "nfseXmlGZipB64")

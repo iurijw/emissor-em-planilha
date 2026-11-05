@@ -42,6 +42,8 @@ class SefinError(Exception):
     mensagens: list[MensagemSefin] = field(default_factory=list)
     http_status: int | None = None
     corpo: str | None = None
+    # tpAmb de onde veio a resposta ("1" produção, "2" homologação); None = não veio da Sefin
+    ambiente: str | None = None
 
     def __post_init__(self) -> None:
         super().__init__(self.resumo)
@@ -64,12 +66,32 @@ class SefinError(Exception):
         return any(k in texto for k in ("já existe", "ja existe", "duplic", "já foi", "ja foi"))
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "tipo": self.tipo.value,
             "resumo": self.resumo,
             "http_status": self.http_status,
             "mensagens": [asdict(m) for m in self.mensagens],
         }
+        return com_aviso_homologacao(d, self.ambiente)
+
+
+# A Produção Restrita usa um cadastro de contribuintes (CNC) próprio, que a maioria das prefeituras não mantém
+# atualizado: inscrição municipal, estabelecimento no município e situação da empresa costumam faltar ou estar
+# desatualizados. Recusas desse tipo (ex.: E0120, E0084) podem não acontecer em produção.
+AVISO_HOMOLOGACAO = (
+    "Esta recusa veio da homologação (Produção Restrita), o ambiente de testes do governo. O cadastro das empresas "
+    "nesse ambiente costuma estar incompleto ou desatualizado, então recusas sobre o cadastro do prestador "
+    "(inscrição municipal, estabelecimento no município, situação do CNPJ) podem não acontecer em produção, que usa "
+    "o cadastro da prefeitura. Recusas sobre os dados da nota (serviço, valores, tomador) acontecem nos dois "
+    "ambientes."
+)
+
+
+def com_aviso_homologacao(erro: dict[str, Any], ambiente: str | None) -> dict[str, Any]:
+    """Acrescenta ``aviso`` a uma recusa da Sefin na homologação (também nas emissões já gravadas)."""
+    if ambiente == "2" and erro.get("tipo") == TipoErro.REJEICAO.value and not erro.get("aviso"):
+        return erro | {"aviso": AVISO_HOMOLOGACAO}
+    return erro
 
 
 # Dicas por código conhecido (confirmado em documentação/comunidade).
@@ -80,6 +102,14 @@ _DICAS_CODIGO = {
     "serviços dela no Sistema Nacional. Em Configurações → Tributações, procure o serviço pela descrição: a tela "
     "consulta a prefeitura e avisa se o código não está cadastrado. Na dúvida, confirme o código com a contabilidade "
     "ou com a prefeitura.",
+    "E0120": "A inscrição municipal do prestador não está no cadastro nacional (CNC) do município. Confira o número "
+    "em Configurações → Dados da empresa; se a prefeitura não exige a inscrição na nota, deixe o campo vazio. Na "
+    "homologação o cadastro costuma não ter a inscrição: apague o campo para testar e preencha de novo antes de "
+    "emitir em produção, se a prefeitura exigir.",
+    "E0084": "O cadastro nacional (CNC) não tem um estabelecimento deste CNPJ no município emissor. Confira o "
+    "município da empresa em Configurações → Dados da empresa. Na homologação esse cadastro costuma estar "
+    "incompleto e o erro pode não acontecer em produção; se acontecer em produção, procure a prefeitura para "
+    "atualizar o cadastro da empresa no Sistema Nacional.",
     "E0010": "A série não pertence à faixa do canal de emissão. Para sistema próprio use série entre 1 e 49999 "
     "(Configurações → Série).",
     # Eventos (cancelamento) — Anexo II do leiaute.
