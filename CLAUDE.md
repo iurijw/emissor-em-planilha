@@ -390,6 +390,9 @@ PIS/COFINS, pTotTribSN, IBS/CBS). Prestador, regime e tpEmit vêm sempre das con
   endereço do cadastro (ou o que a Receita trouxe), editável; etiqueta "Sem endereço" / "Endereço incompleto" /
   "Sem endereço · opcional para CPF". Endereço alterado é gravado no cadastro (`PUT /api/clientes/{doc}`) ao clicar em
   "Conferir e emitir", porque a nota lê o endereço do cadastro; completo = mesma regra de `Cliente.endereco_completo`.
+  O campo CNPJ/CPF aceita também o nome (`pareceNome`: letra com espaço, acento ou sem número; CNPJ alfanumérico sempre
+  tem número) e sugere clientes pelo nome ou por trecho do número; nome digitado ali sem escolher passa para o campo do
+  nome. Tomador sem cadastro com nome (CPF, ou CNPJ que a Receita não achou) é cadastrado ao conferir a nota.
   Tributação: padrão, predefinida (`tributacao_id`) ou só desta nota (`tributacao`, validada como completa). Operador
   pode usar as três (auditado em `nota_avulsa`).
 - **Migração mínima** (`db._acrescentar_colunas`): colunas novas de tabelas existentes entram com `ALTER TABLE ADD
