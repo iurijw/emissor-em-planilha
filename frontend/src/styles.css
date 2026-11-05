@@ -180,7 +180,7 @@ a { color: var(--azul-texto); }
 .previa-nfse__linha dt::after { content: ""; flex: 1; min-width: 12px; margin: 0 0 3px 8px; border-bottom: 1px dotted var(--linha-forte); }
 .previa-nfse__linha dd { margin: 0; white-space: nowrap; color: var(--tinta); }
 .previa-nfse__linha--total dt, .previa-nfse__linha--total dd { color: var(--tinta); font-weight: 700; }
-/* Nota avulsa: "CNPJ / CPF  ou  Nome da empresa" numa linha; o "ou" fica na altura das caixas. */
+/* Nota avulsa: "CNPJ / CPF  e  Nome da empresa/pessoa" numa linha; o "e" fica na altura das caixas. */
 .tomador-ou { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0 14px; align-items: start; }
 .tomador-ou__ou {
   margin-top: 22px; height: 36px; display: flex; align-items: center;

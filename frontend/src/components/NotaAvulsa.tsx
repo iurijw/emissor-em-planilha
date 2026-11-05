@@ -243,10 +243,10 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                   )}
                 </label>
                 <span className="tomador-ou__ou" aria-hidden="true">
-                  ou
+                  e
                 </span>
                 <label className="campo" style={{ position: "relative" }}>
-                  <span>Nome da empresa</span>
+                  <span>Nome da empresa/pessoa</span>
                   <input
                     value={nome}
                     onChange={(e) => setNome(e.target.value)}
