@@ -11,6 +11,8 @@ sem nomes de código, PR ou leiaute.
 
 - Na nota avulsa, o endereço do tomador aparece logo abaixo do CNPJ/CPF, já preenchido com o do cadastro ou com o
   que veio da Receita. Clique para abrir e corrigir: o que você mudar fica salvo no cadastro do cliente.
+- No campo CNPJ/CPF da nota avulsa dá para digitar o nome ou parte do número: aparecem os clientes do cadastro para
+  escolher. Um tomador novo com nome, como um CPF, passa a entrar nos clientes ao conferir a nota.
 - Uma etiqueta avisa quando o tomador está sem endereço ou com o endereço incompleto. Para CPF, o endereço é opcional.
 - Nota recusada na homologação agora avisa que o cadastro das empresas no ambiente de testes do governo costuma estar
   incompleto: recusas sobre a inscrição municipal ou o estabelecimento no município podem não acontecer em produção.
