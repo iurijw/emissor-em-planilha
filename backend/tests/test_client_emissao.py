@@ -141,6 +141,11 @@ def test_aviso_nas_recusas_ja_gravadas():
     assert "aviso" not in e.erro()
     e.ambiente, e.erro_json = "2", json.dumps(recusa | {"tipo": "indisponivel"})
     assert "aviso" not in e.erro()
+    # dica antiga gravada (genérica) é trocada pela atual do código
+    antiga = {"codigo": "E0120", "descricao": "IM do prestador...", "dica": "Revise o código IBGE do município"}
+    e.erro_json = json.dumps(recusa | {"mensagens": [antiga, {"codigo": "X9", "descricao": "y", "dica": "z"}]})
+    msgs = e.erro()["mensagens"]
+    assert "Dados da empresa" in msgs[0]["dica"] and msgs[1]["dica"] == "z"
 
 
 def test_certificado_recusado(fake, client, certificado, dps_input):
@@ -269,3 +274,13 @@ def test_pagina_html_403_real_da_sefin_vira_texto_com_dica(fake, client, certifi
     assert msg.descricao.startswith("403 - Forbidden: Access is denied.")
     assert "<" not in msg.descricao and "font-family" not in msg.descricao
     assert "ICP-Brasil" in msg.dica
+
+
+def test_dicas_de_inscricao_municipal_e_do_leiaute():
+    from emissor.nfse.errors import dica_para, dica_xsd
+
+    e0116 = "A IM deve ser informada para o emitente prestador do serviço na DPS"
+    assert "Dados da empresa" in dica_para("E0116", e0116)
+    assert "inscrição municipal" in dica_para(None, e0116)  # sem código: não cai na dica de município
+    assert "3 dígitos" in dica_xsd("cTribMun: [facet 'pattern'] The value '080101003' is not accepted")
+    assert "suporte" in dica_xsd("Element 'x': erro sem campo conhecido")
