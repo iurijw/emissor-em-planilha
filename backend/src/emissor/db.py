@@ -214,9 +214,11 @@ class Emissao(SQLModel, table=True):
         return json.loads(self.tributacao_json) if self.tributacao_json else None
 
     def erro(self) -> dict[str, Any] | None:
-        from .nfse.errors import com_aviso_homologacao
+        from .nfse.errors import com_aviso_homologacao, com_dicas_atuais
 
-        return com_aviso_homologacao(json.loads(self.erro_json), self.ambiente) if self.erro_json else None
+        if not self.erro_json:
+            return None
+        return com_aviso_homologacao(com_dicas_atuais(json.loads(self.erro_json)), self.ambiente)
 
     def alertas(self) -> list[dict[str, Any]]:
         return json.loads(self.alertas_json) if self.alertas_json else []

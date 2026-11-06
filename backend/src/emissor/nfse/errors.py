@@ -87,6 +87,20 @@ AVISO_HOMOLOGACAO = (
 )
 
 
+def com_dicas_atuais(erro: dict[str, Any]) -> dict[str, Any]:
+    """Troca a dica gravada pela atual nos códigos conhecidos (emissões gravadas antes de a dica existir)."""
+    mensagens = erro.get("mensagens") or []
+    if not any((m.get("codigo") or "").upper() in _DICAS_CODIGO for m in mensagens if isinstance(m, dict)):
+        return erro
+    novas = [
+        m | {"dica": _DICAS_CODIGO[m["codigo"].upper()]}
+        if isinstance(m, dict) and (m.get("codigo") or "").upper() in _DICAS_CODIGO
+        else m
+        for m in mensagens
+    ]
+    return erro | {"mensagens": novas}
+
+
 def com_aviso_homologacao(erro: dict[str, Any], ambiente: str | None) -> dict[str, Any]:
     """Acrescenta ``aviso`` a uma recusa da Sefin na homologação (também nas emissões já gravadas)."""
     if ambiente == "2" and erro.get("tipo") == TipoErro.REJEICAO.value and not erro.get("aviso"):
@@ -106,6 +120,11 @@ _DICAS_CODIGO = {
     "em Configurações → Dados da empresa; se a prefeitura não exige a inscrição na nota, deixe o campo vazio. Na "
     "homologação o cadastro costuma não ter a inscrição: apague o campo para testar e preencha de novo antes de "
     "emitir em produção, se a prefeitura exigir.",
+    "E0116": "A prefeitura exige a inscrição municipal do prestador na nota e ela foi enviada vazia. Preencha a "
+    "inscrição municipal em Configurações → Dados da empresa, igual ao cadastro da prefeitura (só os números, sem "
+    "pontos), e emita de novo.",
+    "E1235": "A Sefin recusou o XML pelo leiaute (o sistema confere o leiaute antes de enviar, então a Sefin pode "
+    "estar usando uma versão diferente). Baixe o arquivo de diagnóstico em Configurações e envie ao suporte.",
     "E0084": "O cadastro nacional (CNC) não tem um estabelecimento deste CNPJ no município emissor. Confira o "
     "município da empresa em Configurações → Dados da empresa. Na homologação esse cadastro costuma estar "
     "incompleto e o erro pode não acontecer em produção; se acontecer em produção, procure a prefeitura para "
@@ -158,11 +177,11 @@ _DICAS_TEXTO = [
     (("competência", "dcompet"), "A data de competência é a data da emissão; confira o relógio do servidor."),
     (("tomador",), "Revise o cadastro do cliente (CNPJ/CPF, nome e endereço) em Clientes."),
     (("cep",), "Revise o CEP do endereço do cliente em Clientes."),
-    (("município", "municipio"), "Revise o código IBGE do município (cliente ou configurações)."),
     (
-        ("inscrição municipal", "inscricao municipal"),
-        "Confira a Inscrição Municipal nas configurações do prestador ou no cliente.",
+        ("inscrição municipal", "inscricao municipal", "im do prestador", "a im deve"),
+        "Confira a inscrição municipal em Configurações → Dados da empresa (prestador) ou no cadastro do cliente.",
     ),
+    (("município", "municipio"), "Revise o código IBGE do município (cliente ou configurações)."),
     (
         ("simples nacional", "opsimpnac", "regaptribsn"),
         "Confira o regime do Simples Nacional nas configurações fiscais.",
@@ -177,6 +196,46 @@ _DICAS_TEXTO = [
     ),
     (("convênio", "convenio", "conveniado"), "O município precisa estar conveniado ao Sistema Nacional NFS-e."),
 ]
+
+
+# Validação local do leiaute (XSD): a mensagem começa pelo campo do XML ("cTribMun: ..."); aqui vira onde corrigir.
+_DICAS_XSD = [
+    (
+        ("ctribmun",),
+        "O Código de Tributação Municipal tem só 3 dígitos (ex.: 001), sem o código nacional na frente. "
+        "Corrija em Configurações → Tributações.",
+    ),
+    (("ctribnac",), "Escolha o Código de Tributação Nacional pela busca em Configurações → Tributações."),
+    (("cnbs",), "Escolha o código NBS da lista do serviço em Configurações → Tributações."),
+    (("xdescserv",), "Revise a descrição do serviço na tabela (não pode ficar vazia nem passar de 2.000 caracteres)."),
+    (
+        ("xnome",),
+        "Revise o nome do cliente na tabela ou em Clientes (não pode ficar vazio nem passar de 300 caracteres).",
+    ),
+    (
+        ("im",),
+        "Revise a inscrição municipal (só números e letras, até 15 caracteres) em Configurações → Dados da empresa "
+        "ou no cliente.",
+    ),
+    (("cep",), "Revise o CEP do cliente em Clientes (8 dígitos)."),
+    (("xlgr", "nro", "xbairro", "xcpl"), "Revise o endereço do cliente em Clientes."),
+    (("fone",), "Revise o telefone (só números, com DDD) em Configurações → Dados da empresa ou no cliente."),
+    (("email",), "Revise o e-mail em Configurações → Dados da empresa ou no cliente."),
+    (("cnpj", "cpf"), "Revise o CNPJ/CPF do cliente na tabela."),
+    (("vserv", "vliq", "vbc"), "Revise o valor da linha na tabela (maior que zero, com até 2 casas decimais)."),
+    (
+        ("paliq", "ptottribsn", "ptottribfed", "ptottribest", "ptottribmun", "vretcp", "vretirrf", "vretcsll"),
+        "Revise as alíquotas e retenções em Configurações → Tributações.",
+    ),
+]
+
+
+def dica_xsd(texto: str) -> str:
+    campo = texto.split(":", 1)[0].strip().lower() if ":" in texto else ""
+    for campos, dica in _DICAS_XSD:
+        if campo in campos:
+            return dica
+    return "Baixe o arquivo de diagnóstico em Configurações e envie ao suporte: um campo da nota está fora do leiaute."
 
 
 def dica_para(codigo: str | None, texto: str) -> str | None:

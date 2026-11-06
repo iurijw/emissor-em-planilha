@@ -325,3 +325,14 @@ def test_desfazer_exclusao_de_linha_religa_a_emissao(api):
     api.put("/api/tabela", json={"linhas": []})
     r = api.put("/api/tabela", json={"linhas": [{**linha, "id": lid, "ultima_emissao_id": alheia_id}]}).json()["linhas"]
     assert r[0]["id"] == lid and r[0]["ultima_emissao"] is None
+
+
+def test_endereco_com_caractere_nulo_responde_404(tmp_path, monkeypatch):
+    from emissor.api import app as modulo
+
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<html></html>")
+    monkeypatch.setattr(modulo, "FRONTEND_DIST", tmp_path)
+    with TestClient(modulo.create_app(iniciar_worker=False)) as c:
+        assert c.get("/admin/%00.env").status_code == 404  # robôs: antes dava erro 500
+        assert c.get("/qualquer").status_code == 200

@@ -28,7 +28,7 @@ from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
 from emissor.nfse.constants import NS_NFSE
 from emissor.nfse.dps_builder import build_dps, to_bytes
-from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
+from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro, dica_xsd
 from emissor.nfse.models import DpsInput
 from emissor.nfse.signer import assinar
 from emissor.nfse.xml_reader import NFSeDoc
@@ -70,7 +70,7 @@ def preparar_dps(inp: DpsInput, cert: Certificado) -> tuple[str, bytes]:
         raise SefinError(
             TipoErro.VALIDACAO_LOCAL,
             "O XML da DPS não passou na validação do leiaute (nada foi enviado)",
-            [MensagemSefin(codigo="XSD", descricao=str(e)) for e in erros],
+            [MensagemSefin(codigo="XSD", descricao=str(e), dica=dica_xsd(str(e))) for e in erros],
         )
     return id_dps, to_bytes(assinada)
 

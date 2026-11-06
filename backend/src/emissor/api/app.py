@@ -177,6 +177,8 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
         async def spa(caminho: str):
             if caminho.startswith("api/"):
                 return JSONResponse({"mensagem": "Rota da API não encontrada."}, status_code=404)
+            if "\x00" in caminho:  # robôs procurando arquivos: o resolve() quebraria com erro 500
+                return JSONResponse({"mensagem": "Página não encontrada."}, status_code=404)
             alvo = (FRONTEND_DIST / caminho).resolve()
             if caminho and alvo.is_file() and FRONTEND_DIST.resolve() in alvo.parents:
                 # O service worker (aviso "ligando o sistema") também nunca em cache: troca junto com a versão.

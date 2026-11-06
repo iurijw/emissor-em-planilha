@@ -203,7 +203,8 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
   O PDF **não é gravado** na emissão (desde a 0.7.1): é gerado do XML a cada download, com a marca d'água da situação;
   o das notas antigas continua em `data/pdf` e é usado até a nota ser cancelada/substituída (aí é apagado).
 - Recusa na homologação (`tipo` rejeicao, tpAmb 2): `as_dict()`/`Emissao.erro()` acrescentam `aviso` (`com_aviso_homologacao`
-  em `nfse/errors.py`), que `MensagensSefin` mostra abaixo das mensagens.
+  em `nfse/errors.py`), que `MensagensSefin` mostra abaixo das mensagens. `Emissao.erro()` também troca a dica gravada pela
+  atual nos códigos de `_DICAS_CODIGO` (`com_dicas_atuais`); erro do XSD local ganha dica pelo campo (`dica_xsd`).
 - Erros HTTP sempre como `{"mensagem": str, "detalhes": [...]}`; 500 inclui `request_id` (mesmo do log).
   `SefinError` que chega à API vira 400 (rejeição/validação local) ou 502 (certificado, Sefin/ADN fora do ar) com
   `sefin` = `{tipo, resumo, mensagens[{codigo, descricao, complemento, dica}]}`; a tela mostra código e "Como resolver".
@@ -777,4 +778,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-03 | Distribuição do ADN sempre com `cnpjConsulta` = CNPJ do prestador | O ADN passou a recusar a consulta sem ele (REJEICAO sem código) em produção e na Produção Restrita |
 | 2026-11-03 | Licença **AGPL-3.0-only** (`LICENSE`, `pyproject.toml`, `package.json`), sem arquivo de marca; `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` (falhas por e-mail, não em relato público) e modelo de PR | Escolha do Iuri: uso livre e sem garantia; quem hospedar uma versão modificada precisa abrir o código dela |
 | 2026-11-05 | Recusa da Sefin na homologação leva um `aviso` (cadastro da Produção Restrita incompleto; erros de cadastro como E0120/E0084 podem não acontecer em produção), também nas emissões já gravadas (`Emissao.erro()`); dicas para E0120 e E0084 | Pedido do Iuri: um cliente ficou parado na homologação com E0120/E0084 e outro só emitiu depois de passar a produção |
+| 2026-11-06 | Dicas para E0116, E1235 e para os erros do leiaute conferido no sistema (pelo campo); dica de inscrição municipal antes da de município; notas já recusadas mostram a dica atual; endereço com caractere nulo responde 404 | Pedido do Iuri: explicar melhor os erros vistos nos clientes (E0116 em produção, E0120 com dica de município errada); robôs geravam centenas de erros 500 no log |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

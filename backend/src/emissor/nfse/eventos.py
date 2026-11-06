@@ -25,7 +25,7 @@ from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
 from emissor.nfse.constants import NS_NFSE, VERSAO_LEIAUTE, Ambiente
 from emissor.nfse.dps_builder import formatar_dh, to_bytes
-from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
+from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro, dica_xsd
 from emissor.nfse.models import limpar_texto, normalizar_documento
 from emissor.nfse.signer import assinar
 from emissor.nfse.xsd import validar_pedido_evento
@@ -162,7 +162,7 @@ def preparar_cancelamento(cert: Certificado, **kw) -> tuple[str, bytes]:
         raise SefinError(
             TipoErro.VALIDACAO_LOCAL,
             "O pedido de cancelamento não passou na validação do leiaute (nada foi enviado)",
-            [MensagemSefin(codigo="XSD", descricao=str(e)) for e in erros],
+            [MensagemSefin(codigo="XSD", descricao=str(e), dica=dica_xsd(str(e))) for e in erros],
         )
     return pedido[0].get("Id"), to_bytes(assinado)
 
