@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.12.1 (07/11/2026)
+
+- Ao digitar o CEP no cadastro do cliente ou na nota avulsa, rua, bairro e município são preenchidos sozinhos.
+- Explicações mais claras para as recusas da Sefin, inclusive E0116 (falta a inscrição municipal).
+
 ## 0.12.0 (05/11/2026)
 
 - Na nota avulsa, o endereço do tomador aparece logo abaixo do CNPJ/CPF, já preenchido com o do cadastro ou com o
