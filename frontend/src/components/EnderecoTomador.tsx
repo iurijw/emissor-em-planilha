@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import type { Cliente } from "../api";
+import { CampoCep } from "./CampoCep";
 import { CampoMunicipio } from "./FiscalForm";
 
 /** Campos do endereço que vão na nota (o número em branco sai como "S/N"). */
@@ -114,13 +115,28 @@ export function EnderecoTomador({
       </button>
       <div className="endereco-tomador__corpo" id={id} hidden={!aberto}>
         <div className="grade-form">
+          <CampoCep
+            valor={valor.cep}
+            onChange={(v) => set("cep", v ?? "")}
+            disabled={buscando}
+            aoEncontrar={(e) => {
+              onChange({
+                ...valor,
+                cep: e.cep,
+                logradouro: e.logradouro || valor.logradouro,
+                bairro: e.bairro || valor.bairro,
+                c_mun: e.c_mun || valor.c_mun,
+              });
+              if (e.logradouro) document.getElementById(`${id}-numero`)?.focus();
+            }}
+          />
           <label className="campo largo">
             <span>Logradouro</span>
             <input value={valor.logradouro ?? ""} onChange={(e) => set("logradouro", e.target.value)} disabled={buscando} />
           </label>
           <label className="campo">
             <span>Número</span>
-            <input value={valor.numero ?? ""} onChange={(e) => set("numero", e.target.value)} placeholder="S/N" disabled={buscando} />
+            <input id={`${id}-numero`} value={valor.numero ?? ""} onChange={(e) => set("numero", e.target.value)} placeholder="S/N" disabled={buscando} />
           </label>
           <label className="campo">
             <span>Complemento</span>
@@ -130,17 +146,7 @@ export function EnderecoTomador({
             <span>Bairro</span>
             <input value={valor.bairro ?? ""} onChange={(e) => set("bairro", e.target.value)} disabled={buscando} />
           </label>
-          <label className="campo">
-            <span>CEP</span>
-            <input
-              className="num"
-              inputMode="numeric"
-              value={formatarCep(valor.cep)}
-              onChange={(e) => set("cep", soDigitos(e.target.value).slice(0, 8))}
-              disabled={buscando}
-            />
-          </label>
-          <div className="largo">
+          <div>
             <CampoMunicipio rotulo="Município" codigo={valor.c_mun} onChange={(v) => onChange({ ...valor, c_mun: v })} />
           </div>
         </div>

@@ -17,6 +17,7 @@ from sqlmodel import select
 
 from emissor.api.serial import cliente_dict, linha_dict
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, agora, obter_config, sessao
+from emissor.nfse import codes
 from emissor.nfse.models import limpar_texto, normalizar_documento, somente_digitos
 from emissor.services import clientes as cli_service
 from emissor.services import parametros
@@ -240,7 +241,6 @@ def salvar_cliente(documento: str, entrada: ClienteEntrada) -> dict[str, Any]:
     doc = normalizar_documento(documento) or ""
     if not cli_service.documento_valido(doc):
         raise HTTPException(400, "CNPJ/CPF inválido.")
-    from emissor.nfse import codes
 
     erros = []
     if not limpar_texto(entrada.nome):
@@ -294,6 +294,24 @@ def consultar_cliente(documento: str) -> dict[str, Any]:
         c = cli_service.upsert(s, r.cliente)
         s.commit()
     return {"fonte": r.fonte, "cliente": cliente_dict(c)}
+
+
+@router.get("/cep/{cep}")
+def consultar_cep(cep: str) -> dict[str, Any]:
+    """Logradouro, bairro e município pelo CEP (BrasilAPI, ViaCEP), para completar o endereço do cliente."""
+    if len(somente_digitos(cep) or "") != 8:
+        raise HTTPException(400, "O CEP tem 8 dígitos.")
+    r = cli_service.consultar_cep(cep)
+    if not r.encontrado:
+        raise HTTPException(404 if r.fonte else 502, r.erro)
+    return {
+        "fonte": r.fonte,
+        "cep": r.cep,
+        "logradouro": r.logradouro,
+        "bairro": r.bairro,
+        "c_mun": r.c_mun,
+        "municipio": codes.municipio_uf(r.c_mun),
+    }
 
 
 class ConsultarPendentes(BaseModel):

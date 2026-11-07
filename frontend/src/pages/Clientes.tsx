@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api, type Cliente } from "../api";
+import { CampoCep, type EnderecoCep } from "../components/CampoCep";
 import { CampoMunicipio } from "../components/FiscalForm";
 import { cep, documentoValido, formatarDocumento, soDocumento } from "../format";
 import { ImportarClientesXml } from "../components/ImportarClientesXml";
@@ -140,12 +141,23 @@ function EditarCliente({ inicial, fechar }: { inicial: Partial<Cliente>; fechar:
     }
   }
 
-  const campo = (k: keyof Cliente, rotulo: string, extra?: { largo?: boolean; num?: boolean }) => (
+  const campo = (k: keyof Cliente, rotulo: string, extra?: { largo?: boolean; num?: boolean; id?: string }) => (
     <label className={`campo ${extra?.largo ? "largo" : ""}`}>
       <span>{rotulo}</span>
-      <input className={extra?.num ? "num" : undefined} value={(c[k] as string) ?? ""} onChange={(e) => set(k, e.target.value || null)} />
+      <input id={extra?.id} className={extra?.num ? "num" : undefined} value={(c[k] as string) ?? ""} onChange={(e) => set(k, e.target.value || null)} />
     </label>
   );
+  const idNumero = useId();
+  // O CEP troca rua, bairro e município (o que ele trouxer) e leva o cursor ao número.
+  const preencherPeloCep = (e: EnderecoCep) => {
+    setC((x) => ({
+      ...x,
+      logradouro: e.logradouro || x.logradouro || null,
+      bairro: e.bairro || x.bairro || null,
+      c_mun: e.c_mun || x.c_mun || null,
+    }));
+    if (e.logradouro) document.getElementById(idNumero)?.focus();
+  };
 
   return (
     <Gaveta
@@ -180,12 +192,12 @@ function EditarCliente({ inicial, fechar }: { inicial: Partial<Cliente>; fechar:
         </div>
         <div className="grade-form">
           {campo("nome", "Nome / razão social", { largo: true })}
+          <CampoCep valor={c.cep ?? null} onChange={(v) => set("cep", v)} aoEncontrar={preencherPeloCep} />
           {campo("logradouro", "Logradouro", { largo: true })}
-          {campo("numero", "Número")}
+          {campo("numero", "Número", { id: idNumero })}
           {campo("complemento", "Complemento")}
           {campo("bairro", "Bairro")}
-          {campo("cep", "CEP", { num: true })}
-          <div className="largo">
+          <div>
             <CampoMunicipio rotulo="Município" codigo={c.c_mun ?? null} onChange={(v) => set("c_mun", v)} />
           </div>
           {campo("email", "E-mail", { largo: true })}

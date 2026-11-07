@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from emissor import config
 from emissor.db import Cliente, agora
+from emissor.nfse import codes
 from emissor.nfse.documentos import cnpj_valido, cpf_valido
 from emissor.nfse.models import Endereco, Tomador, limpar_texto, normalizar_documento, somente_digitos
 
@@ -108,6 +109,93 @@ def consultar_cnpj(documento: str, http: httpx.Client | None = None) -> Consulta
     return ConsultaCnpj(
         False,
         erro="Serviços de consulta de CNPJ indisponíveis no momento (" + "; ".join(erros) + "). "
+        "Preencha o endereço manualmente ou tente mais tarde.",
+    )
+
+
+@dataclass
+class ConsultaCep:
+    encontrado: bool
+    fonte: str | None = None
+    cep: str | None = None
+    logradouro: str | None = None
+    bairro: str | None = None
+    c_mun: str | None = None
+    erro: str | None = None
+
+
+def _cep_brasilapi(cep: str, http: httpx.Client) -> ConsultaCep | None:
+    r = http.get(f"https://brasilapi.com.br/api/cep/v2/{cep}")
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    d = r.json()
+    return ConsultaCep(
+        True,
+        fonte="brasilapi",
+        cep=cep,
+        logradouro=limpar_texto(d.get("street")),
+        bairro=limpar_texto(d.get("neighborhood")),
+        c_mun=codes.codigo_municipio(d.get("city"), d.get("state")),
+    )
+
+
+def _cep_viacep(cep: str, http: httpx.Client) -> ConsultaCep | None:
+    r = http.get(f"https://viacep.com.br/ws/{cep}/json/")
+    if r.status_code in (400, 404):
+        return None
+    r.raise_for_status()
+    d = r.json()
+    if d.get("erro") in (True, "true"):
+        return None
+    ibge = somente_digitos(d.get("ibge"))
+    return ConsultaCep(
+        True,
+        fonte="viacep",
+        cep=cep,
+        logradouro=limpar_texto(d.get("logradouro")),
+        bairro=limpar_texto(d.get("bairro")),
+        c_mun=ibge if ibge and codes.municipio(ibge) else codes.codigo_municipio(d.get("localidade"), d.get("uf")),
+    )
+
+
+_CACHE_CEP: dict[str, ConsultaCep] = {}
+
+
+def consultar_cep(valor: str, http: httpx.Client | None = None) -> ConsultaCep:
+    """Endereço pelo CEP: BrasilAPI e, se ela falhar ou não achar, ViaCEP. Só conveniência para o cadastro."""
+    cep = somente_digitos(valor) or ""
+    if len(cep) != 8:
+        return ConsultaCep(False, erro="O CEP tem 8 dígitos.")
+    if cep in _CACHE_CEP:
+        return _CACHE_CEP[cep]
+    fechar = http is None
+    http = http or httpx.Client(timeout=TIMEOUT, headers={"User-Agent": config.VER_APLIC})
+    erros, nao_achou = [], None
+    try:
+        for nome, fn in (("brasilapi", _cep_brasilapi), ("viacep", _cep_viacep)):
+            try:
+                r = fn(cep, http)
+            except (httpx.HTTPError, ValueError, KeyError, AttributeError) as exc:
+                log.warning("consulta de CEP falhou em %s: %s", nome, exc, extra={"cep": cep, "fonte": nome})
+                erros.append(f"{nome}: {type(exc).__name__}")
+                continue
+            if r is None:
+                nao_achou = nome
+                continue
+            log.info("CEP consultado", extra={"cep": cep, "fonte": nome, "c_mun": r.c_mun})
+            if len(_CACHE_CEP) > 2000:
+                _CACHE_CEP.clear()
+            _CACHE_CEP[cep] = r
+            return r
+    finally:
+        if fechar:
+            http.close()
+    if nao_achou:
+        return ConsultaCep(False, fonte=nao_achou, erro="CEP não encontrado. Confira o número ou preencha o endereço.")
+    return ConsultaCep(
+        False,
+        erro="Serviços de consulta de CEP indisponíveis no momento (" + "; ".join(erros) + "). "
         "Preencha o endereço manualmente ou tente mais tarde.",
     )
 

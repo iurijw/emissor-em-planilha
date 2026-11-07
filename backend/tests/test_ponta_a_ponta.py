@@ -68,6 +68,15 @@ def sim(cert_sefin, monkeypatch) -> SefinSimulada:
             doc, http or httpx.Client(transport=httpx.MockTransport(brasilapi_simulada))
         ),
     )
+    cep_original = clientes_service.consultar_cep
+    monkeypatch.setattr(
+        clientes_service,
+        "consultar_cep",
+        lambda cep, http=None: cep_original(
+            cep, http or httpx.Client(transport=httpx.MockTransport(brasilapi_simulada))
+        ),
+    )
+    clientes_service._CACHE_CEP.clear()
     return s
 
 
@@ -637,6 +646,9 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     ok(api.put(f"/api/clientes/{TOMADOR_CPF}", json={"nome": "PESSOA FISICA"}))
     ok(api.post("/api/clientes/consultar-pendentes", json={"documentos": ["11444777000161"]}))
     ok(api.delete(f"/api/clientes/{TOMADOR_CPF}"))
+    assert ok(api.get("/api/cep/88010-000")).json()["c_mun"] == "4205407"
+    ok(api.get("/api/cep/99999999"), 404)
+    ok(api.get("/api/cep/123"), 400)
 
     # Tributações, abas e tabela
     t = ok(api.post("/api/tributacoes", json={"nome": "Outra", "dados": {"c_trib_nac": "010101"}})).json()
