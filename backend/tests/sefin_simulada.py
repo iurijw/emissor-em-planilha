@@ -572,6 +572,21 @@ BRASILAPI_CLIENTE = {
 
 def brasilapi_simulada(req: httpx.Request) -> httpx.Response:
     """BrasilAPI com um único CNPJ cadastrado; os demais não existem."""
+    if req.url.host == "brasilapi.com.br" and req.url.path.startswith("/api/cep/"):
+        if req.url.path.endswith("/88010000"):
+            return httpx.Response(
+                200,
+                json={
+                    "cep": "88010000",
+                    "state": "SC",
+                    "city": "Florianópolis",
+                    "neighborhood": "Centro",
+                    "street": "Praça XV de Novembro",
+                },
+            )
+        return httpx.Response(404, json={"message": "CEP não encontrado"})
+    if req.url.host == "viacep.com.br":
+        return httpx.Response(200, json={"erro": "true"})
     if req.url.host == "brasilapi.com.br" and req.url.path.endswith("/" + BRASILAPI_CLIENTE["cnpj"]):
         return httpx.Response(200, json=BRASILAPI_CLIENTE)
     if req.url.host == "brasilapi.com.br":

@@ -223,6 +223,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET/PUT /api/tabela`, `POST /api/tabela/importar?modo=`, `GET /api/tabela/exportar?formato=`, `POST /api/tabela/validar` | tabela |
 | `GET /api/clientes?q=`, `GET/PUT/DELETE /api/clientes/{doc}`, `POST /api/clientes/{doc}/consultar`, `POST /api/clientes/consultar-pendentes`, `POST /api/clientes/importar-xmls` | clientes |
 | `GET /api/municipios?q=` | busca IBGE |
+| `GET /api/cep/{cep}` | rua, bairro e município pelo CEP (BrasilAPI, ViaCEP de reserva) |
 | `GET /api/servicos?q=`, `GET /api/servicos/{codigo}`, `POST /api/config/conferir-servico` | lista nacional de serviços e consulta do serviço na prefeitura |
 | `GET/POST /api/tributacoes`, `PUT/DELETE /api/tributacoes/{id}` (escrita só admin) | tributações predefinidas |
 | `POST /api/tributacoes/aliquota-iss` `{tributacao_id \| null, p_aliq_iss}` (qualquer usuário, auditado) | alíquota do ISS retido pelo aviso da emissão |
@@ -577,6 +578,11 @@ emissor-em-planilha/
     Fallback: `https://publica.cnpj.ws/cnpj/{cnpj}` (CNPJá público, 3 req/min).
   - Consulta só **uma vez por CNPJ novo**, com resultado salvo no cadastro, timeout curto e sem retentativas agressivas.
     **A emissão nunca depende da API externa**: se ela falhar, o usuário completa o endereço à mão.
+  - **CEP** (2026-11-07): primeiro campo do endereço no cadastro e na nota avulsa (`components/CampoCep.tsx`). Ao
+    completar 8 dígitos digitados, `GET /api/cep/{cep}` (BrasilAPI `/api/cep/v2`, ViaCEP de reserva; município pelo
+    nome + UF na tabela IBGE, `codes.codigo_municipio`) troca rua, bairro e município pelo que vier e leva o cursor ao
+    número. CEP que chega pelo cadastro ou pela Receita não dispara a busca. Cache em memória por CEP. Serve ao CPF,
+    que não tem consulta na Receita.
   - Guardar só os campos usados na nota (razão social, endereço, e-mail, telefone); descartar
     o quadro societário (QSA) que vem na resposta.
 - **CNPJ alfanumérico** (IN RFB 2.229/2024, emitido desde jul/2026): validação, máscara e

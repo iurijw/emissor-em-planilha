@@ -118,3 +118,62 @@ def test_importar_csv_sem_cabecalho_e_valor_invalido():
 def test_importar_sem_colunas_obrigatorias():
     with pytest.raises(tabela.ImportacaoError, match="CNPJ/CPF"):
         tabela.importar("t.csv", "Nome;Valor;Descrição;Outro\nA;1;b;c\n".encode())
+
+
+# --- CEP -------------------------------------------------------------------------------------------------
+
+CEP_BRASILAPI = {
+    "cep": "88010400",
+    "state": "SC",
+    "city": "Florianópolis",
+    "neighborhood": "Centro",
+    "street": "Rua Felipe Schmidt",
+    "service": "viacep",
+}
+CEP_VIACEP = {
+    "cep": "88010-400",
+    "logradouro": "Rua Felipe Schmidt",
+    "bairro": "Centro",
+    "localidade": "Florianópolis",
+    "uf": "SC",
+    "ibge": "4205407",
+}
+
+
+@pytest.fixture(autouse=True)
+def _sem_cache_cep():
+    clientes._CACHE_CEP.clear()
+    yield
+    clientes._CACHE_CEP.clear()
+
+
+def test_cep_pela_brasilapi_com_codigo_ibge():
+    r = clientes.consultar_cep("88010-400", _http({"brasilapi": httpx.Response(200, json=CEP_BRASILAPI)}))
+    assert r.encontrado and r.fonte == "brasilapi"
+    assert (r.logradouro, r.bairro, r.c_mun) == ("Rua Felipe Schmidt", "Centro", "4205407")
+
+
+def test_cep_cai_para_viacep():
+    def cai():
+        raise httpx.ConnectError("fora do ar")
+
+    r = clientes.consultar_cep("88010400", _http({"brasilapi": cai, "viacep": httpx.Response(200, json=CEP_VIACEP)}))
+    assert r.encontrado and r.fonte == "viacep" and r.c_mun == "4205407"
+
+
+def test_cep_nao_encontrado_e_indisponivel():
+    r = clientes.consultar_cep(
+        "99999999", _http({"brasilapi": httpx.Response(404), "viacep": httpx.Response(200, json={"erro": "true"})})
+    )
+    assert not r.encontrado and r.fonte and "não encontrado" in r.erro
+    r = clientes.consultar_cep("88010401", _http({}))
+    assert not r.encontrado and r.fonte is None and "indisponíveis" in r.erro
+    assert not clientes.consultar_cep("8801").encontrado
+
+
+def test_codigo_municipio_pelo_nome():
+    from emissor.nfse import codes
+
+    assert codes.codigo_municipio("FLORIANOPOLIS", "sc") == "4205407"
+    assert codes.codigo_municipio("Herval d'Oeste", "SC") == codes.codigo_municipio("HERVAL DOESTE", "SC") is not None
+    assert codes.codigo_municipio("Florianópolis", "SP") is None

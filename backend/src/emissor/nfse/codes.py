@@ -174,6 +174,18 @@ def buscar_municipios(termo: str, limite: int = 20) -> list[dict[str, str]]:
     return res
 
 
+def codigo_municipio(nome: str | None, uf: str | None) -> str | None:
+    """Código IBGE pelo nome e UF (sem acento, caixa, hífen ou apóstrofo), como os serviços de CEP devolvem."""
+    if not nome or not uf:
+        return None
+    chave = re.sub(r"[^a-z0-9]", "", _norm(nome))
+    uf = uf.strip().upper()
+    for cod, (n, u) in _municipios().items():
+        if u == uf and re.sub(r"[^a-z0-9]", "", _norm(n)) == chave:
+            return cod
+    return None
+
+
 # --- serviços nacionais ----------------------------------------------------------------------------------
 # Lista nacional (cTribNac, Anexo B) com os NBS e cClassTrib que o Anexo VIII correlaciona a cada item da LC 116.
 # Gerada por ``scripts/servicos_nacionais.py``; quando o gov.br publicar versão nova de um dos anexos, gerar de novo.
