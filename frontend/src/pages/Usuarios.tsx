@@ -39,6 +39,7 @@ const ACAO: Record<string, string> = {
   empresa_certificado: "Trocou o certificado da empresa",
   empresa_desativada: "Desativou empresa",
   empresa_reativada: "Reativou empresa",
+  empresa_descartada: "Desistiu de empresa nova",
   certificado_guardado: "Guardou certificado para nova empresa",
   certificado_apagado: "Apagou certificado sem uso",
   clientes_compartilhados: "Passou a compartilhar os clientes entre as empresas",

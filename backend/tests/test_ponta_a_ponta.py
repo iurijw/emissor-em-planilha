@@ -184,9 +184,11 @@ def _conferir_nota(api, sim: SefinSimulada, emissao: dict, *, documento: str, va
 
 # --- várias empresas e procuração -------------------------------------------------------------------------
 
-CNPJ_FILIAL = "11444777000242"  # empresa 2: com o A1 dela
 CNPJ_ESCRITORIO = "33444555000181"  # procurador (escritório de contabilidade)
+CNPJ_FILIAL = "11444777000242"  # empresa 2: com o A1 dela
 CNPJ_PROCURACAO = "77555444000118"  # empresa 3: emitida com o certificado do escritório
+CNPJ_OUTRA = "11444777000323"  # empresa adicionada e descartada antes da configuração
+CNPJ_OUTRA = "11444777000323"  # empresa 3: emitida com o certificado do escritório
 
 
 def _como(api, empresa_id: int):
@@ -331,6 +333,18 @@ def _fluxo_varias_empresas(api, sim) -> None:
     assert api.post(f"/api/empresas/{filial['id']}/desativar").status_code == 200
     assert filial["id"] not in {e["id"] for e in api.get("/api/empresas").json()["empresas"]}
     assert api.post(f"/api/empresas/{filial['id']}/reativar").status_code == 200
+
+    # Desistir de uma empresa adicionada antes de configurá-la: some de vez, com o certificado que só ela usava.
+    assert api.post(f"/api/empresas/{filial['id']}/desistir").status_code == 409  # já configurada
+    cert = api.post(
+        "/api/certificados", files={"arquivo": ("c.pfx", _gerar_pfx(CNPJ_OUTRA, SENHA_PFX))}, data={"senha": SENHA_PFX}
+    ).json()
+    nova = api.post("/api/empresas", json={"certificado_id": cert["id"]}).json()
+    assert _como(api, nova["id"]).get("/api/status").json()["onboarding_concluido"] is False
+    assert api.post(f"/api/empresas/{nova['id']}/desistir").status_code == 200
+    assert nova["id"] not in {e["id"] for e in api.get("/api/empresas").json()["empresas"]}
+    assert nova["id"] not in {e["id"] for e in api.get("/api/empresas").json()["desativadas"]}
+    assert cert["id"] not in {c["id"] for c in api.get("/api/certificados").json()}
 
 
 # --- fluxos -----------------------------------------------------------------------------------------------

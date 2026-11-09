@@ -115,6 +115,20 @@ def desativar(empresa_id: int, admin: AdminAtual) -> dict[str, bool]:
     return {"ok": True}
 
 
+@router.post("/empresas/{empresa_id}/desistir")
+def desistir(empresa_id: int, admin: AdminAtual) -> dict[str, bool]:
+    """Desfaz a adição de uma empresa que ainda não passou pela configuração inicial."""
+    with sessao() as s:
+        cfg = obter_config(s, empresa_id)
+        doc = formatar_documento(emp_service._cnpj(cfg) or "")
+    try:
+        emp_service.desistir(empresa_id)
+    except emp_service.EmpresaError as e:
+        raise _erro(e) from e
+    auth.auditar("empresa_descartada", doc, admin)
+    return {"ok": True}
+
+
 @router.post("/empresas/{empresa_id}/reativar")
 def reativar(empresa_id: int, admin: AdminAtual) -> dict[str, bool]:
     try:

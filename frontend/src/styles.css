@@ -665,10 +665,6 @@ a { color: var(--azul-texto); }
   font-weight: 700; letter-spacing: 0.04em; text-transform: none; font-stretch: 105%;
   max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.onb__empresa {
-  margin: 0 0 10px; font: 650 12px/1 var(--f-ui); font-stretch: 118%;
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--azul-texto);
-}
 
 .secao-texto { color: var(--grafite); margin: 0 0 14px; max-width: 75ch; }
 .empresas { list-style: none; margin: 0; padding: 0; border: 1px solid var(--linha); border-radius: 8px; overflow: hidden; }
@@ -713,3 +709,10 @@ a { color: var(--azul-texto); }
 .ajuda p, .ajuda ol { margin: 8px 0 0; }
 .compartilhar { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--linha); }
 .usuario-empresas { margin-top: 3px; font-size: 12px; color: var(--grafite); }
+.onb__sair {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  margin: 0 0 28px; padding: 10px 12px; border: 1px solid var(--linha); border-radius: 8px; background: var(--folha);
+  font-size: 13px; color: var(--grafite);
+}
+.onb__sair > span { margin-right: auto; }
+.onb__sair strong { color: var(--tinta); font-weight: 650; }

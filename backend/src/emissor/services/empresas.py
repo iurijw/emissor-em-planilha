@@ -190,6 +190,39 @@ def desativar(empresa_id: int) -> None:
     empresas.limpar_cache()
 
 
+def desistir(empresa_id: int) -> None:
+    """Apaga uma empresa adicionada que ainda não terminou a configuração inicial (o administrador desistiu dela).
+
+    Só vale para empresa sem nenhum lote: com notas, ela tem de ser desativada (as notas precisam continuar guardadas).
+    """
+    from emissor.db import TABELAS_DA_EMPRESA
+
+    with sessao() as s:
+        cfg = obter_config(s, empresa_id)
+        if empresa_id == 1 or cfg.onboarding_concluido:
+            raise EmpresaError("Esta empresa já está configurada: para tirá-la da lista, desative-a.", 409)
+        if len(ativas(s)) <= 1:
+            raise EmpresaError("Esta é a única empresa ativa.")
+        tem_lote = s.exec(
+            select(Lote.id).where(Lote.empresa_id == empresa_id).execution_options(todas_empresas=True)
+        ).first()
+        if tem_lote is not None:
+            raise EmpresaError("Esta empresa já tem notas: para tirá-la da lista, desative-a.", 409)
+        cert_id = cfg.certificado_id
+        con = s.connection()
+        for t in reversed(TABELAS_DA_EMPRESA):
+            con.exec_driver_sql(f'DELETE FROM "{t}" WHERE empresa_id = ?', (empresa_id,))
+        con.exec_driver_sql("DELETE FROM cliente WHERE empresa_id = ?", (empresa_id,))
+        for ue in s.exec(select(UsuarioEmpresa).where(UsuarioEmpresa.empresa_id == empresa_id)):
+            s.delete(ue)
+        s.delete(cfg)
+        s.commit()
+    if cert_id:
+        cert_service.apagar_sem_uso(cert_id)
+    empresas.limpar_cache()
+    log.info("empresa nova descartada", extra={"empresa_id": empresa_id})
+
+
 def reativar(empresa_id: int) -> None:
     with sessao() as s:
         _conferir_limite(s)

@@ -659,3 +659,62 @@ export function EmpresasDoUsuario({ usuario, fechar }: { usuario: Usuario; fecha
     </Dialogo>
   );
 }
+
+/** No onboarding de uma empresa recém-adicionada: voltar para outra empresa ou desistir desta (apaga a empresa). */
+export function SairDaEmpresaNova({ empresaId, nome }: { empresaId: number; nome: string }) {
+  const lista = useEmpresas();
+  const [confirmar, setConfirmar] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [erro, setErro] = useState<unknown>(null);
+  const outras = (lista.data?.empresas ?? []).filter((e) => e.id !== empresaId);
+  const destino = outras.find((e) => e.onboarding_concluido) ?? outras[0];
+  if (!destino) return null;
+
+  async function desistir() {
+    setErro(null);
+    setOcupado(true);
+    try {
+      await api.post(`/api/empresas/${empresaId}/desistir`);
+      trocarEmpresa(destino!.id);
+    } catch (x) {
+      setErro(x);
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <div className="onb__sair">
+      <span>
+        Configurando <strong>{nome}</strong>
+      </span>
+      <button className="btn btn--pequeno" onClick={() => trocarEmpresa(destino.id)}>
+        Voltar para {destino.nome}
+      </button>
+      <button className="btn btn--pequeno btn--fantasma" onClick={() => setConfirmar(true)}>
+        Desistir desta empresa
+      </button>
+      {confirmar && (
+        <Dialogo
+          titulo="Desistir desta empresa?"
+          fechar={ocupado ? undefined : () => setConfirmar(false)}
+          rodape={
+            <>
+              <button className="btn" onClick={() => setConfirmar(false)} disabled={ocupado}>
+                Continuar configurando
+              </button>
+              <button className="btn btn--perigo" onClick={desistir} disabled={ocupado}>
+                {ocupado && <Spinner />} Desistir e apagar
+              </button>
+            </>
+          }
+        >
+          <p>
+            {nome} sai da lista de empresas. O certificado enviado para ela é apagado, a menos que outra empresa use o
+            mesmo. Você pode adicioná-la de novo quando quiser.
+          </p>
+          <ErroCaixa erro={erro} />
+        </Dialogo>
+      )}
+    </div>
+  );
+}

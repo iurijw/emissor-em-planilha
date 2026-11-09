@@ -4,7 +4,7 @@ import { api, type CertificadoInfo, type Cliente, type Fiscal, type Linha, type 
 import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
 import { ErroCaixa, Spinner } from "../ui";
-import { nomeEmpresa } from "../components/Empresas";
+import { nomeEmpresa, SairDaEmpresaNova } from "../components/Empresas";
 
 const PASSOS = ["Certificado digital", "Notas anteriores", "Dados da empresa", "Tributação padrão", "Ambiente e numeração", "Revisão"];
 
@@ -177,9 +177,9 @@ export function Onboarding({ status }: { status: Status }) {
       </aside>
 
       <section className="onb__conteudo">
+        {status.varias_empresas && status.empresa && <SairDaEmpresaNova empresaId={status.empresa.id} nome={nomeEmpresa(status)} />}
         {passo === 0 && (
           <>
-            {status.varias_empresas && <p className="onb__empresa">{nomeEmpresa(status)}</p>}
             <h1 className="titulo">{procuracao ? "Certificado do procurador" : "Certificado digital da empresa"}</h1>
             <p className="subtitulo">
               {procuracao
