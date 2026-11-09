@@ -612,3 +612,104 @@ a { color: var(--azul-texto); }
   .att-pop { position: fixed; top: 118px; left: 8px; right: 8px; width: auto; }
   .att-pop::before { display: none; }
 }
+
+/* ---------- Várias empresas ---------- */
+/* Crachá: a empresa que esta aba emite. A borda esquerda repete a faixa do ambiente (hachurada = homologação, preta = produção). */
+.cracha { position: relative; }
+.cracha__botao {
+  display: flex; align-items: stretch; gap: 10px; height: 40px; max-width: 280px;
+  padding: 0 10px 0 0; border: 1px solid var(--linha-forte); border-radius: var(--raio);
+  background: var(--folha); cursor: pointer; text-align: left; overflow: hidden;
+}
+.cracha__botao:hover { border-color: var(--grafite-claro); }
+.cracha__botao[aria-expanded="true"] { border-color: var(--azul); }
+.cracha__borda {
+  flex: 0 0 6px; align-self: stretch;
+  background: repeating-linear-gradient(-45deg, #8fd0ee 0 4px, var(--azul-fundo) 4px 8px);
+}
+.cracha__borda--prod { background: var(--preto); }
+.cracha__texto { display: flex; flex-direction: column; justify-content: center; min-width: 0; gap: 2px; }
+.cracha__nome { font-weight: 650; font-stretch: 105%; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cracha__doc { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--grafite); white-space: nowrap; }
+.cracha__seta { align-self: center; color: var(--grafite); font-size: 11px; }
+.cracha__lista {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 45;
+  width: min(380px, calc(100vw - 32px)); max-height: min(70vh, 520px); overflow: auto;
+  background: var(--folha); border: 1px solid var(--linha-forte); border-radius: 8px; box-shadow: var(--sombra);
+  padding: 6px; display: flex; flex-direction: column; gap: 2px;
+}
+.cracha__busca {
+  height: 34px; margin: 2px 2px 6px; padding: 0 10px;
+  border: 1px solid var(--linha-forte); border-radius: var(--raio); background: var(--papel);
+}
+.cracha__item {
+  display: flex; align-items: stretch; gap: 10px; min-height: 46px; padding: 0 10px 0 0;
+  border: 0; border-radius: var(--raio); background: none; cursor: pointer; text-align: left; overflow: hidden;
+}
+.cracha__item:hover { background: #f1f7fa; }
+.cracha__item[aria-selected="true"] { background: var(--azul-fundo); }
+.cracha__item .cracha__texto { flex: 1; padding: 6px 0; }
+.cracha__item .cracha__nome { white-space: normal; }
+.cracha__amb {
+  align-self: center; font: 600 10px/1 var(--f-ui); font-stretch: 112%;
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--grafite);
+}
+.cracha__marca {
+  padding: 1px 6px; border-radius: 999px; background: #eef3f6; color: var(--grafite);
+  font-size: 10.5px; font-weight: 550;
+}
+.cracha__vazio { margin: 8px 10px; color: var(--grafite); }
+.cracha__gerenciar { margin-top: 4px; padding: 10px; border-top: 1px solid var(--linha); font-weight: 550; text-decoration: none; }
+.cracha__gerenciar:hover { text-decoration: underline; }
+.faixa-amb__empresa {
+  font-weight: 700; letter-spacing: 0.04em; text-transform: none; font-stretch: 105%;
+  max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.onb__empresa {
+  margin: 0 0 10px; font: 650 12px/1 var(--f-ui); font-stretch: 118%;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--azul-texto);
+}
+
+.secao-texto { color: var(--grafite); margin: 0 0 14px; max-width: 75ch; }
+.empresas { list-style: none; margin: 0; padding: 0; border: 1px solid var(--linha); border-radius: 8px; overflow: hidden; }
+.empresas__item { display: flex; align-items: stretch; gap: 14px; padding: 0 14px 0 0; background: var(--folha); }
+.empresas__item + .empresas__item { border-top: 1px solid var(--linha); }
+.empresas__item > .cracha__borda { flex-basis: 5px; }
+.empresas__corpo { flex: 1; min-width: 0; padding: 12px 0; }
+.empresas__linha { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.empresas__linha strong { font-weight: 650; font-size: 15px; }
+.empresas__aqui { font-size: 11.5px; color: var(--azul-texto); font-weight: 600; }
+.empresas__meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; color: var(--grafite); font-size: 13px; }
+.empresas__pendente { color: var(--aviso); font-weight: 550; }
+.empresas__acoes { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; padding: 10px 0; }
+.empresas__desativadas { margin-top: 16px; color: var(--grafite); }
+.empresas__desativadas summary { cursor: pointer; font-weight: 550; }
+.empresas__desativadas ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 640px) {
+  .empresas__item { flex-wrap: wrap; }
+  .empresas__acoes { width: 100%; justify-content: flex-start; padding: 0 0 12px 19px; }
+  .cracha__botao { max-width: 180px; }
+}
+
+/* Adicionar empresa: escolha do modo e formulário */
+.modos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.modo {
+  display: flex; flex-direction: column; gap: 6px; padding: 16px; text-align: left; cursor: pointer;
+  border: 1px solid var(--linha-forte); border-radius: 8px; background: var(--folha);
+  transition: border-color 0.12s, background 0.12s;
+}
+.modo:hover { border-color: var(--azul); background: #f6fbfd; }
+.modo strong { font-weight: 650; font-size: 15px; }
+.modo span { color: var(--grafite); font-size: 13px; }
+.pilha { display: flex; flex-direction: column; gap: 14px; }
+.campo-grupo { border: 1px solid var(--linha); border-radius: 8px; padding: 10px 14px 12px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.campo-grupo legend { padding: 0 4px; font-weight: 600; font-size: 13px; }
+.opcao { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.opcao input { margin-top: 3px; accent-color: var(--azul); }
+.opcao > span { display: flex; flex-direction: column; gap: 2px; }
+.opcao small { color: var(--grafite); font-size: 12.5px; }
+.ajuda { border-left: 3px solid var(--azul); padding: 2px 0 2px 12px; color: var(--grafite); }
+.ajuda summary { cursor: pointer; color: var(--azul-texto); font-weight: 550; }
+.ajuda p, .ajuda ol { margin: 8px 0 0; }
+.compartilhar { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--linha); }
+.usuario-empresas { margin-top: 3px; font-size: 12px; color: var(--grafite); }

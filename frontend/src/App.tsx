@@ -13,12 +13,13 @@ import { Onboarding } from "./pages/Onboarding";
 import { ErroCaixa } from "./ui";
 import { FaixaAssinatura, useAssinatura } from "./components/Assinatura";
 import { Atualizacoes } from "./components/Atualizacoes";
+import { nomeEmpresa, SeletorEmpresa } from "./components/Empresas";
 
 const ROTAS = [
   { id: "emitir", rotulo: "Emitir notas", admin: false },
   { id: "emissoes", rotulo: "Emissões", admin: false },
   { id: "clientes", rotulo: "Clientes", admin: false },
-  { id: "configuracoes", rotulo: "Configurações", admin: true },
+  { id: "configuracoes", rotulo: "Configurações", admin: "empresa" },
   { id: "usuarios", rotulo: "Usuários", admin: true },
 ] as const;
 type Rota = (typeof ROTAS)[number]["id"] | "conta";
@@ -75,6 +76,7 @@ export function FaixaAmbiente({ status, admin = true }: { status: Status; admin?
   return (
     <div className={`faixa-amb ${prod ? "faixa-amb--prod" : "faixa-amb--homolog"}`} role="note">
       <span>{prod ? "Produção" : "Homologação"}</span>
+      {status.varias_empresas && <span className="faixa-amb__empresa">{nomeEmpresa(status)}</span>}
       <span className="faixa-amb__dica">
         {prod
           ? "as notas emitidas têm validade jurídica"
@@ -110,6 +112,8 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
   const status = useStatus();
   const assinatura = useAssinatura();
   const admin = usuario.papel === "admin";
+  // Administrador da empresa desta aba (o da instalação é admin em todas): certificado, configurações e tributações.
+  const adminEmpresa = admin || usuario.papel_empresa === "admin";
   // Suspensa (teste sem aceite, cancelada, mensalidade não paga): a faixa da assinatura explica e oferece
   // "Continuar e assinar" no lugar do aviso comum.
   const testeEncerrado =
@@ -130,7 +134,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
     );
   const s = status.data;
   if (!s.onboarding_concluido) {
-    if (admin)
+    if (adminEmpresa)
       return (
         <>
           <FaixaAssinatura />
@@ -142,21 +146,24 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
         <FaixaAssinatura />
         <div className="info-caixa">
           <span>
-            O sistema ainda não foi configurado. Peça a um administrador para concluir a configuração inicial (certificado digital,
-            dados da empresa e tributação padrão).{" "}
+            {s.varias_empresas ? `A empresa ${nomeEmpresa(s)} ainda não foi configurada.` : "O sistema ainda não foi configurado."} Peça
+            a um administrador para concluir a configuração inicial (certificado digital, dados da empresa e tributação padrão).{" "}
           </span>
         </div>
-        <p><MenuUsuario usuario={usuario} urlAssinatura={sessao.url_assinatura} /></p>
+        <p style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <SeletorEmpresa admin={false} />
+          <MenuUsuario usuario={usuario} urlAssinatura={sessao.url_assinatura} />
+        </p>
       </div>
     );
   }
-  const rotas = ROTAS.filter((r) => admin || !r.admin);
+  const rotas = ROTAS.filter((r) => !r.admin || (r.admin === "empresa" ? adminEmpresa : admin));
   const rotaVisivel = rota === "conta" || rotas.some((r) => r.id === rota) ? rota : "emitir";
 
   const cert = s.certificado;
   return (
     <>
-      <FaixaAmbiente status={s} admin={admin} />
+      <FaixaAmbiente status={s} admin={adminEmpresa} />
       {sessao.suspenso && !testeEncerrado && (
         <div className="aviso faixa-suspenso" role="alert">
           <AvisoSuspenso sessao={sessao} />
@@ -175,15 +182,16 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </a>
           ))}
         </nav>
+        <SeletorEmpresa admin={admin} />
         <div className="topo__info">
-          {s.prestador.cnpj && (
+          {s.prestador.cnpj && !s.varias_empresas && (
             <span>
               Prestador <strong className="num">{formatarDocumento(s.prestador.cnpj)}</strong>
             </span>
           )}
           {cert && !cert.erro && (
-            <span title={`Certificado de ${cert.titular}`}>
-              Certificado até <strong>{new Date(cert.valido_ate).toLocaleDateString("pt-BR")}</strong>
+            <span title={`Certificado de ${cert.titular}${s.empresa.acesso === "procuracao" ? " (por procuração)" : ""}`}>
+              {s.empresa.acesso === "procuracao" ? "Procuração até" : "Certificado até"} <strong>{new Date(cert.valido_ate).toLocaleDateString("pt-BR")}</strong>
             </span>
           )}
         </div>
@@ -201,7 +209,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
                     <li key={p}>{p}</li>
                   ))}
                 </ul>
-                {admin ? <a href="#/configuracoes">Abrir configurações</a> : <span>Fale com um administrador.</span>}
+                {adminEmpresa ? <a href="#/configuracoes">Abrir configurações</a> : <span>Fale com um administrador.</span>}
               </div>
             </div>
           )}
@@ -223,10 +231,10 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </div>
           </div>
         )}
-        {rotaVisivel === "emitir" && <Emitir status={s} admin={admin} />}
+        {rotaVisivel === "emitir" && <Emitir status={s} admin={adminEmpresa} />}
         {rotaVisivel === "emissoes" && <Emissoes />}
         {rotaVisivel === "clientes" && <Clientes />}
-        {rotaVisivel === "configuracoes" && <Configuracoes status={s} />}
+        {rotaVisivel === "configuracoes" && <Configuracoes status={s} adminInstancia={admin} />}
         {rotaVisivel === "usuarios" && <Usuarios meuId={usuario.id} />}
         {rotaVisivel === "conta" && <MinhaConta />}
       </main>

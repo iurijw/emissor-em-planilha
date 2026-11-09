@@ -32,6 +32,7 @@ from emissor.nfse.models import CAMPOS_TRIBUTACAO, ConfigFiscal, normalizar_docu
 from emissor.nfse.xml_reader import NFSeDoc, NfseXmlError, extrair_padroes, extrair_tomador
 from emissor.services import certificado as cert_service
 from emissor.services import clientes as cli_service
+from emissor.services import empresas as emp_service
 from emissor.services import parametros, variaveis
 from emissor.services import tributacao as trib_service
 from emissor.services.emissao import verificar_prontidao, worker
@@ -58,6 +59,7 @@ def status() -> dict[str, Any]:
         cfg = obter_config(s)
         fiscal = cfg.config_fiscal()
         problemas = verificar_prontidao(s)
+        nome_empresa = emp_service.empresa_dict(s, cfg)["nome"]
     cert = _cert_dict()
     avisos = []
     if cert and not cert.get("erro") and 0 <= cert["dias_para_vencer"] <= 30:
@@ -74,7 +76,7 @@ def status() -> dict[str, Any]:
         },
         "empresa": {
             "id": cfg.id,
-            "nome": cfg.nome,
+            "nome": nome_empresa,
             "cnpj": cfg.cnpj or (fiscal.cnpj if fiscal else None),
             "acesso": cfg.acesso or "certificado",
         },

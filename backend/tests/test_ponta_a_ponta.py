@@ -18,10 +18,11 @@ import pytest
 from fastapi.testclient import TestClient
 from lxml import etree
 from openpyxl import load_workbook
+from sqlmodel import select
 
 from emissor import auth, config
 from emissor.api.app import create_app
-from emissor.db import agora
+from emissor.db import Emissao, agora, sessao
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient, gzip_b64, ungzip_b64
 from emissor.nfse.constants import NS_NFSE
@@ -259,6 +260,9 @@ def _fluxo_varias_empresas(api, sim) -> None:
             .content
         )
         assert doc.dps("prest/CNPJ") == cnpj
+        with sessao() as s:
+            caminho = s.exec(select(Emissao).where(Emissao.id == e["id"]).execution_options(todas_empresas=True)).one()
+            assert f"/homologacao/{cnpj}/" in caminho.xml_path  # filial com o mesmo nome não sobrescreve
     nota_proc = sim.notas[np_["chave_acesso"]]
     assert Certificado(escritorio, SENHA_PFX).cert_pem() == nota_proc.cert_prestador_pem  # assinada pelo procurador
 
@@ -313,7 +317,6 @@ def _fluxo_varias_empresas(api, sim) -> None:
 
     r = _como(api, procurada["id"]).put(f"/api/empresas/{procurada['id']}", json={"nome": "Cliente do escritório"})
     assert r.json()["nome"] == "Cliente do escritório"
-    assert _como(api, 1).put(f"/api/empresas/{procurada['id']}", json={"nome": "x"}).status_code == 404
 
     # Certificados guardados, troca de certificado, desativar e reativar.
     certs = api.get("/api/certificados").json()

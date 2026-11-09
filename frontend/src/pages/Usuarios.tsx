@@ -2,6 +2,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, type Papel, type RegistroAuditoria, type Usuario } from "../api";
+import { EmpresasDoUsuario, useEmpresas } from "../components/Empresas";
 import { copiar, Dialogo, ErroCaixa, Spinner, useToast } from "../ui";
 
 const PAPEL: Record<Papel, string> = { admin: "Administrador", operador: "Operador" };
@@ -33,6 +34,16 @@ const ACAO: Record<string, string> = {
   assinatura_nao_continuar: "Disse que não vai continuar com a assinatura",
   atualizacao_pedida: "Pediu a atualização do sistema",
   atualizacao_automatica: "Alterou a atualização automática",
+  empresa_criada: "Adicionou empresa",
+  empresa_alterada: "Alterou empresa",
+  empresa_certificado: "Trocou o certificado da empresa",
+  empresa_desativada: "Desativou empresa",
+  empresa_reativada: "Reativou empresa",
+  certificado_guardado: "Guardou certificado para nova empresa",
+  certificado_apagado: "Apagou certificado sem uso",
+  clientes_compartilhados: "Passou a compartilhar os clientes entre as empresas",
+  clientes_separados: "Separou os clientes por empresa",
+  usuario_empresas: "Alterou as empresas de usuário",
 };
 
 function dataHora(s: string | null) {
@@ -46,7 +57,11 @@ export function Usuarios({ meuId }: { meuId: number }) {
   const [convidando, setConvidando] = useState(false);
   const [link, setLink] = useState<{ email: string; link: string } | null>(null);
   const [redefinir, setRedefinir] = useState<Usuario | null>(null);
+  const [empresasDe, setEmpresasDe] = useState<Usuario | null>(null);
   const [erro, setErro] = useState<unknown>(null);
+  const empresas = useEmpresas();
+  const varias = (empresas.data?.empresas.length ?? 0) > 1;
+  const nomeEmpresa = (id: number) => empresas.data?.empresas.find((e) => e.id === id)?.nome ?? `Empresa ${id}`;
 
   async function alterar(u: Usuario, corpo: Partial<Pick<Usuario, "papel" | "ativo">>, msg: string) {
     setErro(null);
@@ -102,6 +117,20 @@ export function Usuarios({ meuId }: { meuId: number }) {
                     <option value="admin">{PAPEL.admin}</option>
                     <option value="operador">{PAPEL.operador}</option>
                   </select>
+                  {varias && (
+                    <div className="usuario-empresas">
+                      {u.papel === "admin" ? (
+                        "Todas as empresas"
+                      ) : (
+                        <>
+                          {u.empresas.length === 0
+                            ? "Nenhuma empresa"
+                            : u.empresas.map((e) => `${nomeEmpresa(e.empresa_id)}${e.papel === "admin" ? " (admin)" : ""}`).join(", ")}{" "}
+                          <button className="btn-texto" onClick={() => setEmpresasDe(u)}>Alterar</button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </td>
                 <td>
                   {!u.ativo ? "Desativado" : u.convite_pendente ? "Convite pendente" : u.bloqueado ? "Bloqueado (tentativas)" : "Ativo"}
@@ -139,6 +168,7 @@ export function Usuarios({ meuId }: { meuId: number }) {
           }}
         />
       )}
+      {empresasDe && <EmpresasDoUsuario usuario={empresasDe} fechar={() => setEmpresasDe(null)} />}
       {redefinir && (
         <Redefinir
           usuario={redefinir}

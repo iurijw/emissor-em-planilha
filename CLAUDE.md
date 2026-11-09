@@ -240,6 +240,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
 | `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}`, `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
+| `GET/POST /api/empresas`, `PUT /api/empresas/{id}`, `POST /api/empresas/{id}/usar-certificado\|desativar\|reativar\|conferir-procuracao`, `GET/POST /api/certificados`, `DELETE /api/certificados/{id}`, `GET/PUT /api/instancia/clientes`, `PUT /api/usuarios/{id}/empresas` | várias empresas (ver a seção) |
 
 ### Frontend (F4)
 
@@ -479,6 +480,44 @@ digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 d�
   (substitui o "o tomador retém" de 2026-10-12); IBS/CBS com CST e cClassTrib em listas (sugestões do Anexo VIII
   primeiro); valor aproximado dos tributos; "Prévia dos valores da NFS-e" numa nota de exemplo. Nada mudou nos dados
   (`DadosTributacao`), só a tela. A tabela e o resto da nota avulsa ficaram como estavam (escolha do Iuri).
+
+### Várias empresas e procuração (2026-11-09, branch `claude/project-thread-dvqygz`)
+
+Plano: https://claude.ai/artifact/3YFs7Jy7NUZcdQZRGfRYr8. Pronto para a instalação própria; **desligado na hospedagem**
+até o Iuri pedir (`empresas.limite()`: `EMISSOR_LIMITE_EMPRESAS`, senão 1 com `FLY_APP_NAME`, senão sem limite).
+- **Empresa = linha de `configuracao`** (a 1 é a de antes): `cnpj`, `nome`, `ativa`, `acesso` (`certificado` |
+  `procuracao`), `certificado_id`. Numeração, série, ambiente e padrões fiscais continuam ali, então já são por empresa.
+- **Isolamento** (`emissor/empresas.py`): `Aba`, `Emissao`, `EventoNFSe`, `LinhaTabela`, `Lote`, `Tributacao` e
+  `Cliente` têm `empresa_id`; o `do_orm_execute` põe `with_loader_criteria` em toda consulta (inclusive `count` com
+  `select_from`, pelas tabelas do FROM) e o `before_flush` carimba registros novos. Ver todas: `.execution_options(
+  todas_empresas=True)`. Sem empresa no contexto com mais de uma empresa → `SemEmpresa` (400), nunca dados da 1.
+- **Empresa da requisição:** cabeçalho `X-Empresa` (ou `?empresa=` em links de download), conferido no middleware
+  contra `usuario_empresa` (papel `admin` | `operador` por empresa); o administrador da instalação acessa todas. O
+  navegador guarda a empresa por aba (`sessionStorage`) e a última em `localStorage`. Worker e sincronização usam
+  `empresas.usar(id)`; o lote leva o `empresa_id`. Rotas de administrador da empresa: `AdminEmpresa`; de empresas,
+  certificados guardados, usuários e compartilhamento: `AdminAtual` (administrador da instalação).
+- **Certificados** (`services/certificado.py`): vários registros `certificado`, cifrados com a mesma chave Fernet; um
+  certificado de procurador serve a várias empresas. Trocar o certificado de uma empresa que divide o do procurador
+  cria um registro próprio. Certificados enviados que não viraram empresa em 60 min são apagados.
+- **Procuração:** a DPS leva o CNPJ da empresa em `prest`; assinatura e mTLS com o certificado do procurador (e-CNPJ
+  ou e-CPF); no cancelamento `CNPJAutor`/`CPFAutor` = dono do certificado; a distribuição do ADN usa `cnpjConsulta` =
+  CNPJ da empresa (sem procuração → E2245, que o "Conferir procuração" mostra). **Não conferido na Sefin/ADN reais**
+  (procuração para a NFS-e por API vale desde 01/11/2026): validar em Produção Restrita antes de oferecer.
+- **Clientes:** por empresa (PK `documento` + `empresa_id`); opção da instalação `instancia.compartilhar_clientes`
+  junta tudo na empresa 0 (cliente repetido: vale o da empresa escolhida, campos vazios completados pelos outros) e,
+  ao desligar, copia o cadastro para cada empresa.
+- **Migração** (`db._migrar_empresas`, uma vez, marcada em `migracao`): cópia do banco em
+  `data/backups/emissor-antes-varias-empresas-*.db`, `empresa_id = 1` em tudo, `cliente` recriada com a PK nova, índice
+  único de `tributacao.nome` removido, operadores ganham acesso à empresa 1. Testada a partir de um banco antigo
+  (`test_migracao_do_banco_de_uma_empresa`).
+- XML das empresas além da 1 em `data/xml/<ambiente>/<CNPJ>/AAAA/MM` (filiais com o mesmo nome e número de nota
+  sobrescreveriam).
+- Tela: crachá da empresa no topo (`components/Empresas.tsx`, borda hachurada = homologação, preta = produção; some com
+  uma empresa só), nome da empresa na faixa do ambiente e na confirmação da emissão, Configurações → Empresas
+  (adicionar por A1 ou por procuração, editar, trocar certificado, conferir procuração, desativar/reativar,
+  compartilhar clientes) e empresas de cada usuário em Usuários.
+- **Preço na hospedagem (quando habilitar):** até 3 CNPJs no mesmo preço; cada um a mais R$ 14,90/mês. O app só lê
+  `EMISSOR_LIMITE_EMPRESAS`; a cobrança fica no painel (repositório da hospedagem).
 
 ### Versão e atualizações (2026-10-31)
 
@@ -785,4 +824,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-03 | Licença **AGPL-3.0-only** (`LICENSE`, `pyproject.toml`, `package.json`), sem arquivo de marca; `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` (falhas por e-mail, não em relato público) e modelo de PR | Escolha do Iuri: uso livre e sem garantia; quem hospedar uma versão modificada precisa abrir o código dela |
 | 2026-11-05 | Recusa da Sefin na homologação leva um `aviso` (cadastro da Produção Restrita incompleto; erros de cadastro como E0120/E0084 podem não acontecer em produção), também nas emissões já gravadas (`Emissao.erro()`); dicas para E0120 e E0084 | Pedido do Iuri: um cliente ficou parado na homologação com E0120/E0084 e outro só emitiu depois de passar a produção |
 | 2026-11-06 | Dicas para E0116, E1235 e para os erros do leiaute conferido no sistema (pelo campo); dica de inscrição municipal antes da de município; notas já recusadas mostram a dica atual; endereço com caractere nulo responde 404 | Pedido do Iuri: explicar melhor os erros vistos nos clientes (E0116 em produção, E0120 com dica de município errada); robôs geravam centenas de erros 500 no log |
+| 2026-11-09 | Várias empresas (CNPJs) na mesma instalação, cada uma com o A1 dela ou por procuração (certificado do procurador); isolamento por filtro automático do ORM; clientes por empresa com opção de compartilhar; desligado na hospedagem até o Iuri pedir (lá: 3 CNPJs no preço, R$ 14,90 por CNPJ a mais) | Pedido do Iuri: escritórios emitem por vários clientes; a procuração eletrônica para a NFS-e por API passou a valer em 01/11/2026 |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

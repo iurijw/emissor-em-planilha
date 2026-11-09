@@ -4,6 +4,7 @@ import { api, type CertificadoInfo, type Cliente, type Fiscal, type Linha, type 
 import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
 import { ErroCaixa, Spinner } from "../ui";
+import { nomeEmpresa } from "../components/Empresas";
 
 const PASSOS = ["Certificado digital", "Notas anteriores", "Dados da empresa", "Tributação padrão", "Ambiente e numeração", "Revisão"];
 
@@ -74,6 +75,7 @@ export function CartaoCertificado({ info }: { info: CertificadoInfo }) {
 export function Onboarding({ status }: { status: Status }) {
   const qc = useQueryClient();
   const [passo, setPasso] = useState(0);
+  const procuracao = status.empresa?.acesso === "procuracao";
   const [cert, setCert] = useState<CertificadoInfo | null>(status.certificado?.erro ? null : status.certificado);
   const [arquivoPfx, setArquivoPfx] = useState<File | null>(null);
   const [senha, setSenha] = useState("");
@@ -177,17 +179,19 @@ export function Onboarding({ status }: { status: Status }) {
       <section className="onb__conteudo">
         {passo === 0 && (
           <>
-            <h1 className="titulo">Certificado digital da empresa</h1>
+            {status.varias_empresas && <p className="onb__empresa">{nomeEmpresa(status)}</p>}
+            <h1 className="titulo">{procuracao ? "Certificado do procurador" : "Certificado digital da empresa"}</h1>
             <p className="subtitulo">
-              O certificado A1 (arquivo .pfx ou .p12) assina cada nota e autentica o sistema na Sefin Nacional. Ele fica
-              guardado neste servidor; você não precisará enviá-lo de novo.
+              {procuracao
+                ? "As notas desta empresa saem assinadas com o certificado de quem tem a procuração eletrônica dela. O CNPJ do certificado é diferente do da empresa, e isso está certo."
+                : "O certificado A1 (arquivo .pfx ou .p12) assina cada nota e autentica o sistema na Sefin Nacional. Ele fica guardado neste servidor; você não precisará enviá-lo de novo."}
             </p>
             <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 16 }}>
               {cert ? (
                 <div className="folha">
                   <h3 className="secao-titulo">Certificado carregado</h3>
                   <CartaoCertificado info={cert} />
-                  {cert.aviso && <div className="aviso" style={{ marginTop: 12 }}>{cert.aviso}</div>}
+                  {cert.aviso && !procuracao && <div className="aviso" style={{ marginTop: 12 }}>{cert.aviso}</div>}
                   <button className="btn btn--pequeno" style={{ marginTop: 14 }} onClick={() => setCert(null)}>
                     Trocar certificado
                   </button>

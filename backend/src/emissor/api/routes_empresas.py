@@ -79,8 +79,9 @@ def alterar(empresa_id: int, entrada: AlterarEmpresa, admin: AdminEmpresa) -> di
 
 
 def _exigir_mesma(empresa_id: int, acesso) -> None:
-    """Rotas de uma empresa só valem para a empresa da requisição (a permissão foi conferida no middleware)."""
-    if acesso.empresa_id != empresa_id:
+    """Rotas de uma empresa valem para a empresa da requisição (a permissão foi conferida no middleware); o
+    administrador da instalação pode em qualquer uma."""
+    if acesso.empresa_id != empresa_id and not acesso.admin:
         raise HTTPException(404, "Empresa não encontrada ou sem acesso para o seu usuário.")
 
 

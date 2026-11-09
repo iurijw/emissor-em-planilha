@@ -120,6 +120,52 @@ export interface Status {
   problemas: string[];
   avisos: string[];
   lote_em_andamento: string | null;
+  empresa: { id: number; nome: string | null; cnpj: string | null; acesso: AcessoEmpresa };
+  varias_empresas: boolean;
+}
+
+/** certificado = A1 da própria empresa; procuracao = certificado de outro CNPJ/CPF com procuração eletrônica. */
+export type AcessoEmpresa = "certificado" | "procuracao";
+
+export interface Empresa {
+  id: number;
+  nome: string;
+  nome_definido: string | null;
+  cnpj: string | null;
+  acesso: AcessoEmpresa;
+  ambiente: Ambiente;
+  onboarding_concluido: boolean;
+  papel: Papel | null;
+  certificado: {
+    id: number;
+    titular: string;
+    cnpj: string | null;
+    cpf: string | null;
+    valido_ate: string;
+    dias_para_vencer: number;
+    vencido: boolean;
+  } | null;
+}
+
+export interface ListaEmpresas {
+  empresas: Empresa[];
+  atual: number | null;
+  limite: number | null;
+  disponivel: boolean;
+  pode_adicionar: boolean;
+  compartilhar_clientes: boolean;
+  desativadas: { id: number; nome: string; cnpj: string | null }[];
+}
+
+export interface CertificadoGuardado {
+  id: number;
+  titular: string;
+  cnpj: string | null;
+  cpf: string | null;
+  emissor: string;
+  valido_ate: string;
+  vencido: boolean;
+  empresas: number[];
 }
 
 export type Papel = "admin" | "operador";
@@ -130,6 +176,9 @@ export interface UsuarioSessao {
   nome: string;
   papel: Papel;
   totp_ativo: boolean;
+  empresa_id: number | null;
+  /** Papel na empresa desta aba (o administrador da instalação é admin em todas). */
+  papel_empresa: Papel | null;
 }
 
 export interface Sessao {
@@ -153,6 +202,7 @@ export interface Usuario {
   bloqueado: boolean;
   criado_em: string | null;
   ultimo_login: string | null;
+  empresas: { empresa_id: number; papel: Papel }[];
 }
 
 export interface RegistroAuditoria {
@@ -414,6 +464,16 @@ async function tratar<T>(resp: Response): Promise<T> {
     }
     // Sessão expirada ou encerrada em outro lugar: o App volta para a tela de login.
     if (resp.status === 401 && corpo?.login) window.dispatchEvent(new Event("emissor:sessao-expirada"));
+    // Empresa guardada nesta aba que o usuário não acessa mais (desativada ou acesso retirado): volta à padrão.
+    if (empresaAtual() && resp.status === 404 && String(corpo?.mensagem || "").startsWith("Empresa não encontrada")) {
+      try {
+        sessionStorage.removeItem(CHAVE_EMPRESA);
+        localStorage.removeItem(CHAVE_EMPRESA);
+        location.reload();
+      } catch {
+        /* nada */
+      }
+    }
     const erro = new ApiError(resp.status, mensagem, detalhes, rid, sefin);
     erro.corpo = corpo;
     throw erro;
@@ -422,12 +482,52 @@ async function tratar<T>(resp: Response): Promise<T> {
   return (await resp.blob()) as unknown as T;
 }
 
+// --- empresa da aba do navegador ---------------------------------------------------------------------------
+// Cada aba guarda a sua empresa (sessionStorage); a última escolhida vale para as abas novas (localStorage).
+const CHAVE_EMPRESA = "emissor:empresa";
+
+export function empresaAtual(): string | null {
+  try {
+    return sessionStorage.getItem(CHAVE_EMPRESA) || localStorage.getItem(CHAVE_EMPRESA);
+  } catch {
+    return null;
+  }
+}
+
+/** Troca a empresa desta aba e recarrega a página (tabela, notas e configurações passam a ser as dela). */
+export function trocarEmpresa(id: number) {
+  try {
+    sessionStorage.setItem(CHAVE_EMPRESA, String(id));
+    localStorage.setItem(CHAVE_EMPRESA, String(id));
+  } catch {
+    /* sem armazenamento: fica a empresa padrão do servidor */
+  }
+  location.hash = "#/emitir";
+  location.reload();
+}
+
+/** Cabeçalhos de toda chamada: a empresa desta aba (o servidor confere se o usuário tem acesso). */
+function cabecalhos(json: boolean): Record<string, string> {
+  const h: Record<string, string> = {};
+  const emp = empresaAtual();
+  if (emp) h["X-Empresa"] = emp;
+  if (json) h["Content-Type"] = "application/json";
+  return h;
+}
+
+/** Link direto (abrir PDF, ZIP baixado pelo navegador) com a empresa desta aba. */
+export function comEmpresa(url: string): string {
+  const emp = empresaAtual();
+  if (!emp) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}empresa=${encodeURIComponent(emp)}`;
+}
+
 async function req<T>(metodo: string, url: string, corpo?: unknown): Promise<T> {
   let resp: Response;
   try {
     resp = await fetch(url, {
       method: metodo,
-      headers: corpo instanceof FormData || corpo === undefined ? undefined : { "Content-Type": "application/json" },
+      headers: cabecalhos(!(corpo instanceof FormData || corpo === undefined)),
       body: corpo instanceof FormData ? corpo : corpo === undefined ? undefined : JSON.stringify(corpo),
     });
   } catch {
@@ -449,7 +549,7 @@ export async function baixar(url: string, corpo?: unknown): Promise<void> {
   try {
     resp = await fetch(url, {
       method: corpo ? "POST" : "GET",
-      headers: corpo ? { "Content-Type": "application/json" } : undefined,
+      headers: cabecalhos(Boolean(corpo)),
       body: corpo ? JSON.stringify(corpo) : undefined,
     });
   } catch {

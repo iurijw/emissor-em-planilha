@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, baixar, COM_ARQUIVOS, type Emissao, type EstadoSincronizacao, type ListaEmissoes } from "../api";
+import { api, baixar, COM_ARQUIVOS, comEmpresa, type Emissao, type EstadoSincronizacao, type ListaEmissoes } from "../api";
 import { CancelarNotas } from "../components/CancelarNotas";
 import { dataHora, formatarDocumento, haQuanto, moeda } from "../format";
 import { AmbChip, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
@@ -96,7 +96,7 @@ export function Emissoes() {
       p.delete("por_pagina");
       p.set("conteudo", conteudo);
       const a = document.createElement("a");
-      a.href = `/api/emissoes/zip?${p}`;
+      a.href = comEmpresa(`/api/emissoes/zip?${p}`);
       a.download = "";
       document.body.appendChild(a);
       a.click();
@@ -472,7 +472,7 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
                 <button className="btn" onClick={atualizarSituacao} disabled={consultando} title="Consulta os eventos desta nota no Ambiente Nacional">
                   {consultando && <Spinner />} Atualizar situação
                 </button>
-                <a className="btn" href={`/api/emissoes/${e.id}/pdf?inline=true`} target="_blank" rel="noreferrer">Abrir PDF</a>
+                <a className="btn" href={comEmpresa(`/api/emissoes/${e.id}/pdf?inline=true`)} target="_blank" rel="noreferrer">Abrir PDF</a>
                 <button className="btn" onClick={() => baixar(`/api/emissoes/${e.id}/xml`).catch((x) => toast(x.message, "erro"))}>Baixar XML</button>
               </>
             )}

@@ -640,7 +640,9 @@ def finalizar_autorizada(emissao_id: int, r: ResultadoEmissao) -> Emissao:
         data = e.dh_emissao or agora()
         prestador = doc.emitente_nome or "PRESTADOR"
         base = arquivos.nome_base(data, doc.numero, prestador, e.tomador_nome, e.valor)
-        xml_path = arquivos.caminho_xml(e.ambiente, data, base)
+        xml_path = arquivos.caminho_xml(
+            e.ambiente, data, base, e.empresa_id, doc.dps("prest/CNPJ") or doc.t("emit/CNPJ")
+        )
         xml_path.write_bytes(r.nfse_xml)
         e.status = "autorizada"
         e.chave_acesso = r.chave_acesso
