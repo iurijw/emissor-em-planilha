@@ -784,6 +784,13 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     ):
         assert api.post(caminho, json=corpo).status_code in (400, 404, 410)
     ok(api.post(f"/api/usuarios/{op_id}/redefinir", json={}))
+    # Excluir: só depois de desativado; a auditoria guarda o e-mail.
+    ok(api.post("/api/usuarios", json={"email": "sai@exemplo.com.br", "nome": "Sai"}))
+    sai_id = next(u["id"] for u in ok(api.get("/api/usuarios")).json() if u["email"] == "sai@exemplo.com.br")
+    ok(api.delete(f"/api/usuarios/{sai_id}"), 409)
+    ok(api.put(f"/api/usuarios/{sai_id}", json={"ativo": False}))
+    ok(api.delete(f"/api/usuarios/{sai_id}"))
+    assert sai_id not in {u["id"] for u in ok(api.get("/api/usuarios")).json()}
     ok(api.get("/api/auditoria"))
     # Assinatura da hospedagem: sem o painel (instalação própria) não há nada a confirmar.
     assert ok(api.get("/api/assinatura")).json() == {"disponivel": False, "pode_confirmar": True}

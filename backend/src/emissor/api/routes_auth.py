@@ -247,6 +247,12 @@ def alterar_usuario(usuario_id: int, entrada: AlterarUsuario, admin: AdminAtual)
     return auth.alterar_usuario(admin, usuario_id, entrada.papel, entrada.ativo, entrada.nome)
 
 
+@router.delete("/usuarios/{usuario_id}")
+def excluir_usuario(usuario_id: int, admin: AdminAtual) -> dict[str, bool]:
+    auth.excluir_usuario(admin, usuario_id)
+    return {"ok": True}
+
+
 class Redefinir(BaseModel):
     remover_2fa: bool = False
 

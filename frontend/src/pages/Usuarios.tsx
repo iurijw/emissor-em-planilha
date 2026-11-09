@@ -40,6 +40,7 @@ const ACAO: Record<string, string> = {
   empresa_desativada: "Desativou empresa",
   empresa_reativada: "Reativou empresa",
   empresa_descartada: "Desistiu de empresa nova",
+  usuario_excluido: "Excluiu usuário",
   certificado_guardado: "Guardou certificado para nova empresa",
   certificado_apagado: "Apagou certificado sem uso",
   clientes_compartilhados: "Passou a compartilhar os clientes entre as empresas",
@@ -59,6 +60,8 @@ export function Usuarios({ meuId }: { meuId: number }) {
   const [link, setLink] = useState<{ email: string; link: string } | null>(null);
   const [redefinir, setRedefinir] = useState<Usuario | null>(null);
   const [empresasDe, setEmpresasDe] = useState<Usuario | null>(null);
+  const [excluir, setExcluir] = useState<Usuario | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
   const [erro, setErro] = useState<unknown>(null);
   const empresas = useEmpresas();
   const varias = (empresas.data?.empresas.length ?? 0) > 1;
@@ -73,6 +76,23 @@ export function Usuarios({ meuId }: { meuId: number }) {
       qc.invalidateQueries({ queryKey: ["auditoria"] });
     } catch (e) {
       setErro(e);
+    }
+  }
+
+  async function confirmarExclusao(u: Usuario) {
+    setErro(null);
+    setExcluindo(true);
+    try {
+      await api.del(`/api/usuarios/${u.id}`);
+      toast("Usuário excluído.");
+      setExcluir(null);
+      qc.invalidateQueries({ queryKey: ["usuarios"] });
+      qc.invalidateQueries({ queryKey: ["auditoria"] });
+    } catch (e) {
+      setErro(e);
+      setExcluir(null);
+    } finally {
+      setExcluindo(false);
     }
   }
 
@@ -150,6 +170,11 @@ export function Usuarios({ meuId }: { meuId: number }) {
                       {u.ativo ? "Desativar" : "Reativar"}
                     </button>
                   )}
+                  {!u.ativo && u.id !== meuId && (
+                    <button className="btn btn--pequeno btn--fantasma btn--perigo" onClick={() => setExcluir(u)}>
+                      Excluir
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -158,6 +183,26 @@ export function Usuarios({ meuId }: { meuId: number }) {
       </div>
 
       <Auditoria />
+
+      {excluir && (
+        <Dialogo
+          titulo="Excluir usuário?"
+          fechar={excluindo ? undefined : () => setExcluir(null)}
+          rodape={
+            <>
+              <button className="btn" onClick={() => setExcluir(null)} disabled={excluindo}>Cancelar</button>
+              <button className="btn btn--perigo" onClick={() => confirmarExclusao(excluir)} disabled={excluindo}>
+                {excluindo && <Spinner />} Excluir
+              </button>
+            </>
+          }
+        >
+          <p>
+            {excluir.nome || excluir.email} sai da lista de usuários de vez. As ações dele continuam na auditoria, com o e-mail.
+            Para voltar a dar acesso, será preciso convidar de novo.
+          </p>
+        </Dialogo>
+      )}
 
       {convidando && (
         <Convidar

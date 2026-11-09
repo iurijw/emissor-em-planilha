@@ -887,6 +887,25 @@ def alterar_usuario(
         return usuario_dict(u, empresas_do_usuario(s, u.id))
 
 
+def excluir_usuario(acesso: Acesso | None, usuario_id: int) -> None:
+    """Apaga um usuário já desativado (a auditoria continua com o e-mail dele)."""
+    with sessao() as s:
+        u = s.get(Usuario, usuario_id)
+        if u is None:
+            raise AuthError("Usuário não encontrado.", 404)
+        if acesso and acesso.usuario_id == u.id:
+            raise AuthError("Você não pode excluir o próprio usuário.")
+        if u.ativo:
+            raise AuthError("Desative o usuário antes de excluí-lo.", 409)
+        for modelo in (SessaoUsuario, ConviteUsuario, UsuarioEmpresa):
+            for r in s.exec(select(modelo).where(modelo.usuario_id == u.id)):
+                s.delete(r)
+        email = u.email
+        s.delete(u)
+        auditar("usuario_excluido", email, acesso, s=s)
+        s.commit()
+
+
 def redefinir_acesso(
     acesso: Acesso | None, usuario_id: int | None = None, email: str | None = None, remover_2fa: bool = False
 ) -> tuple[dict, str]:

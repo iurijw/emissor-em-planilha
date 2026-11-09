@@ -239,7 +239,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/atualizacoes`, `PUT /api/atualizacoes/automatica`, `POST /api/atualizacoes/aplicar` (admin, só `iniciar.bat`) | versão e atualizações |
 | `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
-| `GET/POST /api/usuarios`, `PUT /api/usuarios/{id}`, `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
+| `GET/POST /api/usuarios`, `PUT/DELETE /api/usuarios/{id}` (excluir só desativado), `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
 | `GET/POST /api/empresas`, `PUT /api/empresas/{id}`, `POST /api/empresas/{id}/usar-certificado\|desativar\|reativar\|conferir-procuracao`, `GET/POST /api/certificados`, `DELETE /api/certificados/{id}`, `GET/PUT /api/instancia/clientes`, `PUT /api/usuarios/{id}/empresas` | várias empresas (ver a seção) |
 
 ### Frontend (F4)
