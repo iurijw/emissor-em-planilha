@@ -95,7 +95,7 @@ def conferir_assinatura_sefin(xml: bytes, cert: Certificado) -> None:
 
 
 def _cnpj_do_certificado(cert: Certificado) -> str:
-    return cert.info.cnpj or ""
+    return cert.info.cnpj or cert.info.cpf or ""
 
 
 @dataclass
@@ -126,12 +126,18 @@ class SefinSimulada:
         # Ganchos de comportamento:
         self.rejeitar_tomador: dict[str, tuple[str, str]] = {}  # documento → (código, descrição)
         self.certificados_recusados: set[str] = set()  # CNPJ → 403 IIS (como certificado fora da ICP-Brasil)
+        # Procurações eletrônicas: (CNPJ/CPF do certificado, CNPJ da empresa representada)
+        self.procuracoes: set[tuple[str, str]] = set()
         self.cair_apos_processar: int = 0  # próximas N emissões: processa e "perde" a resposta (timeout)
         self.fora_do_ar: bool = False  # 503 em tudo
         # (município, cTribNac) que a prefeitura não administra: E0312 na emissão e nada na parametrização.
         self.servicos_nao_administrados: set[tuple[str, str]] = set()
 
     # --- infraestrutura ------------------------------------------------------------------------------
+    def _representa(self, cert: Certificado, cnpj: str) -> bool:
+        doc = _cnpj_do_certificado(cert)
+        return doc == cnpj or (doc, cnpj) in self.procuracoes
+
     def transport(self, cert: Certificado) -> httpx.MockTransport:
         return httpx.MockTransport(lambda req: self.handler(req, cert))
 
@@ -146,7 +152,7 @@ class SefinSimulada:
         if req.url.host.startswith("sefin."):
             return self._sefin(req, path.removeprefix("/SefinNacional"), cert, tp_amb)
         if req.url.host.startswith("adn."):
-            return self._adn_rotas(req, path, tp_amb)
+            return self._adn_rotas(req, path, tp_amb, cert)
         return httpx.Response(404)
 
     def _sefin(self, req: httpx.Request, path: str, cert: Certificado, tp_amb: str) -> httpx.Response:
@@ -195,8 +201,10 @@ class SefinSimulada:
         esperado = id_dps(t("cLocEmi"), prest_doc, t("serie"), int(t("nDPS")))
         if inf.get("Id") != esperado:
             return self._rejeitar("SIM-ID", f"Id da DPS {inf.get('Id')} difere do calculado {esperado}.")
-        if prest_doc != _cnpj_do_certificado(cert):
-            return self._rejeitar("SIM-CERT", "CNPJ do prestador diferente do CNPJ do certificado da conexão.")
+        if not self._representa(cert, prest_doc):
+            return self._rejeitar(
+                "SIM-CERT", "CNPJ do prestador diferente do CNPJ do certificado da conexão, sem procuração."
+            )
         if not 1 <= int(t("serie")) <= 49999:
             return self._rejeitar("E0010", "Série da DPS fora da faixa permitida para o canal de emissão.")
         if t("tpAmb") != tp_amb:
@@ -419,8 +427,13 @@ class SefinSimulada:
         tipo = etree.QName(det).localname[1:]
         if inf.get("Id") != f"PRE{chave}{tipo}" or inf.findtext(f"{N}chNFSe") != chave:
             return rejeitar("SIM-ID", "Id do pedido ou chave diferente da chave da URL.")
-        if inf.findtext(f"{N}CNPJAutor") != _cnpj_do_certificado(cert):
+        if (inf.findtext(f"{N}CNPJAutor") or inf.findtext(f"{N}CPFAutor")) != _cnpj_do_certificado(cert):
             return rejeitar("E0812", "CNPJ do autor do evento diferente do CNPJ do certificado.")
+        prest_nota = (
+            etree.fromstring(self.notas[chave].xml).findtext(f".//{N}prest/{N}CNPJ") if chave in self.notas else None
+        )
+        if prest_nota and not self._representa(cert, prest_nota):
+            return rejeitar("SIM-CERT", "O certificado não representa o prestador da nota.")
         if inf.findtext(f"{N}tpAmb") != tp_amb:
             return rejeitar("SIM-AMB", "tpAmb do pedido diferente do ambiente chamado.")
         if datetime.fromisoformat(inf.findtext(f"{N}dhEvento")) > datetime.now(TZ) + timedelta(seconds=5):
@@ -481,6 +494,10 @@ class SefinSimulada:
             etree.SubElement(det, f"{N}{tag}").text = v
         return self._registrar_evento(nota, ped, "101101")
 
+    def _prestador(self, doc: dict) -> str | None:
+        nota = self.notas.get(doc["ChaveAcesso"])
+        return etree.fromstring(nota.xml).findtext(f".//{N}prest/{N}CNPJ") if nota else None
+
     # --- ADN -----------------------------------------------------------------------------------------
     def _distribuir(self, xml: bytes, tipo_doc: str, chave: str, tipo_evento: str | None = None) -> None:
         self.adn.append(
@@ -494,7 +511,7 @@ class SefinSimulada:
             }
         )
 
-    def _adn_rotas(self, req: httpx.Request, path: str, tp_amb: str) -> httpx.Response:
+    def _adn_rotas(self, req: httpx.Request, path: str, tp_amb: str, cert: Certificado) -> httpx.Response:
         if m := re.fullmatch(r"/parametrizacao/(\d{7})/([\d.]+)/([\d-]+)/aliquota", path):
             return self._parametrizacao(*m.groups())
         docs = [d for d in self.adn if self.notas[d["ChaveAcesso"]].tp_amb == tp_amb]
@@ -513,6 +530,19 @@ class SefinSimulada:
                         "Erros": [],
                     },
                 )
+            consulta = req.url.params["cnpjConsulta"]
+            if not self._representa(cert, consulta):
+                return httpx.Response(
+                    400,
+                    json={
+                        "TipoConsulta": "CnpjBase",
+                        "StatusProcessamento": "REJEICAO",
+                        "LoteDFe": [],
+                        "Alertas": [],
+                        "Erros": [{"Codigo": "E2245", "Descricao": "Sem procuração para o CNPJ consultado."}],
+                    },
+                )
+            docs = [d for d in docs if self._prestador(d) == consulta]
             return self._lote([d for d in docs if d["NSU"] > int(m.group(1))][:50], tp_amb)
         if m := re.fullmatch(r"/contribuintes/NFSe/(\w{50})/Eventos", path):
             return self._lote(

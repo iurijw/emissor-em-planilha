@@ -17,6 +17,7 @@ from sqlmodel import select
 
 from emissor.api.serial import cliente_dict, linha_dict
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, agora, obter_config, sessao
+from emissor.db import obter_cliente as _cliente_db
 from emissor.nfse import codes
 from emissor.nfse.models import limpar_texto, normalizar_documento, somente_digitos
 from emissor.services import clientes as cli_service
@@ -217,7 +218,7 @@ def listar_clientes(q: str | None = None) -> list[dict[str, Any]]:
 @router.get("/clientes/{documento}")
 def obter_cliente(documento: str) -> dict[str, Any]:
     with sessao() as s:
-        c = s.get(Cliente, normalizar_documento(documento) or "")
+        c = _cliente_db(s, normalizar_documento(documento) or "")
     if c is None:
         raise HTTPException(404, "Cliente não cadastrado.")
     return cliente_dict(c)
@@ -253,7 +254,7 @@ def salvar_cliente(documento: str, entrada: ClienteEntrada) -> dict[str, Any]:
     if erros:
         raise HTTPException(400, {"mensagem": "Cadastro inválido.", "detalhes": erros})
     with sessao() as s:
-        c = s.get(Cliente, doc) or Cliente(documento=doc, nome="")
+        c = _cliente_db(s, doc) or Cliente(documento=doc, nome="")
         c.nome = limpar_texto(entrada.nome) or ""
         c.c_mun = somente_digitos(entrada.c_mun)
         c.cep = cep
@@ -275,7 +276,7 @@ def salvar_cliente(documento: str, entrada: ClienteEntrada) -> dict[str, Any]:
 @router.delete("/clientes/{documento}")
 def excluir_cliente(documento: str) -> dict[str, bool]:
     with sessao() as s:
-        c = s.get(Cliente, normalizar_documento(documento) or "")
+        c = _cliente_db(s, normalizar_documento(documento) or "")
         if c:
             s.delete(c)
             s.commit()
@@ -342,7 +343,7 @@ def _consultar_pendentes(entrada: ConsultarPendentes) -> dict[str, Any]:
         if len(n) == 14 and n not in docs:
             docs.append(n)
     with sessao() as s:
-        faltando = [d for d in docs if s.get(Cliente, d) is None]
+        faltando = [d for d in docs if _cliente_db(s, d) is None]
     for i, doc in enumerate(faltando[:50]):  # limite por chamada; o front repete se houver mais
         if i:
             time.sleep(0.3)  # gentileza com a API pública

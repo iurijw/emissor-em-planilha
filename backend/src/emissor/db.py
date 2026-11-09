@@ -1,9 +1,10 @@
 """Banco SQLite (SQLModel). Um arquivo em ``data/emissor.db``.
 
 Tabelas:
-- ``configuracao``  (linha única) ambiente, série, contadores de nDPS, padrões fiscais (JSON)
-- ``certificado``   (linha única) PFX e senha criptografados + metadados
-- ``cliente``       cadastro de tomadores
+- ``configuracao``  uma linha por empresa (emitente): ambiente, série, contadores de nDPS, padrões fiscais (JSON) e
+                    o certificado usado (o da empresa ou o de um procurador); a empresa 1 é a configuração de antes
+- ``certificado``   PFX e senha criptografados + metadados (um por empresa ou um de procurador para várias)
+- ``cliente``       cadastro de tomadores (por empresa, ou compartilhado na empresa 0)
 - ``tributacao``    tributações predefinidas (código do serviço, ISS, PIS/COFINS, IBS/CBS) usadas por abas e notas avulsas
 - ``aba``           abas da tabela de notas (cada uma pode ter tributação própria e clientes exclusivos)
 - ``linha_tabela``  tabela de notas a emitir (persistente)
@@ -13,6 +14,11 @@ Tabelas:
 - ``sincronizacao_adn`` cursor (NSU) da distribuição de documentos do Ambiente Nacional
 - ``usuario``, ``sessao_usuario``, ``convite_usuario`` login (ver ``emissor.auth``)
 - ``auditoria``     quem fez o quê (login, emissão, cancelamento, configurações, usuários)
+- ``usuario_empresa`` empresas que cada usuário (não administrador da instalação) acessa e o papel nelas
+- ``instancia``     opções da instalação (cadastro de clientes compartilhado)
+- ``migracao``      passos de migração do banco já feitos
+
+As tabelas com ``empresa_id`` são filtradas pela empresa do contexto (ver ``emissor.empresas``).
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ from zoneinfo import ZoneInfo
 from pydantic import NaiveDatetime
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlmodel import Column, Field, LargeBinary, Session, SQLModel, create_engine, select
+from sqlmodel import Column, Field, LargeBinary, Session, SQLModel, create_engine
 
 from emissor import config
 from emissor.nfse.constants import Ambiente
@@ -49,7 +55,16 @@ def para_local(dt: datetime) -> datetime:
 
 
 class Configuracao(SQLModel, table=True):
-    id: int = Field(default=1, primary_key=True)
+    """Uma empresa (emitente). A tabela manteve o nome de quando havia uma só."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    cnpj: str | None = None  # CNPJ da empresa (o mesmo de config_fiscal_json; existe antes do onboarding)
+    nome: str | None = None  # nome curto mostrado no seletor (vazio = razão social do certificado/CNPJ)
+    ativa: bool | None = True
+    # certificado | procuracao (certificado de outro CNPJ/CPF com procuração eletrônica para emitir pela empresa)
+    acesso: str | None = "certificado"
+    certificado_id: int | None = None
+    criado_em: NaiveDatetime | None = Field(default_factory=agora)
     onboarding_concluido: bool = False
     ambiente: str = Ambiente.HOMOLOGACAO.value
     serie: int = 1
@@ -89,15 +104,17 @@ class Configuracao(SQLModel, table=True):
         d = asdict(cfg)
         d["p_tot_trib_sn"] = str(cfg.p_tot_trib_sn) if cfg.p_tot_trib_sn is not None else None
         self.config_fiscal_json = json.dumps(d, ensure_ascii=False)
+        self.cnpj = cfg.cnpj
 
 
 class CertificadoDB(SQLModel, table=True):
     __tablename__ = "certificado"
-    id: int = Field(default=1, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     pfx_enc: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
     senha_enc: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
     titular: str
     cnpj: str | None = None
+    cpf: str | None = None  # e-CPF (procurador pessoa física)
     emissor: str
     valido_de: NaiveDatetime
     valido_ate: NaiveDatetime
@@ -106,6 +123,8 @@ class CertificadoDB(SQLModel, table=True):
 
 class Cliente(SQLModel, table=True):
     documento: str = Field(primary_key=True)  # CNPJ/CPF sem máscara
+    # Empresa dona do cadastro (0 = compartilhado entre todas); preenchido sozinho (``emissor.empresas``).
+    empresa_id: int | None = Field(default=None, primary_key=True)
     nome: str
     c_mun: str | None = None
     cep: str | None = None
@@ -129,7 +148,8 @@ class Tributacao(SQLModel, table=True):
     """Tributação predefinida: os campos de ``CAMPOS_TRIBUTACAO`` completos, em JSON."""
 
     id: int | None = Field(default=None, primary_key=True)
-    nome: str = Field(index=True, unique=True)
+    empresa_id: int | None = Field(default=None, index=True)
+    nome: str = Field(index=True)  # único por empresa (conferido em services/tributacao)
     dados_json: str = "{}"
     criado_em: NaiveDatetime = Field(default_factory=agora)
     atualizado_em: NaiveDatetime = Field(default_factory=agora)
@@ -146,6 +166,7 @@ class Aba(SQLModel, table=True):
     """
 
     id: int | None = Field(default=None, primary_key=True)
+    empresa_id: int | None = Field(default=None, index=True)
     nome: str
     ordem: int = 0
     tributacao_id: int | None = Field(default=None, index=True)
@@ -159,6 +180,7 @@ class Aba(SQLModel, table=True):
 class LinhaTabela(SQLModel, table=True):
     __tablename__ = "linha_tabela"
     id: int | None = Field(default=None, primary_key=True)
+    empresa_id: int | None = Field(default=None, index=True)
     aba_id: int | None = Field(default=None, index=True)
     ordem: int = 0
     nome: str = ""
@@ -171,6 +193,7 @@ class LinhaTabela(SQLModel, table=True):
 
 class Lote(SQLModel, table=True):
     id: str = Field(primary_key=True)
+    empresa_id: int | None = Field(default=None, index=True)
     ambiente: str
     status: str = "em_andamento"  # em_andamento | concluido | interrompido | cancelado
     total: int = 0
@@ -181,6 +204,7 @@ class Lote(SQLModel, table=True):
 
 class Emissao(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    empresa_id: int | None = Field(default=None, index=True)
     lote_id: str | None = Field(default=None, index=True)
     linha_id: int | None = Field(default=None, index=True)
     ambiente: str
@@ -229,6 +253,7 @@ class EventoNFSe(SQLModel, table=True):
 
     __tablename__ = "evento_nfse"
     id: str = Field(primary_key=True)  # Id do evento ("EVT" + 59 dígitos)
+    empresa_id: int | None = Field(default=None, index=True)
     emissao_id: int | None = Field(default=None, index=True)
     chave_acesso: str = Field(index=True)
     ambiente: str
@@ -301,6 +326,29 @@ class Auditoria(SQLModel, table=True):
     acao: str = Field(index=True)  # ex.: login, login_falhou, lote_criado, nota_cancelada
     detalhe: str | None = None
     ip: str | None = None
+    empresa_id: int | None = None  # empresa em que a ação foi feita (None = da instalação: login, usuários...)
+
+
+class UsuarioEmpresa(SQLModel, table=True):
+    """Empresa que um usuário acessa. O administrador da instalação acessa todas e não precisa de linha aqui."""
+
+    __tablename__ = "usuario_empresa"
+    usuario_id: int = Field(primary_key=True)
+    empresa_id: int = Field(primary_key=True)
+    papel: str = "operador"  # admin (configurações e certificado da empresa) | operador
+
+
+class Instancia(SQLModel, table=True):
+    """Opções que valem para todas as empresas da instalação (linha única)."""
+
+    id: int = Field(default=1, primary_key=True)
+    compartilhar_clientes: bool = False
+    atualizado_em: NaiveDatetime = Field(default_factory=agora)
+
+
+class Migracao(SQLModel, table=True):
+    nome: str = Field(primary_key=True)
+    feita_em: NaiveDatetime = Field(default_factory=agora)
 
 
 _engine: Engine | None = None
@@ -324,6 +372,11 @@ def engine() -> Engine:
         )
         SQLModel.metadata.create_all(_engine)
         _acrescentar_colunas(_engine)
+        _migrar_empresas(_engine)
+        from emissor import empresas
+
+        empresas.instalar()
+        empresas.limpar_cache()
     return _engine
 
 
@@ -337,6 +390,83 @@ def _acrescentar_colunas(eng: Engine) -> None:
                 if col.name not in existentes:
                     tipo = col.type.compile(dialect=eng.dialect)
                     con.exec_driver_sql(f'ALTER TABLE "{tabela.name}" ADD COLUMN "{col.name}" {tipo}')
+
+
+TABELAS_DA_EMPRESA = ("aba", "linha_tabela", "tributacao", "lote", "emissao", "evento_nfse")
+
+
+def _copia_de_seguranca(eng: Engine, motivo: str) -> None:
+    """Cópia do banco antes de uma migração que refaz tabelas (``data/backups``)."""
+    import sqlite3
+
+    if not config.DB_FILE.exists():
+        return
+    pasta = config.DATA_DIR / "backups"
+    pasta.mkdir(parents=True, exist_ok=True)
+    destino = pasta / f"emissor-antes-{motivo}-{datetime.now():%Y%m%d-%H%M%S}.db"
+    origem = sqlite3.connect(config.DB_FILE)
+    try:
+        alvo = sqlite3.connect(destino)
+        with alvo:
+            origem.backup(alvo)
+        alvo.close()
+    finally:
+        origem.close()
+
+
+def _migrar_empresas(eng: Engine) -> None:
+    """Banco de antes das várias empresas → tudo na empresa 1 (idempotente; só refaz ``cliente`` uma vez).
+
+    - ``empresa_id`` nulo vira 1 nas tabelas da empresa;
+    - ``cliente`` passa a ter chave (documento, empresa_id): a tabela é refeita (SQLite não troca a chave);
+    - o nome da tributação deixa de ser único na instalação (passa a ser por empresa);
+    - a empresa 1 aponta para o certificado que já existia;
+    - operadores que já existiam continuam acessando a empresa 1.
+    """
+    with eng.connect() as con:
+        pk_cliente = [r[1] for r in con.exec_driver_sql('PRAGMA table_info("cliente")') if r[5]]
+        feita = con.exec_driver_sql("SELECT 1 FROM migracao WHERE nome = 'empresas'").first()
+    if feita and "empresa_id" in pk_cliente:
+        return
+    if pk_cliente and "empresa_id" not in pk_cliente:
+        _copia_de_seguranca(eng, "varias-empresas")
+    with eng.begin() as con:
+        for t in TABELAS_DA_EMPRESA:
+            con.exec_driver_sql(f'UPDATE "{t}" SET empresa_id = 1 WHERE empresa_id IS NULL')
+        if pk_cliente and "empresa_id" not in pk_cliente:
+            colunas = [r[1] for r in con.exec_driver_sql('PRAGMA table_info("cliente")') if r[1] != "empresa_id"]
+            con.exec_driver_sql('ALTER TABLE "cliente" RENAME TO "cliente_antes_empresas"')
+            Cliente.__table__.create(con)
+            lista = ", ".join(f'"{c}"' for c in colunas)
+            con.exec_driver_sql(
+                f'INSERT INTO "cliente" ({lista}, "empresa_id") SELECT {lista}, 1 FROM "cliente_antes_empresas"'
+            )
+            con.exec_driver_sql('DROP TABLE "cliente_antes_empresas"')
+        for idx in con.exec_driver_sql('PRAGMA index_list("tributacao")').fetchall():
+            nome_idx, unico = idx[1], idx[2]
+            cols = [r[2] for r in con.exec_driver_sql(f'PRAGMA index_info("{nome_idx}")')]
+            if unico and cols == ["nome"] and not nome_idx.startswith("sqlite_autoindex"):
+                con.exec_driver_sql(f'DROP INDEX "{nome_idx}"')
+                con.exec_driver_sql(f'CREATE INDEX "{nome_idx}" ON "tributacao" ("nome")')
+        con.exec_driver_sql(
+            "UPDATE configuracao SET certificado_id = (SELECT MIN(id) FROM certificado) "
+            "WHERE id = 1 AND certificado_id IS NULL"
+        )
+        con.exec_driver_sql("UPDATE configuracao SET ativa = 1 WHERE ativa IS NULL")
+        con.exec_driver_sql(
+            "UPDATE configuracao SET cnpj = json_extract(config_fiscal_json, '$.cnpj') "
+            "WHERE cnpj IS NULL AND json_valid(config_fiscal_json) AND json_extract(config_fiscal_json, '$.cnpj') != ''"
+        )
+        con.exec_driver_sql("UPDATE configuracao SET acesso = 'certificado' WHERE acesso IS NULL")
+        if not feita:
+            con.exec_driver_sql(
+                "INSERT INTO usuario_empresa (usuario_id, empresa_id, papel) "
+                "SELECT id, 1, 'operador' FROM usuario WHERE papel != 'admin' "
+                "AND id NOT IN (SELECT usuario_id FROM usuario_empresa WHERE empresa_id = 1)"
+            )
+            con.exec_driver_sql(
+                "INSERT INTO migracao (nome, feita_em) VALUES ('empresas', ?)", (agora().isoformat(sep=" "),)
+            )
 
 
 def reset_engine() -> None:
@@ -353,9 +483,19 @@ def sessao() -> Iterator[Session]:
         yield s
 
 
-def obter_config(s: Session) -> Configuracao:
-    cfg = s.get(Configuracao, 1)
+class EmpresaInexistente(LookupError):
+    pass
+
+
+def obter_config(s: Session, empresa_id: int | None = None) -> Configuracao:
+    """Configuração da empresa informada ou da empresa do contexto (a 1 é criada se ainda não existe)."""
+    from emissor import empresas
+
+    eid = empresa_id if empresa_id is not None else empresas.atual()
+    cfg = s.get(Configuracao, eid)
     if cfg is None:
+        if eid != 1:
+            raise EmpresaInexistente(f"Empresa {eid} não encontrada.")
         cfg = Configuracao(id=1)
         s.add(cfg)
         s.commit()
@@ -363,5 +503,26 @@ def obter_config(s: Session) -> Configuracao:
     return cfg
 
 
-def obter_certificado(s: Session) -> CertificadoDB | None:
-    return s.exec(select(CertificadoDB)).first()
+def obter_certificado(s: Session, empresa_id: int | None = None) -> CertificadoDB | None:
+    """Certificado que a empresa usa (o próprio A1 ou o do procurador)."""
+    cfg = obter_config(s, empresa_id)
+    return s.get(CertificadoDB, cfg.certificado_id) if cfg.certificado_id else None
+
+
+def obter_cliente(s: Session, documento: str | None) -> Cliente | None:
+    """Cliente do cadastro que vale para a empresa do contexto (o dela ou o compartilhado)."""
+    from emissor import empresas
+
+    if not documento:
+        return None
+    return s.get(Cliente, (documento, empresas.escopo_clientes()))
+
+
+def obter_instancia(s: Session) -> Instancia:
+    inst = s.get(Instancia, 1)
+    if inst is None:
+        inst = Instancia(id=1)
+        s.add(inst)
+        s.commit()
+        s.refresh(inst)
+    return inst

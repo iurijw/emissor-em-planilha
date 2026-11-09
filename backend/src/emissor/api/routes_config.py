@@ -17,8 +17,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlmodel import func, select
 
-from emissor import atualizacoes, auth, config
-from emissor.api.deps import AdminAtual, UsuarioAtual
+from emissor import atualizacoes, auth, config, empresas
+from emissor.api.deps import AdminAtual, AdminEmpresa, UsuarioAtual
 from emissor.api.serial import CAMPOS_FISCAIS, cliente_dict, fiscal_dict
 from emissor.db import Cliente, Emissao, LinhaTabela, Lote, agora, obter_config, sessao
 from emissor.logging_setup import get_context
@@ -72,6 +72,13 @@ def status() -> dict[str, Any]:
             "cnpj": fiscal.cnpj if fiscal else None,
             "municipio": codes.municipio_uf(fiscal.c_mun_emissor) if fiscal else None,
         },
+        "empresa": {
+            "id": cfg.id,
+            "nome": cfg.nome,
+            "cnpj": cfg.cnpj or (fiscal.cnpj if fiscal else None),
+            "acesso": cfg.acesso or "certificado",
+        },
+        "varias_empresas": empresas.varias(),
         "pronto_para_emitir": not problemas,
         "problemas": problemas,
         "avisos": avisos,
@@ -84,7 +91,7 @@ def status() -> dict[str, Any]:
 
 @router.post("/certificado")
 async def enviar_certificado(
-    admin: AdminAtual, arquivo: UploadFile = File(...), senha: str = Form(...)
+    admin: AdminEmpresa, arquivo: UploadFile = File(...), senha: str = Form(...)
 ) -> dict[str, Any]:
     pfx = await arquivo.read()
     if len(pfx) > MAX_PFX:
@@ -106,15 +113,17 @@ async def enviar_certificado(
 
 
 @router.get("/onboarding/padroes")
-def padroes(_admin: AdminAtual) -> dict[str, Any]:
-    """Padrões iniciais (o CNPJ vem do certificado; o resto, dos XMLs importados ou do formulário)."""
+def padroes(_admin: AdminEmpresa) -> dict[str, Any]:
+    """Padrões iniciais (o CNPJ é o da empresa ou, sem ele, o do certificado; o resto vem dos XMLs ou do formulário)."""
+    with sessao() as s:
+        cnpj_empresa = obter_config(s).cnpj
     info = cert_service.info()
-    cfg = ConfigFiscal(cnpj=(info.cnpj if info else "") or "", c_mun_emissor="")
+    cfg = ConfigFiscal(cnpj=cnpj_empresa or (info.cnpj if info else "") or "", c_mun_emissor="")
     return {"fiscal": fiscal_dict(cfg)}
 
 
 @router.post("/onboarding/xmls")
-async def importar_xmls(_admin: AdminAtual, arquivos: list[UploadFile] = File(...)) -> dict[str, Any]:
+async def importar_xmls(_admin: AdminEmpresa, arquivos: list[UploadFile] = File(...)) -> dict[str, Any]:
     docs, erros = [], []
     for a in arquivos:
         conteudo = await a.read()
@@ -217,7 +226,14 @@ def _aplicar_config(entrada: ConfigEntrada) -> None:
                 "Há notas sendo emitidas agora. Espere o lote terminar para trocar o ambiente, a série ou a numeração.",
             )
         if entrada.fiscal is not None:
-            cfg.set_config_fiscal(_validar_fiscal(entrada.fiscal))
+            fiscal = _validar_fiscal(entrada.fiscal)
+            if cfg.cnpj and fiscal.cnpj != cfg.cnpj and empresas.varias():
+                raise HTTPException(
+                    400,
+                    f"O CNPJ desta empresa é {formatar_documento(cfg.cnpj)}. Para emitir por outro CNPJ, adicione "
+                    "outra empresa em Configurações → Empresas.",
+                )
+            cfg.set_config_fiscal(fiscal)
         if entrada.ambiente is not None:
             if entrada.ambiente not in ("1", "2"):
                 raise HTTPException(400, "Ambiente inválido.")
@@ -245,7 +261,7 @@ def _aplicar_config(entrada: ConfigEntrada) -> None:
 
 
 @router.post("/onboarding/concluir")
-def concluir_onboarding(entrada: ConcluirOnboarding, admin: AdminAtual) -> dict[str, Any]:
+def concluir_onboarding(entrada: ConcluirOnboarding, admin: AdminEmpresa) -> dict[str, Any]:
     if cert_service.info() is None:
         raise HTTPException(400, "Carregue o certificado digital antes de concluir.")
     if entrada.fiscal is None:
@@ -290,7 +306,7 @@ def obter() -> dict[str, Any]:
 
 
 @router.put("/config")
-def salvar(entrada: ConfigEntrada, admin: AdminAtual) -> dict[str, Any]:
+def salvar(entrada: ConfigEntrada, admin: AdminEmpresa) -> dict[str, Any]:
     _aplicar_config(entrada)
     campos = [k for k, v in entrada.model_dump().items() if v is not None]
     log.info("configuração salva", extra={"campos": campos})
@@ -380,7 +396,7 @@ def conferir_servico(entrada: ConferirServico) -> dict[str, Any]:
 
 
 @router.post("/config/testar-conexao")
-def testar_conexao(_admin: AdminAtual) -> dict[str, Any]:
+def testar_conexao(_admin: AdminEmpresa) -> dict[str, Any]:
     """Consulta uma DPS fictícia: HTTP 404 = mTLS e certificado aceitos (nada é emitido)."""
     cert = cert_service.carregar()
     if cert is None:
@@ -493,7 +509,8 @@ def aplicar_atualizacao(admin: AdminAtual) -> dict[str, Any]:
     if not sit["novas"]:
         raise HTTPException(409, sit["erro"] or f"O sistema já está na versão mais recente ({sit['versao_atual']}).")
     with sessao() as s:
-        if s.exec(select(Lote).where(Lote.status == "em_andamento")).first():
+        q = select(Lote).where(Lote.status == "em_andamento").execution_options(todas_empresas=True)
+        if s.exec(q).first():
             raise HTTPException(409, "Há notas sendo emitidas. Espere o lote terminar para atualizar.")
     atualizacoes.pedir_atualizacao(sit["ultima"])
     auth.auditar("atualizacao_pedida", f"{sit['versao_atual']} → {sit['ultima']}", admin)

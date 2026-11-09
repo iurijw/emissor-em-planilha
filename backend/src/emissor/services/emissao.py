@@ -28,7 +28,8 @@ from decimal import Decimal, InvalidOperation
 
 from sqlmodel import Session, select
 
-from emissor.db import Cliente, Emissao, LinhaTabela, Lote, agora, obter_config, para_local, sessao
+from emissor import empresas
+from emissor.db import Emissao, LinhaTabela, Lote, agora, obter_cliente, obter_config, para_local, sessao
 from emissor.logging_setup import bind_context
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
@@ -122,7 +123,7 @@ def validar_linhas(
         cfg_ef = efetiva(aba)
         iss_retido = cfg_ef is not None and cfg_ef.tp_ret_issqn in ("2", "3")
         doc = normalizar_documento(ln.documento) or ""
-        cli = s.get(Cliente, doc) if doc else None
+        cli = obter_cliente(s, doc) if doc else None
         if not doc:
             v.erros.append("CNPJ/CPF não informado.")
         elif len(doc) not in (11, 14) or not documento_valido(doc):
@@ -273,10 +274,17 @@ def verificar_prontidao(s: Session) -> list[str]:
     else:
         if info.vencido:
             problemas.append(f"Certificado vencido em {info.valido_ate:%d/%m/%Y}.")
-        if fiscal and info.cnpj and normalizar_documento(fiscal.cnpj) != info.cnpj:
+        if cfg.acesso == "procuracao":
+            if fiscal and info.cnpj and normalizar_documento(fiscal.cnpj) == info.cnpj:
+                problemas.append(
+                    "A empresa está marcada como “por procuração”, mas o certificado é dela mesma. "
+                    "Troque para “certificado da empresa” em Configurações → Empresas."
+                )
+        elif fiscal and info.cnpj and normalizar_documento(fiscal.cnpj) != info.cnpj:
             problemas.append(
                 f"O certificado é do CNPJ {formatar_documento(info.cnpj)}, mas o prestador configurado é "
-                f"{formatar_documento(fiscal.cnpj)}."
+                f"{formatar_documento(fiscal.cnpj)}. Para emitir com o certificado de outro CNPJ/CPF, use "
+                "“por procuração” em Configurações → Empresas."
             )
     return problemas
 
@@ -363,7 +371,7 @@ def _gravar_lote(s: Session, ambiente: str, itens: list[tuple]) -> Lote:
     s.add(lote)
     for linha_id, nome, documento, valor, descricao, trib_nome, trib in itens:
         doc = normalizar_documento(documento)
-        cli = s.get(Cliente, doc)
+        cli = obter_cliente(s, doc)
         s.add(
             Emissao(
                 lote_id=lote.id,
@@ -425,7 +433,8 @@ class EmissionWorker:
 
     def _lotes_para_retomar(self) -> list[str]:
         with sessao() as s:
-            return [lt.id for lt in s.exec(select(Lote).where(Lote.status == "em_andamento").order_by(Lote.criado_em))]
+            q = select(Lote).where(Lote.status == "em_andamento").order_by(Lote.criado_em)
+            return [lt.id for lt in s.exec(q.execution_options(todas_empresas=True))]
 
     def _loop(self) -> None:
         while True:
@@ -439,37 +448,46 @@ class EmissionWorker:
 
     # -- processamento -------------------------------------------------------------------------
     def processar_lote(self, lote_id: str) -> None:
-        with bind_context(lote_id=lote_id):
-            with sessao() as s:
-                lote = s.get(Lote, lote_id)
-                if lote is None or lote.status != "em_andamento":
-                    return
-                amb = Ambiente(lote.ambiente)
-                fiscal = obter_config(s).config_fiscal()
-            self.lote_atual = lote_id
-            cert = cert_service.carregar()
-            motivo = None
+        """Processa o lote no contexto da empresa dele (numeração, certificado e configuração são os dela)."""
+        with sessao() as s:
+            q = select(Lote.empresa_id).where(Lote.id == lote_id).execution_options(todas_empresas=True)
+            empresa_id = s.exec(q).first()
+        if empresa_id is None:
+            return
+        with empresas.usar(empresa_id), bind_context(lote_id=lote_id, empresa_id=empresa_id):
+            self._processar_lote(lote_id)
+
+    def _processar_lote(self, lote_id: str) -> None:
+        with sessao() as s:
+            lote = s.get(Lote, lote_id)
+            if lote is None or lote.status != "em_andamento":
+                return
+            amb = Ambiente(lote.ambiente)
+            fiscal = obter_config(s).config_fiscal()
+        self.lote_atual = lote_id
+        cert = cert_service.carregar()
+        motivo = None
+        try:
+            if cert is None or fiscal is None:
+                raise _Interromper("Certificado ou configuração fiscal ausente.")
+            client = self.client_factory(amb, cert)
             try:
-                if cert is None or fiscal is None:
-                    raise _Interromper("Certificado ou configuração fiscal ausente.")
-                client = self.client_factory(amb, cert)
-                try:
-                    while True:
-                        if lote_id in self._cancelados:
-                            raise _Interromper("Cancelado pelo usuário.")
-                        e = self._proxima(lote_id)
-                        if e is None:
-                            break
-                        self._processar(e, client, cert, fiscal, amb)
-                finally:
-                    client.close()
-            except _Interromper as exc:
-                motivo = exc.motivo
-                log.warning("lote interrompido: %s", motivo)
+                while True:
+                    if lote_id in self._cancelados:
+                        raise _Interromper("Cancelado pelo usuário.")
+                    e = self._proxima(lote_id)
+                    if e is None:
+                        break
+                    self._processar(e, client, cert, fiscal, amb)
             finally:
-                self.lote_atual = None
-                self._cancelados.discard(lote_id)
-                self._finalizar_lote(lote_id, motivo)
+                client.close()
+        except _Interromper as exc:
+            motivo = exc.motivo
+            log.warning("lote interrompido: %s", motivo)
+        finally:
+            self.lote_atual = None
+            self._cancelados.discard(lote_id)
+            self._finalizar_lote(lote_id, motivo)
 
     def _proxima(self, lote_id: str) -> Emissao | None:
         with sessao() as s:
@@ -504,7 +522,7 @@ class EmissionWorker:
             cfg = obter_config(s)
             n = cfg.proximo_ndps(amb)  # numeração do ambiente para onde a DPS vai, não o atual
             serie = cfg.serie
-            cli = s.get(Cliente, e.tomador_documento)
+            cli = obter_cliente(s, e.tomador_documento)
         dh = agora_emissao()
         inp = DpsInput(
             ambiente=amb,

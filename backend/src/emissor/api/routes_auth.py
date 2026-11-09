@@ -226,11 +226,13 @@ class NovoUsuario(BaseModel):
     email: str
     nome: str = ""
     papel: str = "operador"
+    # Empresas do operador: [{empresa_id, papel}]; sem a lista, a empresa em que o convite foi feito.
+    empresas: list[dict[str, Any]] | None = None
 
 
 @router.post("/usuarios")
 def convidar(entrada: NovoUsuario, admin: AdminAtual) -> dict[str, Any]:
-    usuario, token = auth.convidar(admin, entrada.email, entrada.nome, entrada.papel)
+    usuario, token = auth.convidar(admin, entrada.email, entrada.nome, entrada.papel, entrada.empresas)
     return {"usuario": usuario, "link": auth.caminho_convite(token)}
 
 

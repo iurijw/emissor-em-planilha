@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 from sqlmodel import select
 
-from emissor import config
+from emissor import config, empresas
 from emissor.db import Emissao, EventoNFSe, SincronizacaoADN, agora, obter_config, para_local, sessao
 from emissor.logging_setup import bind_context
 from emissor.nfse.client import SefinClient
@@ -202,17 +202,20 @@ def cancelar(
         raise EventoError("Escolha o motivo do cancelamento.")
     with sessao() as s:
         problemas = verificar_prontidao(s)
-        fiscal = obter_config(s).config_fiscal()
+        cfg = obter_config(s)
+        fiscal = cfg.config_fiscal()
     if problemas or fiscal is None:
         raise EventoError("Não é possível cancelar: " + " ".join(problemas or ["configuração fiscal ausente."]))
     cert = cert_service.carregar()
+    # O autor do evento é quem assina (E0812): o prestador ou, por procuração, o dono do certificado.
+    autor = (cert.info.cnpj or cert.info.cpf or fiscal.cnpj) if cfg.acesso == "procuracao" else fiscal.cnpj
     amb = Ambiente(e.ambiente)
     kw = {"dormir": dormir} if dormir else {}
     with bind_context(emissao_id=e.id):
         _, pedido = preparar_cancelamento(
             cert,
             chave=e.chave_acesso,
-            autor=fiscal.cnpj,
+            autor=autor,
             ambiente=amb,
             c_motivo=c_motivo,
             x_motivo=x_motivo,
@@ -329,7 +332,8 @@ class Sincronizador:
         if not est.em_andamento and est.iniciada_em is None:
             # Após reiniciar o servidor: última execução registrada no banco.
             with sessao() as s:
-                ult = s.exec(select(SincronizacaoADN).order_by(SincronizacaoADN.iniciada_em.desc())).first()
+                cursores = [r for r in self._cursores(s) if r.iniciada_em]
+            ult = max(cursores, key=lambda r: r.iniciada_em) if cursores else None
             if ult:
                 est.iniciada_em, est.concluida_em, est.erro = ult.iniciada_em, ult.concluida_em, ult.erro
         return est.as_dict()
@@ -347,14 +351,24 @@ class Sincronizador:
                 motivo = "sem_notas"
             else:
                 self._estado = EstadoSincronizacao(em_andamento=True, iniciada_em=agora())
-                self._thread = threading.Thread(target=self._rodar, name="sincronizacao-adn", daemon=True)
+                self._thread = threading.Thread(
+                    target=self._rodar, args=(empresas.atual(),), name="sincronizacao-adn", daemon=True
+                )
                 self._thread.start()
                 return self._estado.as_dict() | {"motivo": "iniciada"}
         return self.estado() | {"motivo": motivo}
 
+    @staticmethod
+    def _cursores(s) -> list[SincronizacaoADN]:
+        """Cursores da empresa do contexto (o id do cursor é ``ambiente:CNPJ``)."""
+        fiscal = obter_config(s).config_fiscal()
+        if fiscal is None:
+            return []
+        return [r for r in s.exec(select(SincronizacaoADN)) if r.id.endswith(f":{fiscal.cnpj}")]
+
     def _ultima_execucao(self) -> datetime | None:
         with sessao() as s:
-            datas = [r.iniciada_em for r in s.exec(select(SincronizacaoADN)) if r.iniciada_em]
+            datas = [r.iniciada_em for r in self._cursores(s) if r.iniciada_em]
         return max(datas) if datas else None
 
     def _ambientes(self) -> list[Ambiente]:
@@ -366,9 +380,10 @@ class Sincronizador:
             ).all()
         return [Ambiente(a) for a in sorted(ambs)]
 
-    def _rodar(self) -> None:
+    def _rodar(self, empresa_id: int) -> None:
         try:
-            self.executar()
+            with empresas.usar(empresa_id):
+                self.executar()
         except Exception as exc:  # nunca derrubar a thread sem registrar
             log.exception("falha inesperada na sincronização com o ADN")
             with self._lock:
@@ -457,17 +472,24 @@ class Sincronizador:
             s.commit()
 
 
-_sincronizador: Sincronizador | None = None
+_sincronizador: Sincronizador | None = None  # injetado nos testes (vale para todas as empresas)
+_por_empresa: dict[int, Sincronizador] = {}
+_registro_lock = threading.Lock()
 
 
 def sincronizador() -> Sincronizador:
-    global _sincronizador
-    if _sincronizador is None:
-        _sincronizador = Sincronizador()
-    return _sincronizador
+    """Sincronizador da empresa do contexto (cada empresa tem o seu cursor, estado e intervalo)."""
+    if _sincronizador is not None:
+        return _sincronizador
+    eid = empresas.atual()
+    with _registro_lock:
+        if eid not in _por_empresa:
+            _por_empresa[eid] = Sincronizador()
+        return _por_empresa[eid]
 
 
 def definir_sincronizador(sinc: Sincronizador | None) -> None:
     """Injeção para testes."""
     global _sincronizador
     _sincronizador = sinc
+    _por_empresa.clear()
