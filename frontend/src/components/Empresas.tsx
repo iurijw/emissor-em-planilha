@@ -262,7 +262,7 @@ function EditarEmpresa({ empresa, fechar }: { empresa: Empresa; fechar: () => vo
       }
     >
       <label className="campo">
-        <span>Nome curto (aparece no seletor de empresa)</span>
+        <span>Nome no seletor de empresa</span>
         <input value={nome} maxLength={80} placeholder={empresa.nome} onChange={(e) => setNome(e.target.value)} />
       </label>
       <label className="campo" style={{ marginTop: 14 }}>
@@ -421,8 +421,8 @@ export function AdicionarEmpresa({ fechar }: { fechar: () => void }) {
             <CamposArquivo arquivo={arquivo} senha={senha} setArquivo={setArquivo} setSenha={setSenha} titulo="Certificado A1 da empresa" />
           )}
           <label className="campo">
-            <span>Nome curto (opcional, aparece no seletor)</span>
-            <input value={nome} maxLength={80} placeholder="Ex.: Filial Centro" onChange={(e) => setNome(e.target.value)} />
+            <span>Nome no seletor (opcional)</span>
+            <input value={nome} maxLength={80} placeholder="Vazio = razão social do certificado" onChange={(e) => setNome(e.target.value)} />
           </label>
         </div>
       )}
@@ -456,8 +456,8 @@ export function AdicionarEmpresa({ fechar }: { fechar: () => void }) {
             <CamposArquivo arquivo={arquivo} senha={senha} setArquivo={setArquivo} setSenha={setSenha} titulo="Certificado do procurador (e-CNPJ ou e-CPF)" />
           )}
           <label className="campo">
-            <span>Nome curto (opcional)</span>
-            <input value={nome} maxLength={80} placeholder="Ex.: Padaria do João" onChange={(e) => setNome(e.target.value)} />
+            <span>Nome no seletor (opcional)</span>
+            <input value={nome} maxLength={80} placeholder="Vazio = razão social da Receita Federal" onChange={(e) => setNome(e.target.value)} />
           </label>
           <details className="ajuda">
             <summary>Como dar a procuração</summary>
@@ -641,7 +641,7 @@ export function EmpresasDoUsuario({ usuario, fechar }: { usuario: Usuario; fecha
                 {e.nome} <span className="num" style={{ color: "var(--grafite)" }}>{linhaDoc(e)}</span>
               </td>
               <td>
-                <select value={sel[e.id] ?? ""} onChange={(ev) => setSel((s) => ({ ...s, [e.id]: ev.target.value as "admin" | "operador" | "" }))}>
+                <select className="input" value={sel[e.id] ?? ""} onChange={(ev) => setSel((s) => ({ ...s, [e.id]: ev.target.value as "admin" | "operador" | "" }))}>
                   <option value="">Sem acesso</option>
                   <option value="operador">Operador</option>
                   <option value="admin">Administrador desta empresa</option>

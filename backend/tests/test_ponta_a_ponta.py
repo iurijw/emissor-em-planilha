@@ -36,7 +36,7 @@ from emissor.services import eventos as eventos_service
 from emissor.services import parametros, variaveis
 
 from .conftest import ADMIN_EMAIL, ADMIN_SENHA, CNPJ_PRESTADOR, SENHA_PFX, _gerar_pfx, entrar_como_admin
-from .sefin_simulada import SefinSimulada, brasilapi_simulada, conferir_assinatura_sefin
+from .sefin_simulada import BRASILAPI_CLIENTE, SefinSimulada, brasilapi_simulada, conferir_assinatura_sefin
 
 N = f"{{{NS_NFSE}}}"
 CNPJ_SEFIN = "00394460005887"  # fictício: só assina as NFS-e e os eventos da simulação
@@ -340,11 +340,17 @@ def _fluxo_varias_empresas(api, sim) -> None:
         "/api/certificados", files={"arquivo": ("c.pfx", _gerar_pfx(CNPJ_OUTRA, SENHA_PFX))}, data={"senha": SENHA_PFX}
     ).json()
     nova = api.post("/api/empresas", json={"certificado_id": cert["id"]}).json()
+    assert nova["nome_definido"] == "EMPRESA TESTE LTDA"  # sem nome: a razão social do certificado
     assert _como(api, nova["id"]).get("/api/status").json()["onboarding_concluido"] is False
     assert api.post(f"/api/empresas/{nova['id']}/desistir").status_code == 200
     assert nova["id"] not in {e["id"] for e in api.get("/api/empresas").json()["empresas"]}
     assert nova["id"] not in {e["id"] for e in api.get("/api/empresas").json()["desativadas"]}
     assert cert["id"] not in {c["id"] for c in api.get("/api/certificados").json()}
+
+    # Por procuração e sem nome: a razão social vem da Receita.
+    proc = api.post("/api/empresas", json={"certificado_id": escr_id, "cnpj": BRASILAPI_CLIENTE["cnpj"]}).json()
+    assert proc["nome_definido"] == BRASILAPI_CLIENTE["razao_social"]
+    assert api.post(f"/api/empresas/{proc['id']}/desistir").status_code == 200
 
 
 # --- fluxos -----------------------------------------------------------------------------------------------

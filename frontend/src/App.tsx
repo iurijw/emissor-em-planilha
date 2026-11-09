@@ -191,7 +191,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
           )}
           {cert && !cert.erro && (
             <span title={`Certificado de ${cert.titular}${s.empresa.acesso === "procuracao" ? " (por procuração)" : ""}`}>
-              {s.empresa.acesso === "procuracao" ? "Procuração até" : "Certificado até"} <strong>{new Date(cert.valido_ate).toLocaleDateString("pt-BR")}</strong>
+              Certificado até <strong>{new Date(cert.valido_ate).toLocaleDateString("pt-BR")}</strong>
             </span>
           )}
         </div>

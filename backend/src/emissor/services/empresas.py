@@ -88,6 +88,18 @@ def _conferir_limite(s: Session) -> None:
         raise EmpresaError(f"O limite desta instalação é de {lim} empresas.", 403)
 
 
+def _razao_social(cnpj: str) -> str | None:
+    """Razão social pela Receita (BrasilAPI/CNPJá) para o nome padrão de uma empresa por procuração; nunca bloqueia."""
+    from emissor.services import clientes as cli_service
+
+    try:
+        r = cli_service.consultar_cnpj(cnpj)
+    except Exception:
+        log.warning("consulta da razão social falhou", extra={"cnpj": cnpj}, exc_info=True)
+        return None
+    return (r.cliente.nome or "").strip() or None if r.encontrado and r.cliente else None
+
+
 def criar(certificado_id: int, cnpj: str | None, nome: str | None, usuarios: list[dict] | None = None) -> int:
     """Cria uma empresa nova com um certificado já guardado.
 
@@ -113,8 +125,12 @@ def criar(certificado_id: int, cnpj: str | None, nome: str | None, usuarios: lis
                     )
                 raise EmpresaError(f"O CNPJ {formatar_documento(doc)} já está cadastrado.", 409)
         acesso = "certificado" if doc == cert.cnpj else "procuracao"
+        nome = (nome or "").strip()
+        if not nome:
+            # Sem nome digitado: a razão social (a do certificado da empresa ou, por procuração, a da Receita).
+            nome = cert.titular if acesso == "certificado" else (_razao_social(doc) or "")
         cfg = Configuracao(
-            nome=(nome or "").strip()[:80] or None,
+            nome=nome[:80] or None,
             acesso=acesso,
             certificado_id=cert.id,
             ativa=True,
