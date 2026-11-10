@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.12.2 (10/11/2026)
+
+- Na hospedagem, a tela de primeiro acesso avisa que o link para criar o administrador foi enviado para o e-mail usado
+  na assinatura: por segurança, só quem recebeu o link consegue criar o administrador.
+
 ## 0.12.1 (07/11/2026)
 
 - Ao digitar o CEP no cadastro do cliente ou na nota avulsa, rua, bairro e município são preenchidos sozinhos.

@@ -207,6 +207,7 @@ export function TelaPrimeiroAcesso({ sessao }: { sessao: Sessao }) {
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
   const pedeToken = !sessao.primeiro_acesso_sem_codigo && !tokenDaUrl();
+  const porEmail = !!sessao.primeiro_acesso_por_email;
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
@@ -230,14 +231,28 @@ export function TelaPrimeiroAcesso({ sessao }: { sessao: Sessao }) {
       subtitulo="Primeiro acesso: este usuário cuida do certificado, das configurações e dos demais usuários."
     >
       <form className="acesso__form" onSubmit={enviar}>
+        {pedeToken && porEmail && (
+          <div className="info-caixa" role="status">
+            <div>
+              <strong style={{ display: "block", marginBottom: 4 }}>O link para criar o administrador foi enviado por e-mail.</strong>
+              Por segurança, só quem recebeu esse link consegue criar o administrador. Procure o e-mail “Seu Emissor em Planilha
+              está pronto: crie o administrador”, enviado para o endereço usado na assinatura, e clique em “Criar o
+              administrador”. Não achou? Confira a caixa de spam e a de promoções.
+            </div>
+          </div>
+        )}
         {pedeToken && (
           <label className="campo">
             <span>Código de primeiro acesso</span>
             <input className="num" value={token} onChange={(e) => setToken(e.target.value.trim())} required autoComplete="off" />
-            <small>
-              Está no arquivo <code>data/primeiro-acesso.txt</code> do servidor e na janela onde o Emissor foi iniciado. Abrindo
-              o sistema no próprio servidor (endereço 127.0.0.1), o código não é pedido.
-            </small>
+            {porEmail ? (
+              <small>Abrindo o link do e-mail, o código já vem preenchido e este campo some.</small>
+            ) : (
+              <small>
+                Está no arquivo <code>data/primeiro-acesso.txt</code> do servidor e na janela onde o Emissor foi iniciado.
+                Abrindo o sistema no próprio servidor (endereço 127.0.0.1), o código não é pedido.
+              </small>
+            )}
           </label>
         )}
         <label className="campo">

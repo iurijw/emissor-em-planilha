@@ -630,7 +630,8 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   vem de `Fly-Client-IP` (só quando `FLY_APP_NAME` existe).
 - 2FA: TOTP próprio (RFC 6238, sem dependência), segredo criptografado com a chave Fernet, passo usado gravado (sem
   reuso), 10 códigos de recuperação (SHA-256). QR Code em SVG pelo ReportLab. Opcional, com aviso em todas as telas.
-- Primeiro acesso: só enquanto não há usuário. Token de `EMISSOR_CONVITE_INICIAL` (hospedagem) ou gerado em
+- Primeiro acesso: só enquanto não há usuário. Na hospedagem (`primeiro_acesso_por_email` em `/api/auth/sessao`), a
+  tela sem o código avisa que o link foi enviado ao e-mail da assinatura (2026-11-10). Token de `EMISSOR_CONVITE_INICIAL` (hospedagem) ou gerado em
   `data/primeiro-acesso.txt` e mostrado no log da subida; acesso de 127.0.0.1 sem cabeçalho de proxy dispensa o token
   (nunca com `EMISSOR_CONVITE_INICIAL` ou no Fly). Link da hospedagem: `https://<sub>/#/primeiro-acesso?token=<t>`.
 - Convites e redefinição: link `/#/convite?token=` de uso único (7 dias) gerado pelo admin, copiado e enviado por ele.
