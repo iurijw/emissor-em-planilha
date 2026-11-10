@@ -182,8 +182,8 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </a>
           ))}
         </nav>
-        <SeletorEmpresa admin={admin} />
         <div className="topo__info">
+          <SeletorEmpresa admin={admin} />
           {s.prestador.cnpj && !s.varias_empresas && (
             <span>
               Prestador <strong className="num">{formatarDocumento(s.prestador.cnpj)}</strong>

@@ -389,8 +389,9 @@ a { color: var(--azul-texto); }
   .topo { flex-wrap: wrap; height: auto; gap: 4px 12px; padding: 12px 16px 0; }
   .nav { width: 100%; height: 44px; overflow-x: auto; scrollbar-width: none; }
   .nav a { padding: 0 10px; }
-  .topo__info { display: none; }
-  .topo__usuario { order: 1; margin-left: auto; border-left: 0; }
+  .topo__info { order: 1; margin-left: auto; }
+  .topo__info > span { display: none; }
+  .topo__usuario { order: 1; border-left: 0; }
   .nav { order: 2; }
   .faixa-amb { padding: 0 16px; }
   .faixa-amb__dica { display: none; }
@@ -617,12 +618,20 @@ a { color: var(--azul-texto); }
 /* Crachá: a empresa que esta aba emite. A borda esquerda repete a faixa do ambiente (hachurada = homologação, preta = produção). */
 .cracha { position: relative; }
 .cracha__botao {
-  display: flex; align-items: stretch; gap: 10px; height: 40px; max-width: 280px;
-  padding: 0 10px 0 0; border: 1px solid var(--linha-forte); border-radius: var(--raio);
-  background: var(--folha); cursor: pointer; text-align: left; overflow: hidden;
+  display: flex; align-items: center; gap: 8px; height: 30px; max-width: 240px;
+  padding: 0 10px 0 11px; border: 1px solid var(--linha); border-radius: 999px;
+  background: var(--folha); color: var(--tinta); cursor: pointer; text-align: left;
+  font-size: 13px; transition: border-color 0.12s, background 0.12s;
 }
-.cracha__botao:hover { border-color: var(--grafite-claro); }
-.cracha__botao[aria-expanded="true"] { border-color: var(--azul); }
+.cracha__botao:hover { border-color: var(--linha-forte); background: #f6fafc; }
+.cracha__botao[aria-expanded="true"] { border-color: var(--azul); background: var(--folha); }
+.cracha__botao .cracha__nome { font-weight: 600; font-stretch: 100%; line-height: 1; }
+.cracha__ponto {
+  flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%;
+  background: repeating-linear-gradient(-45deg, var(--azul) 0 1.5px, #bfe6f6 1.5px 3px);
+  box-shadow: 0 0 0 1px #8fd0ee;
+}
+.cracha__ponto--prod { background: var(--preto); box-shadow: none; }
 .cracha__borda {
   flex: 0 0 6px; align-self: stretch;
   background: repeating-linear-gradient(-45deg, #8fd0ee 0 4px, var(--azul-fundo) 4px 8px);
@@ -631,9 +640,9 @@ a { color: var(--azul-texto); }
 .cracha__texto { display: flex; flex-direction: column; justify-content: center; min-width: 0; gap: 2px; }
 .cracha__nome { font-weight: 650; font-stretch: 105%; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cracha__doc { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--grafite); white-space: nowrap; }
-.cracha__seta { align-self: center; color: var(--grafite); font-size: 11px; }
+.cracha__seta { flex: 0 0 auto; color: var(--grafite); }
 .cracha__lista {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 45;
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 45;
   width: min(380px, calc(100vw - 32px)); max-height: min(70vh, 520px); overflow: auto;
   background: var(--folha); border: 1px solid var(--linha-forte); border-radius: 8px; box-shadow: var(--sombra);
   padding: 6px; display: flex; flex-direction: column; gap: 2px;
@@ -643,7 +652,7 @@ a { color: var(--azul-texto); }
   border: 1px solid var(--linha-forte); border-radius: var(--raio); background: var(--papel);
 }
 .cracha__item {
-  display: flex; align-items: stretch; gap: 10px; min-height: 46px; padding: 0 10px 0 0;
+  display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 10px 0 12px;
   border: 0; border-radius: var(--raio); background: none; cursor: pointer; text-align: left; overflow: hidden;
 }
 .cracha__item:hover { background: #f1f7fa; }
@@ -684,7 +693,7 @@ a { color: var(--azul-texto); }
 @media (max-width: 640px) {
   .empresas__item { flex-wrap: wrap; }
   .empresas__acoes { width: 100%; justify-content: flex-start; padding: 0 0 12px 19px; }
-  .cracha__botao { max-width: 180px; }
+  .cracha__botao { max-width: 160px; }
 }
 
 /* Adicionar empresa: escolha do modo e formulário */

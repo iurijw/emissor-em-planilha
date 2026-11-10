@@ -28,6 +28,11 @@ function Borda({ ambiente }: { ambiente: string }) {
   return <span className={`cracha__borda ${ambiente === "1" ? "cracha__borda--prod" : ""}`} aria-hidden />;
 }
 
+function Ponto({ ambiente }: { ambiente: string }) {
+  // Ponto do ambiente: azul hachurado = homologação, preto = produção (como a faixa do topo).
+  return <span className={`cracha__ponto ${ambiente === "1" ? "cracha__ponto--prod" : ""}`} aria-hidden />;
+}
+
 function linhaDoc(e: Empresa) {
   return e.cnpj ? formatarDocumento(e.cnpj) : "sem CNPJ";
 }
@@ -58,13 +63,18 @@ export function SeletorEmpresa({ admin }: { admin: boolean }) {
     : d.empresas;
   return (
     <div className="cracha" ref={ref}>
-      <button className="cracha__botao" aria-haspopup="listbox" aria-expanded={aberto} onClick={() => setAberto((v) => !v)} title="Trocar de empresa">
-        <Borda ambiente={atual.ambiente} />
-        <span className="cracha__texto">
-          <span className="cracha__nome">{atual.nome}</span>
-          <span className="cracha__doc num">{linhaDoc(atual)}</span>
-        </span>
-        <span className="cracha__seta" aria-hidden>▾</span>
+      <button
+        className="cracha__botao"
+        aria-haspopup="listbox"
+        aria-expanded={aberto}
+        onClick={() => setAberto((v) => !v)}
+        title={`${atual.nome} · ${linhaDoc(atual)} · ${atual.ambiente === "1" ? "Produção" : "Homologação"} (trocar de empresa)`}
+      >
+        <Ponto ambiente={atual.ambiente} />
+        <span className="cracha__nome">{atual.nome}</span>
+        <svg className="cracha__seta" width="10" height="10" viewBox="0 0 10 10" aria-hidden>
+          <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </button>
       {aberto && (
         <div className="cracha__lista" role="listbox" aria-label="Empresas">
@@ -85,7 +95,7 @@ export function SeletorEmpresa({ admin }: { admin: boolean }) {
               className="cracha__item"
               onClick={() => (e.id === atual.id ? setAberto(false) : trocarEmpresa(e.id))}
             >
-              <Borda ambiente={e.ambiente} />
+              <Ponto ambiente={e.ambiente} />
               <span className="cracha__texto">
                 <span className="cracha__nome">{e.nome}</span>
                 <span className="cracha__doc">
