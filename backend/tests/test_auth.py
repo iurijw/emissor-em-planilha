@@ -47,6 +47,12 @@ def test_rotas_exigem_login(client):
     s = client.get("/api/auth/sessao").json()
     assert s["autenticado"] is False and s["primeiro_acesso"] is True
     assert s["primeiro_acesso_sem_codigo"] is False  # TestClient não vem de 127.0.0.1
+    assert s["primeiro_acesso_por_email"] is False  # instalação própria: o código está no servidor
+
+
+def test_primeiro_acesso_na_hospedagem_avisa_do_email(client, monkeypatch):
+    monkeypatch.setenv("FLY_APP_NAME", "emp-teste")
+    assert client.get("/api/auth/sessao").json()["primeiro_acesso_por_email"] is True
 
 
 def test_primeiro_acesso(client):

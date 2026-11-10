@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from emissor import assinatura, auth, config
+from emissor import assinatura, atualizacoes, auth, config
 from emissor.api.deps import AdminAtual, UsuarioAtual, ip_cliente
 
 router = APIRouter()
@@ -76,6 +76,8 @@ def sessao_atual(request: Request) -> dict[str, Any]:
         "usuario": acesso.as_dict() if acesso else None,
         "primeiro_acesso": not existe,
         "primeiro_acesso_sem_codigo": (not existe) and _acesso_local(request),
+        # Hospedagem: o link com o código do primeiro acesso vai só para o e-mail de quem assinou.
+        "primeiro_acesso_por_email": (not existe) and atualizacoes.instalacao() == "hospedagem",
         "suspenso": auth.suspenso(),
         "url_assinatura": auth.url_assinatura(),
         "recuperacao_email": auth.recuperacao_por_email(),
