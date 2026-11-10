@@ -956,3 +956,27 @@ def test_migracao_do_banco_de_uma_empresa(api, pfx_bytes, nfse_exemplo_bytes):
     filial = _nova_empresa(api, _gerar_pfx(CNPJ_FILIAL, SENHA_PFX))
     r = _como(api, filial["id"]).post("/api/tributacoes", json={"nome": "Antiga", "dados": {"c_trib_nac": "010101"}})
     assert r.status_code == 200, r.text
+
+
+def test_opcoes_da_instalacao_criadas_por_duas_requisicoes_ao_mesmo_tempo(api, monkeypatch):
+    """Duas requisições na primeira abertura não acharam a linha de ``instancia`` e as duas tentaram criá-la
+    (UNIQUE constraint failed: instancia.id, erro 500 em GET /api/clientes numa instalação própria)."""
+    from sqlmodel import Session
+
+    from emissor import db
+
+    with sessao() as s:
+        db.obter_instancia(s)  # a outra requisição já criou a linha
+    get_original = Session.get
+    vezes = {"n": 0}
+
+    def get_atrasado(self, modelo, ident, *a, **kw):
+        if modelo is db.Instancia and vezes["n"] == 0:
+            vezes["n"] += 1
+            return None  # esta requisição leu antes de a outra gravar
+        return get_original(self, modelo, ident, *a, **kw)
+
+    monkeypatch.setattr(Session, "get", get_atrasado)
+    with sessao() as s:
+        assert db.obter_instancia(s).id == 1
+    assert vezes["n"] == 1

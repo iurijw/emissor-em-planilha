@@ -519,10 +519,14 @@ def obter_cliente(s: Session, documento: str | None) -> Cliente | None:
 
 
 def obter_instancia(s: Session) -> Instancia:
+    """Opções da instalação (linha única). Criada com ``INSERT OR IGNORE``: duas requisições ao mesmo tempo na
+    primeira abertura não podem tentar inserir a mesma linha (aconteceu numa instalação própria)."""
     inst = s.get(Instancia, 1)
     if inst is None:
-        inst = Instancia(id=1)
-        s.add(inst)
+        s.connection().exec_driver_sql(
+            "INSERT OR IGNORE INTO instancia (id, compartilhar_clientes, atualizado_em) VALUES (1, 0, ?)",
+            (agora().isoformat(sep=" "),),
+        )
         s.commit()
-        s.refresh(inst)
+        inst = s.get(Instancia, 1)
     return inst
