@@ -186,6 +186,8 @@ export interface Sessao {
   usuario: UsuarioSessao | null;
   primeiro_acesso: boolean;
   primeiro_acesso_sem_codigo: boolean;
+  /** Hospedagem: o link do primeiro acesso foi enviado ao e-mail de quem assinou. */
+  primeiro_acesso_por_email?: boolean;
   suspenso: boolean;
   url_assinatura: string | null;
   recuperacao_email: boolean;

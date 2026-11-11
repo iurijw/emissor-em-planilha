@@ -392,15 +392,59 @@ def _restaurar(inst: Instalacao, copia: Path) -> None:
         aplicar_arquivos(inst, {n: zf.read(n) for n in zf.namelist()})
 
 
+def _git(inst: Instalacao, *args: str, timeout: int = 300) -> subprocess.CompletedProcess[str]:
+    # Sem terminal: o git nunca para esperando usuário/senha (a janela ficava parada no git pull).
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=inst.raiz,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise AtualizacaoError(f"O git {args[0]} não terminou em {timeout // 60} minutos (internet lenta?).") from e
+    except OSError as e:
+        raise AtualizacaoError(f"Não foi possível rodar o git: {e}") from e
+
+
+def versao_instalada(inst: Instalacao) -> str | None:
+    """Versão escrita no ``backend/pyproject.toml`` da instalação (a do código em disco, não a carregada)."""
+    try:
+        texto = (inst.raiz / "backend" / "pyproject.toml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r'^version = "([^"]+)"', texto, re.M)
+    return m.group(1) if m else None
+
+
+def _atualizar_pelo_git(inst: Instalacao, versao: str) -> None:
+    r = _git(inst, "pull", "--ff-only")
+    if r.returncode != 0:
+        raise AtualizacaoError(f"O git pull falhou: {(r.stderr or r.stdout).strip()[:500]}")
+    instalada = versao_instalada(inst)
+    if instalada and versao_tupla(instalada) >= versao_tupla(versao):
+        return
+    # O pull "deu certo" sem trazer a versão: a cópia segue outro ramo (ou outro repositório). Sem este
+    # aviso o iniciar.bat recomeçava, achava a versão antiga e "atualizava" de novo, sem fim.
+    ramo = _git(inst, "rev-parse", "--abbrev-ref", "HEAD", timeout=30).stdout.strip() or "?"
+    raise AtualizacaoError(
+        f"O git pull terminou, mas o código continua na versão {instalada or '?'}: esta cópia está no ramo "
+        f'"{ramo}", que não recebe as versões publicadas. Para voltar a recebê-las, rode "git checkout main" '
+        "na pasta do sistema e abra o iniciar.bat de novo."
+    )
+
+
 def atualizar(inst: Instalacao, versao: str, baixar=_baixar_zip) -> None:
     """Troca o código da instalação pelo da tag ``vversao``. Em erro, volta o código anterior."""
     de = config.APP_VERSION
     copiar_banco(inst, de, versao)
     if (inst.raiz / ".git").exists():
         # Cópia do git: o próprio git atualiza (trocar arquivos por fora deixaria a cópia "modificada").
-        r = subprocess.run(["git", "pull", "--ff-only"], cwd=inst.raiz, capture_output=True, text=True, timeout=300)
-        if r.returncode != 0:
-            raise AtualizacaoError(f"O git pull falhou: {(r.stderr or r.stdout).strip()[:500]}")
+        _atualizar_pelo_git(inst, versao)
         return
     novos = _arquivos_do_zip(baixar(versao), versao)
     copia = copiar_codigo(inst, de)
