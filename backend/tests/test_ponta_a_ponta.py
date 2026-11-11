@@ -18,10 +18,11 @@ import pytest
 from fastapi.testclient import TestClient
 from lxml import etree
 from openpyxl import load_workbook
+from sqlmodel import select
 
 from emissor import auth, config
 from emissor.api.app import create_app
-from emissor.db import agora
+from emissor.db import Emissao, agora, sessao
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient, gzip_b64, ungzip_b64
 from emissor.nfse.constants import NS_NFSE
@@ -35,7 +36,7 @@ from emissor.services import eventos as eventos_service
 from emissor.services import parametros, variaveis
 
 from .conftest import ADMIN_EMAIL, ADMIN_SENHA, CNPJ_PRESTADOR, SENHA_PFX, _gerar_pfx, entrar_como_admin
-from .sefin_simulada import SefinSimulada, brasilapi_simulada, conferir_assinatura_sefin
+from .sefin_simulada import BRASILAPI_CLIENTE, SefinSimulada, brasilapi_simulada, conferir_assinatura_sefin
 
 N = f"{{{NS_NFSE}}}"
 CNPJ_SEFIN = "00394460005887"  # fictício: só assina as NFS-e e os eventos da simulação
@@ -179,6 +180,177 @@ def _conferir_nota(api, sim: SefinSimulada, emissao: dict, *, documento: str, va
     pdf = api.get(f"/api/emissoes/{emissao['id']}/pdf")
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
     return doc
+
+
+# --- várias empresas e procuração -------------------------------------------------------------------------
+
+CNPJ_ESCRITORIO = "33444555000181"  # procurador (escritório de contabilidade)
+CNPJ_FILIAL = "11444777000242"  # empresa 2: com o A1 dela
+CNPJ_PROCURACAO = "77555444000118"  # empresa 3: emitida com o certificado do escritório
+CNPJ_OUTRA = "11444777000323"  # empresa adicionada e descartada antes da configuração
+CNPJ_OUTRA = "11444777000323"  # empresa 3: emitida com o certificado do escritório
+
+
+def _como(api, empresa_id: int):
+    """Cabeçalho da empresa em cada chamada (como o navegador faz)."""
+
+    class _Com:
+        def __getattr__(self, metodo):
+            def chamar(url, **kw):
+                kw["headers"] = {**kw.get("headers", {}), "X-Empresa": str(empresa_id)}
+                return getattr(api, metodo)(url, **kw)
+
+            return chamar
+
+    return _Com()
+
+
+def _nova_empresa(api, pfx: bytes, cnpj: str | None = None) -> dict:
+    cert = api.post("/api/certificados", files={"arquivo": ("c.pfx", pfx)}, data={"senha": SENHA_PFX})
+    assert cert.status_code == 200, cert.text
+    r = api.post("/api/empresas", json={"certificado_id": cert.json()["id"], "cnpj": cnpj})
+    assert r.status_code == 200, r.text
+    emp = r.json()
+    fiscal = {**api.get("/api/config", headers={"X-Empresa": "1"}).json()["fiscal"], "cnpj": emp["cnpj"]}
+    e = _como(api, emp["id"])
+    assert e.get("/api/status").json()["onboarding_concluido"] is False
+    r = e.post("/api/onboarding/concluir", json={"fiscal": fiscal, "ambiente": "2", "serie": 1, "linhas": []})
+    assert r.status_code == 200 and r.json()["pronto_para_emitir"], r.text
+    return emp
+
+
+def _emitir_na(api, empresa_id: int, documento: str, valor: str) -> dict:
+    e = _como(api, empresa_id)
+    r = e.put(
+        "/api/tabela",
+        json={"linhas": [{"nome": "Cliente", "documento": documento, "valor": valor, "descricao": "Serviço"}]},
+    )
+    assert r.status_code == 200, r.text
+    lote = e.post("/api/lotes", json={"linha_ids": [r.json()["linhas"][0]["id"]]})
+    assert lote.status_code == 200, lote.text
+    api.worker.processar_lote(lote.json()["id"])
+    return e.get(f"/api/lotes/{lote.json()['id']}").json()["emissoes"][0]
+
+
+def _fluxo_varias_empresas(api, sim) -> None:
+    """Duas empresas a mais (uma com o A1 dela, outra por procuração), isoladas entre si."""
+    um = _como(api, 1)
+    assert api.get("/api/empresas").json()["disponivel"] is True
+    filial = _nova_empresa(api, _gerar_pfx(CNPJ_FILIAL, SENHA_PFX))
+    assert filial["acesso"] == "certificado"
+    escritorio = _gerar_pfx(CNPJ_ESCRITORIO, SENHA_PFX)
+    procurada = _nova_empresa(api, escritorio, CNPJ_PROCURACAO)
+    assert procurada["acesso"] == "procuracao"
+    assert {e["id"] for e in api.get("/api/empresas").json()["empresas"]} == {1, filial["id"], procurada["id"]}
+
+    # Procuração conferida no ADN: recusada (E2245) até existir; depois, aceita.
+    p = _como(api, procurada["id"])
+    conf = p.post(f"/api/empresas/{procurada['id']}/conferir-procuracao").json()
+    assert conf["ok"] is False and "E2245" in conf["mensagem"]
+    sim.procuracoes.add((CNPJ_ESCRITORIO, CNPJ_PROCURACAO))
+    assert p.post(f"/api/empresas/{procurada['id']}/conferir-procuracao").json()["ok"] is True
+
+    # Cada empresa com a sua numeração e o seu certificado.
+    nf = _emitir_na(api, filial["id"], TOMADOR_CNPJ, "100.00")
+    np_ = _emitir_na(api, procurada["id"], TOMADOR_CNPJ, "200.00")
+    for e, cnpj in ((nf, CNPJ_FILIAL), (np_, CNPJ_PROCURACAO)):
+        assert e["status"] == "autorizada", e.get("erro")
+        assert e["n_dps"] == 1
+        doc = NFSeDoc.from_bytes(
+            _como(api, 1 if cnpj == CNPJ_PRESTADOR else (filial["id"] if cnpj == CNPJ_FILIAL else procurada["id"]))
+            .get(f"/api/emissoes/{e['id']}/xml")
+            .content
+        )
+        assert doc.dps("prest/CNPJ") == cnpj
+        with sessao() as s:
+            caminho = s.exec(select(Emissao).where(Emissao.id == e["id"]).execution_options(todas_empresas=True)).one()
+            assert f"/homologacao/{cnpj}/" in caminho.xml_path  # filial com o mesmo nome não sobrescreve
+    nota_proc = sim.notas[np_["chave_acesso"]]
+    assert Certificado(escritorio, SENHA_PFX).cert_pem() == nota_proc.cert_prestador_pem  # assinada pelo procurador
+
+    # Isolamento: uma empresa não vê as notas, as abas e os clientes da outra.
+    assert um.get(f"/api/emissoes/{nf['id']}").status_code == 404
+    assert um.get(f"/api/emissoes/{nf['id']}/xml").status_code == 404
+    assert all(i["id"] not in (nf["id"], np_["id"]) for i in um.get("/api/emissoes").json()["itens"])
+    assert _como(api, filial["id"]).get("/api/emissoes").json()["total"] == 1
+    assert api.get(f"/api/emissoes/{nf['id']}/xml", params={"empresa": filial["id"]}).status_code == 200
+    um.put(f"/api/clientes/{TOMADOR_CPF}", json={"nome": "SO DA EMPRESA UM"})
+    assert _como(api, filial["id"]).get(f"/api/clientes/{TOMADOR_CPF}").status_code == 404
+
+    # Cancelamento por procuração: o autor do evento é o escritório (dono do certificado).
+    r = p.post(f"/api/emissoes/{np_['id']}/cancelar", json={"c_motivo": "2", "x_motivo": "Serviço não prestado"})
+    assert r.status_code == 200, r.text
+
+    # Cadastro de clientes compartilhado e separado de novo.
+    assert api.get("/api/instancia/clientes").json()["compartilhar"] is False
+    assert api.put("/api/instancia/clientes", json={"compartilhar": True}).json()["compartilhar"] is True
+    assert _como(api, filial["id"]).get(f"/api/clientes/{TOMADOR_CPF}").json()["nome"] == "SO DA EMPRESA UM"
+    api.put("/api/instancia/clientes", json={"compartilhar": False, "empresa_destino": 1})
+    assert _como(api, filial["id"]).get(f"/api/clientes/{TOMADOR_CPF}").status_code == 404
+    assert um.get(f"/api/clientes/{TOMADOR_CPF}").status_code == 200
+
+    # Operador só da empresa 1: não vê as outras nem consegue pedir por elas.
+    convite = api.post(
+        "/api/usuarios", json={"email": "op1@exemplo.com.br", "empresas": [{"empresa_id": 1, "papel": "operador"}]}
+    )
+    token = convite.json()["link"].split("token=")[1]
+    op_id = convite.json()["usuario"]["id"]
+    with TestClient(api.app) as op:
+        assert op.post("/api/auth/convite", json={"token": token, "senha": "operador-senha-2"}).status_code == 200
+        assert [e["id"] for e in op.get("/api/empresas").json()["empresas"]] == [1]
+        assert op.get("/api/emissoes", headers={"X-Empresa": str(filial["id"])}).status_code == 404
+        assert op.get(f"/api/emissoes/{nf['id']}/xml", params={"empresa": filial["id"]}).status_code == 404
+        assert (
+            api.put(
+                f"/api/usuarios/{op_id}/empresas", json={"empresas": [{"empresa_id": filial["id"], "papel": "admin"}]}
+            ).status_code
+            == 200
+        )
+        assert op.get("/api/emissoes", headers={"X-Empresa": str(filial["id"])}).status_code == 200
+        assert op.get("/api/emissoes", headers={"X-Empresa": "1"}).status_code == 404
+        # Administrador da empresa mexe nela, mas não cria empresas nem vê os certificados de todos.
+        assert (
+            op.put(
+                f"/api/empresas/{filial['id']}", json={"nome": "Filial"}, headers={"X-Empresa": str(filial["id"])}
+            ).status_code
+            == 200
+        )
+        assert op.get("/api/certificados").status_code == 403
+
+    r = _como(api, procurada["id"]).put(f"/api/empresas/{procurada['id']}", json={"nome": "Cliente do escritório"})
+    assert r.json()["nome"] == "Cliente do escritório"
+
+    # Certificados guardados, troca de certificado, desativar e reativar.
+    certs = api.get("/api/certificados").json()
+    assert {c["cnpj"] for c in certs} >= {CNPJ_PRESTADOR, CNPJ_FILIAL, CNPJ_ESCRITORIO}
+    solto = api.post(
+        "/api/certificados", files={"arquivo": ("c.pfx", _gerar_pfx(CNPJ_FILIAL, SENHA_PFX))}, data={"senha": SENHA_PFX}
+    ).json()
+    assert api.delete(f"/api/certificados/{solto['id']}").status_code == 200
+    escr_id = next(c["id"] for c in certs if c["cnpj"] == CNPJ_ESCRITORIO)
+    r = api.post(f"/api/empresas/{filial['id']}/usar-certificado", json={"certificado_id": escr_id})
+    assert r.json()["acesso"] == "procuracao"
+    assert api.post(f"/api/empresas/{filial['id']}/desativar").status_code == 200
+    assert filial["id"] not in {e["id"] for e in api.get("/api/empresas").json()["empresas"]}
+    assert api.post(f"/api/empresas/{filial['id']}/reativar").status_code == 200
+
+    # Desistir de uma empresa adicionada antes de configurá-la: some de vez, com o certificado que só ela usava.
+    assert api.post(f"/api/empresas/{filial['id']}/desistir").status_code == 409  # já configurada
+    cert = api.post(
+        "/api/certificados", files={"arquivo": ("c.pfx", _gerar_pfx(CNPJ_OUTRA, SENHA_PFX))}, data={"senha": SENHA_PFX}
+    ).json()
+    nova = api.post("/api/empresas", json={"certificado_id": cert["id"]}).json()
+    assert nova["nome_definido"] == "EMPRESA TESTE LTDA"  # sem nome: a razão social do certificado
+    assert _como(api, nova["id"]).get("/api/status").json()["onboarding_concluido"] is False
+    assert api.post(f"/api/empresas/{nova['id']}/desistir").status_code == 200
+    assert nova["id"] not in {e["id"] for e in api.get("/api/empresas").json()["empresas"]}
+    assert nova["id"] not in {e["id"] for e in api.get("/api/empresas").json()["desativadas"]}
+    assert cert["id"] not in {c["id"] for c in api.get("/api/certificados").json()}
+
+    # Por procuração e sem nome: a razão social vem da Receita.
+    proc = api.post("/api/empresas", json={"certificado_id": escr_id, "cnpj": BRASILAPI_CLIENTE["cnpj"]}).json()
+    assert proc["nome_definido"] == BRASILAPI_CLIENTE["razao_social"]
+    assert api.post(f"/api/empresas/{proc['id']}/desistir").status_code == 200
 
 
 # --- fluxos -----------------------------------------------------------------------------------------------
@@ -612,6 +784,13 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     ):
         assert api.post(caminho, json=corpo).status_code in (400, 404, 410)
     ok(api.post(f"/api/usuarios/{op_id}/redefinir", json={}))
+    # Excluir: só depois de desativado; a auditoria guarda o e-mail.
+    ok(api.post("/api/usuarios", json={"email": "sai@exemplo.com.br", "nome": "Sai"}))
+    sai_id = next(u["id"] for u in ok(api.get("/api/usuarios")).json() if u["email"] == "sai@exemplo.com.br")
+    ok(api.delete(f"/api/usuarios/{sai_id}"), 409)
+    ok(api.put(f"/api/usuarios/{sai_id}", json={"ativo": False}))
+    ok(api.delete(f"/api/usuarios/{sai_id}"))
+    assert sai_id not in {u["id"] for u in ok(api.get("/api/usuarios")).json()}
     ok(api.get("/api/auditoria"))
     # Assinatura da hospedagem: sem o painel (instalação própria) não há nada a confirmar.
     assert ok(api.get("/api/assinatura")).json() == {"disponivel": False, "pode_confirmar": True}
@@ -703,6 +882,9 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     assert rel.content.decode("utf-8-sig").count("\n") == 3  # cabeçalho + 2 notas
     assert sim.rejeicoes == []
 
+    # Várias empresas e procuração
+    _fluxo_varias_empresas(api, sim)
+
     # Limpeza e diagnóstico
     ok(api.delete(f"/api/abas/{aba['id']}"))
     ok(api.delete(f"/api/tributacoes/{t['id']}"))
@@ -710,3 +892,91 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
 
     faltando = sorted({f"{m} {p}" for (m, _), p in api.app_rotas.items()} - chamadas)
     assert faltando == [], f"Rotas sem teste ponta a ponta: {faltando}"
+
+
+def test_varias_empresas_e_procuracao(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    _fluxo_varias_empresas(api, sim)
+    # A empresa 1 continua com a numeração dela.
+    assert api.get("/api/config", headers={"X-Empresa": "1"}).json()["proximo_ndps_homologacao"] == 1
+
+
+def test_hospedagem_sem_varias_empresas(api, pfx_bytes, nfse_exemplo_bytes, monkeypatch):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    monkeypatch.setenv("FLY_APP_NAME", "emp-x")
+    assert api.get("/api/empresas").json()["disponivel"] is False
+    cert = api.post(
+        "/api/certificados", files={"arquivo": ("c.pfx", _gerar_pfx(CNPJ_FILIAL, SENHA_PFX))}, data={"senha": SENHA_PFX}
+    )
+    r = api.post("/api/empresas", json={"certificado_id": cert.json()["id"]})
+    assert r.status_code == 403
+    monkeypatch.setenv("EMISSOR_LIMITE_EMPRESAS", "2")
+    assert api.post("/api/empresas", json={"certificado_id": cert.json()["id"]}).status_code == 200
+
+
+def test_migracao_do_banco_de_uma_empresa(api, pfx_bytes, nfse_exemplo_bytes):
+    """Banco de antes das várias empresas (cliente com chave só pelo documento, nome de tributação único, sem
+    empresa_id) abre com tudo na empresa 1, a mesma numeração e cópia do banco em data/backups."""
+    import sqlite3
+
+    from emissor import db
+
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    nota = _emitir_na(api, 1, TOMADOR_CNPJ, "10.00")
+    assert nota["status"] == "autorizada"
+    api.post("/api/tributacoes", json={"nome": "Antiga", "dados": {"c_trib_nac": "010101"}})
+    antes = api.get("/api/config").json()
+    clientes_antes = {c["documento"] for c in api.get("/api/clientes").json()}
+    db.reset_engine()
+    con = sqlite3.connect(config.DB_FILE)
+    with con:
+        colunas = [r[1] for r in con.execute('PRAGMA table_info("cliente")') if r[1] != "empresa_id"]
+        lista = ", ".join(colunas)
+        con.execute("ALTER TABLE cliente RENAME TO c_velha")
+        con.execute(
+            f"CREATE TABLE cliente ({', '.join(c + (' PRIMARY KEY' if c == 'documento' else '') for c in colunas)})"
+        )
+        con.execute(f"INSERT INTO cliente ({lista}) SELECT {lista} FROM c_velha")
+        con.execute("DROP TABLE c_velha")
+        for t in db.TABELAS_DA_EMPRESA:
+            con.execute(f"UPDATE {t} SET empresa_id = NULL")
+        con.execute("DROP INDEX ix_tributacao_nome")
+        con.execute("CREATE UNIQUE INDEX ix_tributacao_nome ON tributacao (nome)")
+        con.execute("UPDATE configuracao SET certificado_id = NULL, cnpj = NULL")
+        con.execute("DELETE FROM migracao")
+    con.close()
+    db.engine()
+    assert list((config.DATA_DIR / "backups").glob("emissor-antes-varias-empresas-*.db"))
+    assert api.get("/api/config").json()["proximo_ndps_homologacao"] == antes["proximo_ndps_homologacao"]
+    assert {c["documento"] for c in api.get("/api/clientes").json()} == clientes_antes
+    assert api.get(f"/api/emissoes/{nota['id']}/xml").status_code == 200
+    assert api.get("/api/status").json()["pronto_para_emitir"] is True
+    assert _emitir_na(api, 1, TOMADOR_CNPJ, "11.00")["n_dps"] == antes["proximo_ndps_homologacao"]
+    # Nome da tributação deixou de ser único na instalação (passa a ser por empresa).
+    filial = _nova_empresa(api, _gerar_pfx(CNPJ_FILIAL, SENHA_PFX))
+    r = _como(api, filial["id"]).post("/api/tributacoes", json={"nome": "Antiga", "dados": {"c_trib_nac": "010101"}})
+    assert r.status_code == 200, r.text
+
+
+def test_opcoes_da_instalacao_criadas_por_duas_requisicoes_ao_mesmo_tempo(api, monkeypatch):
+    """Duas requisições na primeira abertura não acharam a linha de ``instancia`` e as duas tentaram criá-la
+    (UNIQUE constraint failed: instancia.id, erro 500 em GET /api/clientes numa instalação própria)."""
+    from sqlmodel import Session
+
+    from emissor import db
+
+    with sessao() as s:
+        db.obter_instancia(s)  # a outra requisição já criou a linha
+    get_original = Session.get
+    vezes = {"n": 0}
+
+    def get_atrasado(self, modelo, ident, *a, **kw):
+        if modelo is db.Instancia and vezes["n"] == 0:
+            vezes["n"] += 1
+            return None  # esta requisição leu antes de a outra gravar
+        return get_original(self, modelo, ident, *a, **kw)
+
+    monkeypatch.setattr(Session, "get", get_atrasado)
+    with sessao() as s:
+        assert db.obter_instancia(s).id == 1
+    assert vezes["n"] == 1

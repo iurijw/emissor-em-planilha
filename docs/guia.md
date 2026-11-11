@@ -198,6 +198,23 @@ senha e ativa a verificação em duas etapas.
 A data de competência é sempre a data da emissão. Clientes novos são consultados na Receita (via BrasilAPI) assim
 que o CNPJ entra na tabela; o nome que você digitou prevalece sobre o da Receita.
 
+## Várias empresas e procuração
+
+Uma instalação pode emitir por mais de uma empresa (CNPJ). Em **Configurações → Empresas**, o administrador clica em
+**Adicionar empresa** e escolhe:
+
+- **Com o certificado A1 da empresa:** envia o arquivo .pfx da empresa nova; o CNPJ vem do certificado.
+- **Por procuração:** informa o CNPJ da empresa e escolhe (ou envia) o certificado de quem tem a procuração eletrônica
+  dela para a NFS-e, por exemplo o do escritório de contabilidade. Um certificado de procurador serve para várias
+  empresas. A procuração é dada pela empresa no portal da NFS-e/e-CAC; o botão **Conferir procuração** pergunta ao
+  Ambiente Nacional se ela já vale.
+
+Depois disso a empresa nova passa pela configuração inicial (dados, tributação padrão, ambiente e numeração). Cada
+empresa tem a sua tabela, abas, tributações, numeração da DPS, ambiente e notas; o crachá no topo mostra qual empresa
+está aberta naquela aba do navegador e troca de empresa. Os clientes são de cada empresa, mas podem ser compartilhados
+entre todas (opção no fim de Configurações → Empresas). Em **Usuários**, o administrador do sistema escolhe quais
+empresas cada usuário acessa e com qual papel. Na versão hospedada a opção ainda não está disponível.
+
 ## Configuração
 
 Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker, edite `docker-compose.yaml`):
@@ -220,6 +237,7 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
 | `EMISSOR_COOKIE_SECURE` | _(automático)_ | `1` força o cookie de sessão só em HTTPS; `0` desliga |
 | `EMISSOR_SUSPENSO` | | `1` deixa o sistema só para consulta e download (assinatura da hospedagem suspensa) |
 | `EMISSOR_URL_ASSINATURA` | | Link para regularizar a assinatura, mostrado quando suspenso |
+| `EMISSOR_LIMITE_EMPRESAS` | _(sem limite; 1 na hospedagem)_ | Quantas empresas a instalação pode ter |
 | `EMISSOR_ASSINATURA_API` | | Só na hospedagem: endereço do painel para o aceite da cobrança no fim do teste grátis |
 
 ## Segurança

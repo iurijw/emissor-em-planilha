@@ -228,11 +228,13 @@ class NovoUsuario(BaseModel):
     email: str
     nome: str = ""
     papel: str = "operador"
+    # Empresas do operador: [{empresa_id, papel}]; sem a lista, a empresa em que o convite foi feito.
+    empresas: list[dict[str, Any]] | None = None
 
 
 @router.post("/usuarios")
 def convidar(entrada: NovoUsuario, admin: AdminAtual) -> dict[str, Any]:
-    usuario, token = auth.convidar(admin, entrada.email, entrada.nome, entrada.papel)
+    usuario, token = auth.convidar(admin, entrada.email, entrada.nome, entrada.papel, entrada.empresas)
     return {"usuario": usuario, "link": auth.caminho_convite(token)}
 
 
@@ -245,6 +247,12 @@ class AlterarUsuario(BaseModel):
 @router.put("/usuarios/{usuario_id}")
 def alterar_usuario(usuario_id: int, entrada: AlterarUsuario, admin: AdminAtual) -> dict[str, Any]:
     return auth.alterar_usuario(admin, usuario_id, entrada.papel, entrada.ativo, entrada.nome)
+
+
+@router.delete("/usuarios/{usuario_id}")
+def excluir_usuario(usuario_id: int, admin: AdminAtual) -> dict[str, bool]:
+    auth.excluir_usuario(admin, usuario_id)
+    return {"ok": True}
 
 
 class Redefinir(BaseModel):

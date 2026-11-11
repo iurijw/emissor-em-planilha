@@ -14,7 +14,7 @@ import httpx
 from sqlmodel import Session, select
 
 from emissor import config
-from emissor.db import Cliente, agora
+from emissor.db import Cliente, agora, obter_cliente
 from emissor.nfse import codes
 from emissor.nfse.documentos import cnpj_valido, cpf_valido
 from emissor.nfse.models import Endereco, Tomador, limpar_texto, normalizar_documento, somente_digitos
@@ -201,7 +201,7 @@ def consultar_cep(valor: str, http: httpx.Client | None = None) -> ConsultaCep:
 
 
 def upsert(s: Session, novo: Cliente, *, sobrescrever: bool = True) -> Cliente:
-    atual = s.get(Cliente, novo.documento)
+    atual = obter_cliente(s, novo.documento)
     if atual is None:
         novo.atualizado_em = agora()
         s.add(novo)
@@ -397,7 +397,7 @@ def importar_de_xmls(
         if novo.documento in vistos:
             continue  # já tratado com uma nota mais recente
         vistos.add(novo.documento)
-        atual = s.get(Cliente, novo.documento)
+        atual = obter_cliente(s, novo.documento)
         if atual is None:
             novo.atualizado_em = agora()
             s.add(novo)

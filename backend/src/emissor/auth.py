@@ -43,7 +43,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 from sqlmodel import Session, func, select
 
 from emissor import config, correio, security
-from emissor.db import Auditoria, ConviteUsuario, SessaoUsuario, Usuario, agora, sessao
+from emissor.db import Auditoria, ConviteUsuario, SessaoUsuario, Usuario, UsuarioEmpresa, agora, sessao
 
 log = logging.getLogger(__name__)
 
@@ -90,10 +90,19 @@ class Acesso:
     totp_ativo: bool
     sessao_id: str
     ip: str | None = None
+    # Empresa da requisição e o papel do usuário nela (preenchidos pelo middleware; ver ``emissor.empresas``).
+    empresa_id: int | None = None
+    papel_empresa: str | None = None
 
     @property
     def admin(self) -> bool:
+        """Administrador da instalação: todas as empresas, usuários, assinatura, diagnóstico e atualizações."""
         return self.papel == "admin"
+
+    @property
+    def admin_empresa(self) -> bool:
+        """Pode mexer no certificado, nas configurações e nas tributações da empresa da requisição."""
+        return self.admin or self.papel_empresa == "admin"
 
     def as_dict(self) -> dict:
         return {
@@ -102,6 +111,8 @@ class Acesso:
             "nome": self.nome,
             "papel": self.papel,
             "totp_ativo": self.totp_ativo,
+            "empresa_id": self.empresa_id,
+            "papel_empresa": self.papel_empresa,
         }
 
 
@@ -292,6 +303,7 @@ def auditar(
         usuario_id=acesso.usuario_id if acesso else (usuario.id if usuario else None),
         usuario_email=acesso.email if acesso else (usuario.email if usuario else None),
         ip=(acesso.ip if acesso else None) or ip,
+        empresa_id=_empresa_do_contexto(),
     )
     if s is not None:
         s.add(reg)
@@ -299,6 +311,12 @@ def auditar(
     with sessao() as s2:
         s2.add(reg)
         s2.commit()
+
+
+def _empresa_do_contexto() -> int | None:
+    from emissor import empresas
+
+    return empresas.no_contexto()
 
 
 # --- sessões -------------------------------------------------------------------------------------
@@ -735,8 +753,9 @@ def codigos_restantes(acesso: Acesso) -> int:
 # --- administração de usuários -------------------------------------------------------------------
 
 
-def usuario_dict(u: Usuario) -> dict:
+def usuario_dict(u: Usuario, empresas_: list[dict] | None = None) -> dict:
     return {
+        "empresas": empresas_ if empresas_ is not None else [],
         "id": u.id,
         "email": u.email,
         "nome": u.nome,
@@ -750,9 +769,42 @@ def usuario_dict(u: Usuario) -> dict:
     }
 
 
+def empresas_do_usuario(s: Session, usuario_id: int) -> list[dict]:
+    return [
+        {"empresa_id": r.empresa_id, "papel": r.papel}
+        for r in s.exec(select(UsuarioEmpresa).where(UsuarioEmpresa.usuario_id == usuario_id))
+    ]
+
+
 def listar_usuarios() -> list[dict]:
     with sessao() as s:
-        return [usuario_dict(u) for u in s.exec(select(Usuario).order_by(Usuario.email))]
+        return [usuario_dict(u, empresas_do_usuario(s, u.id)) for u in s.exec(select(Usuario).order_by(Usuario.email))]
+
+
+def definir_empresas(acesso: Acesso | None, usuario_id: int, itens: list[dict]) -> dict:
+    """Empresas que o usuário acessa e o papel em cada uma (o administrador da instalação acessa todas)."""
+    from emissor.db import Configuracao
+
+    with sessao() as s:
+        u = s.get(Usuario, usuario_id)
+        if u is None:
+            raise AuthError("Usuário não encontrado.", 404)
+        validas = {c.id for c in s.exec(select(Configuracao).where(Configuracao.ativa.is_not(False)))}
+        novos: dict[int, str] = {}
+        for it in itens:
+            eid, papel = int(it.get("empresa_id") or 0), str(it.get("papel") or "operador")
+            if eid not in validas:
+                raise AuthError(f"Empresa {eid} não encontrada.", 404)
+            novos[eid] = _validar_papel(papel)
+        for r in s.exec(select(UsuarioEmpresa).where(UsuarioEmpresa.usuario_id == usuario_id)):
+            s.delete(r)
+        s.flush()
+        for eid, papel in novos.items():
+            s.add(UsuarioEmpresa(usuario_id=usuario_id, empresa_id=eid, papel=papel))
+        detalhe = ", ".join(f"{eid}:{p}" for eid, p in sorted(novos.items())) or "nenhuma"
+        auditar("usuario_empresas", f"{u.email}: {detalhe}", acesso, s=s)
+        s.commit()
+        return usuario_dict(u, empresas_do_usuario(s, u.id))
 
 
 def _validar_papel(papel: str) -> str:
@@ -761,8 +813,13 @@ def _validar_papel(papel: str) -> str:
     return papel
 
 
-def convidar(acesso: Acesso | None, email: str, nome: str, papel: str) -> tuple[dict, str]:
-    """Cria o usuário (sem senha) e devolve o token do convite."""
+def convidar(
+    acesso: Acesso | None, email: str, nome: str, papel: str, empresas_: list[dict] | None = None
+) -> tuple[dict, str]:
+    """Cria o usuário (sem senha) e devolve o token do convite.
+
+    Operador sem lista de empresas recebe a empresa em que o convite foi feito (a 1, fora de uma requisição).
+    """
     email_n = validar_email(email)
     _validar_papel(papel)
     with sessao() as s:
@@ -772,9 +829,23 @@ def convidar(acesso: Acesso | None, email: str, nome: str, papel: str) -> tuple[
         s.add(u)
         s.flush()
         token = criar_convite(s, u, "convite")
+        if papel != "admin":
+            itens = (
+                empresas_
+                if empresas_ is not None
+                else [{"empresa_id": (acesso.empresa_id if acesso and acesso.empresa_id else 1), "papel": "operador"}]
+            )
+            for it in itens:
+                s.add(
+                    UsuarioEmpresa(
+                        usuario_id=u.id,
+                        empresa_id=int(it["empresa_id"]),
+                        papel=_validar_papel(it.get("papel", "operador")),
+                    )
+                )
         auditar("usuario_convidado", f"{email_n} ({papel})", acesso, s=s)
         s.commit()
-        return usuario_dict(u), token
+        return usuario_dict(u, empresas_do_usuario(s, u.id)), token
 
 
 def _admins_ativos(s: Session) -> int:
@@ -813,7 +884,26 @@ def alterar_usuario(
             s.add(u)
             auditar("usuario_alterado", f"{u.email}: {', '.join(mudancas)}", acesso, s=s)
             s.commit()
-        return usuario_dict(u)
+        return usuario_dict(u, empresas_do_usuario(s, u.id))
+
+
+def excluir_usuario(acesso: Acesso | None, usuario_id: int) -> None:
+    """Apaga um usuário já desativado (a auditoria continua com o e-mail dele)."""
+    with sessao() as s:
+        u = s.get(Usuario, usuario_id)
+        if u is None:
+            raise AuthError("Usuário não encontrado.", 404)
+        if acesso and acesso.usuario_id == u.id:
+            raise AuthError("Você não pode excluir o próprio usuário.")
+        if u.ativo:
+            raise AuthError("Desative o usuário antes de excluí-lo.", 409)
+        for modelo in (SessaoUsuario, ConviteUsuario, UsuarioEmpresa):
+            for r in s.exec(select(modelo).where(modelo.usuario_id == u.id)):
+                s.delete(r)
+        email = u.email
+        s.delete(u)
+        auditar("usuario_excluido", email, acesso, s=s)
+        s.commit()
 
 
 def redefinir_acesso(

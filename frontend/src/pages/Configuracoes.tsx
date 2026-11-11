@@ -15,10 +15,12 @@ import {
 import { useTributacoes } from "../components/Abas";
 import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { ImportarClientesXml } from "../components/ImportarClientesXml";
+import { nomeEmpresa, SecaoEmpresas, useEmpresas } from "../components/Empresas";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, useToast } from "../ui";
 import { CartaoCertificado, ZonaArquivo } from "./Onboarding";
 
 const SECOES = [
+  ["empresas", "Empresas"],
   ["ambiente", "Ambiente"],
   ["certificado", "Certificado digital"],
   ["empresa", "Dados da empresa"],
@@ -29,8 +31,12 @@ const SECOES = [
   ["diagnostico", "Diagnóstico"],
 ] as const;
 
-export function Configuracoes({ status }: { status: Status }) {
+export function Configuracoes({ status, adminInstancia }: { status: Status; adminInstancia: boolean }) {
   const cfg = useQuery({ queryKey: ["config"], queryFn: () => api.get<Config>("/api/config") });
+  const empresas = useEmpresas();
+  // Empresas: só o administrador do sistema, e só quando a instalação permite mais de uma (na hospedagem, desligado).
+  const mostrarEmpresas = adminInstancia && Boolean(empresas.data?.disponivel || (empresas.data?.empresas.length ?? 0) > 1);
+  const secoes = SECOES.filter(([id]) => (id === "empresas" ? mostrarEmpresas : id === "diagnostico" ? adminInstancia : true));
   useEffect(() => {
     const secao = new URLSearchParams(location.hash.split("?")[1] || "").get("secao");
     if (secao) setTimeout(() => document.getElementById(secao)?.scrollIntoView({ behavior: "smooth" }), 50);
@@ -40,7 +46,11 @@ export function Configuracoes({ status }: { status: Status }) {
       <div className="cabecalho-pagina">
         <div>
           <h1 className="titulo">Configurações</h1>
-          <p className="subtitulo">Valem para todas as próximas emissões. Notas já emitidas não mudam.</p>
+          <p className="subtitulo">
+            {status.varias_empresas
+              ? `Da empresa ${nomeEmpresa(status)}: valem para as próximas emissões dela. Notas já emitidas não mudam.`
+              : "Valem para todas as próximas emissões. Notas já emitidas não mudam."}
+          </p>
         </div>
       </div>
       <ErroCaixa erro={cfg.error} titulo="Não foi possível carregar as configurações" />
@@ -55,13 +65,14 @@ export function Configuracoes({ status }: { status: Status }) {
       {cfg.data && (
         <div className="config">
           <nav className="config__menu" aria-label="Seções das configurações">
-            {SECOES.map(([id, rotulo]) => (
+            {secoes.map(([id, rotulo]) => (
               <a key={id} href={`#/configuracoes?secao=${id}`} onClick={(e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }); }}>
                 {rotulo}
               </a>
             ))}
           </nav>
           <div>
+            {mostrarEmpresas && <SecaoEmpresas empresaAtual={status.empresa.id} />}
             <SecaoAmbiente cfg={cfg.data} />
             <SecaoCertificado status={status} />
             <SecaoEmpresa cfg={cfg.data} />
@@ -72,7 +83,7 @@ export function Configuracoes({ status }: { status: Status }) {
             </section>
             <SecaoNumeracao cfg={cfg.data} />
             <SecaoConexao ambiente={cfg.data.ambiente} />
-            <SecaoDiagnostico versao={status.versao} />
+            {adminInstancia && <SecaoDiagnostico versao={status.versao} />}
           </div>
         </div>
       )}
@@ -190,6 +201,14 @@ function SecaoCertificado({ status }: { status: Status }) {
   return (
     <section className="folha" id="certificado">
       <h2 className="secao-titulo">Certificado digital</h2>
+      {status.empresa.acesso === "procuracao" && (
+        <div className="info-caixa" style={{ marginBottom: 12 }}>
+          <span>
+            Esta empresa emite por procuração, com o certificado abaixo. Enviar o certificado A1 da própria empresa troca a procuração
+            pelo certificado dela.
+          </span>
+        </div>
+      )}
       {cert?.erro && <div className="erro-caixa">{cert.erro}</div>}
       {cert && !cert.erro && <CartaoCertificado info={cert} />}
       {!trocando ? (

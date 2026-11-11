@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlmodel import func, select
 
 from emissor import auth
-from emissor.api.deps import AdminAtual, UsuarioAtual
+from emissor.api.deps import AdminEmpresa, UsuarioAtual
 from emissor.api.routes_emissoes import obter_lote
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, Tributacao, agora, obter_config, sessao
 from emissor.nfse.models import aplicar_tributacao, normalizar_documento, tributacao_de
@@ -78,7 +78,7 @@ def _nome_tributacao(nome: str) -> str:
 
 
 @router.post("/tributacoes")
-def criar_tributacao(entrada: TributacaoEntrada, admin: AdminAtual) -> dict[str, Any]:
+def criar_tributacao(entrada: TributacaoEntrada, admin: AdminEmpresa) -> dict[str, Any]:
     nome = _nome_tributacao(entrada.nome)
     with sessao() as s:
         dados = trib_service.validar_completa(entrada.dados, trib_service.config_base(s))
@@ -94,7 +94,7 @@ def criar_tributacao(entrada: TributacaoEntrada, admin: AdminAtual) -> dict[str,
 
 
 @router.put("/tributacoes/{tributacao_id}")
-def alterar_tributacao(tributacao_id: int, entrada: TributacaoEntrada, admin: AdminAtual) -> dict[str, Any]:
+def alterar_tributacao(tributacao_id: int, entrada: TributacaoEntrada, admin: AdminEmpresa) -> dict[str, Any]:
     nome = _nome_tributacao(entrada.nome)
     with sessao() as s:
         t = s.get(Tributacao, tributacao_id)
@@ -157,7 +157,7 @@ def alterar_aliquota_iss(entrada: AliquotaIssEntrada, acesso: UsuarioAtual) -> d
 
 
 @router.delete("/tributacoes/{tributacao_id}")
-def excluir_tributacao(tributacao_id: int, admin: AdminAtual) -> dict[str, bool]:
+def excluir_tributacao(tributacao_id: int, admin: AdminEmpresa) -> dict[str, bool]:
     with sessao() as s:
         t = s.get(Tributacao, tributacao_id)
         if t is None:

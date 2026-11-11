@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { type AliquotaIss, api, baixar, type DadosTributacao, type Emissao, type Lote, type Validacao } from "../api";
+import { type AliquotaIss, api, baixar, type DadosTributacao, type Emissao, type Lote, type Status, type Validacao } from "../api";
+import { nomeEmpresa } from "../components/Empresas";
 import { formatarDocumento, moeda } from "../format";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 
@@ -128,6 +129,8 @@ export function EmissaoFluxo(props: {
   // ---------- conferência ----------
   if (fase === "validando" || fase === "conferir" || fase === "enviando") {
     const prod = val?.ambiente === "1";
+    const status = qc.getQueryData<Status>(["status"]);
+    const empresa = status?.varias_empresas ? nomeEmpresa(status) : null;
     const comErro = val?.linhas.filter((l) => l.erros.length) ?? [];
     const comAviso = val?.linhas.filter((l) => !l.erros.length && l.avisos.length) ?? [];
     const avisosGerais = val?.avisos ?? [];
@@ -165,6 +168,7 @@ export function EmissaoFluxo(props: {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div className={`faixa-amb ${prod ? "faixa-amb--prod" : "faixa-amb--homolog"}`} style={{ borderRadius: 6, height: 34 }}>
               <span>{val.ambiente_descricao}</span>
+              {empresa && <span className="faixa-amb__empresa">{empresa}</span>}
               <span className="faixa-amb__dica">
                 {prod ? "as notas terão validade jurídica" : "notas de teste, sem validade jurídica"}
               </span>
@@ -250,7 +254,7 @@ export function EmissaoFluxo(props: {
             )}
             {prod && !bloqueado && (
               <label className="campo" style={{ maxWidth: 380 }}>
-                <span>Para confirmar a emissão em produção, digite EMITIR</span>
+                <span>{empresa ? `Para confirmar a emissão em produção por ${empresa}, digite EMITIR` : "Para confirmar a emissão em produção, digite EMITIR"}</span>
                 <input value={confirmaProd} onChange={(e) => setConfirmaProd(e.target.value)} autoFocus />
               </label>
             )}

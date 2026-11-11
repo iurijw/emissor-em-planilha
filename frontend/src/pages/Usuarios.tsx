@@ -2,6 +2,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, type Papel, type RegistroAuditoria, type Usuario } from "../api";
+import { EmpresasDoUsuario, useEmpresas } from "../components/Empresas";
 import { copiar, Dialogo, ErroCaixa, Spinner, useToast } from "../ui";
 
 const PAPEL: Record<Papel, string> = { admin: "Administrador", operador: "Operador" };
@@ -33,6 +34,18 @@ const ACAO: Record<string, string> = {
   assinatura_nao_continuar: "Disse que não vai continuar com a assinatura",
   atualizacao_pedida: "Pediu a atualização do sistema",
   atualizacao_automatica: "Alterou a atualização automática",
+  empresa_criada: "Adicionou empresa",
+  empresa_alterada: "Alterou empresa",
+  empresa_certificado: "Trocou o certificado da empresa",
+  empresa_desativada: "Desativou empresa",
+  empresa_reativada: "Reativou empresa",
+  empresa_descartada: "Desistiu de empresa nova",
+  usuario_excluido: "Excluiu usuário",
+  certificado_guardado: "Guardou certificado para nova empresa",
+  certificado_apagado: "Apagou certificado sem uso",
+  clientes_compartilhados: "Passou a compartilhar os clientes entre as empresas",
+  clientes_separados: "Separou os clientes por empresa",
+  usuario_empresas: "Alterou as empresas de usuário",
 };
 
 function dataHora(s: string | null) {
@@ -46,7 +59,13 @@ export function Usuarios({ meuId }: { meuId: number }) {
   const [convidando, setConvidando] = useState(false);
   const [link, setLink] = useState<{ email: string; link: string } | null>(null);
   const [redefinir, setRedefinir] = useState<Usuario | null>(null);
+  const [empresasDe, setEmpresasDe] = useState<Usuario | null>(null);
+  const [excluir, setExcluir] = useState<Usuario | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
   const [erro, setErro] = useState<unknown>(null);
+  const empresas = useEmpresas();
+  const varias = (empresas.data?.empresas.length ?? 0) > 1;
+  const nomeEmpresa = (id: number) => empresas.data?.empresas.find((e) => e.id === id)?.nome ?? `Empresa ${id}`;
 
   async function alterar(u: Usuario, corpo: Partial<Pick<Usuario, "papel" | "ativo">>, msg: string) {
     setErro(null);
@@ -57,6 +76,23 @@ export function Usuarios({ meuId }: { meuId: number }) {
       qc.invalidateQueries({ queryKey: ["auditoria"] });
     } catch (e) {
       setErro(e);
+    }
+  }
+
+  async function confirmarExclusao(u: Usuario) {
+    setErro(null);
+    setExcluindo(true);
+    try {
+      await api.del(`/api/usuarios/${u.id}`);
+      toast("Usuário excluído.");
+      setExcluir(null);
+      qc.invalidateQueries({ queryKey: ["usuarios"] });
+      qc.invalidateQueries({ queryKey: ["auditoria"] });
+    } catch (e) {
+      setErro(e);
+      setExcluir(null);
+    } finally {
+      setExcluindo(false);
     }
   }
 
@@ -102,6 +138,20 @@ export function Usuarios({ meuId }: { meuId: number }) {
                     <option value="admin">{PAPEL.admin}</option>
                     <option value="operador">{PAPEL.operador}</option>
                   </select>
+                  {varias && (
+                    <div className="usuario-empresas">
+                      {u.papel === "admin" ? (
+                        "Todas as empresas"
+                      ) : (
+                        <>
+                          {u.empresas.length === 0
+                            ? "Nenhuma empresa"
+                            : u.empresas.map((e) => `${nomeEmpresa(e.empresa_id)}${e.papel === "admin" ? " (admin)" : ""}`).join(", ")}{" "}
+                          <button className="btn-texto" onClick={() => setEmpresasDe(u)}>Alterar</button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </td>
                 <td>
                   {!u.ativo ? "Desativado" : u.convite_pendente ? "Convite pendente" : u.bloqueado ? "Bloqueado (tentativas)" : "Ativo"}
@@ -120,6 +170,11 @@ export function Usuarios({ meuId }: { meuId: number }) {
                       {u.ativo ? "Desativar" : "Reativar"}
                     </button>
                   )}
+                  {!u.ativo && u.id !== meuId && (
+                    <button className="btn btn--pequeno btn--fantasma btn--perigo" onClick={() => setExcluir(u)}>
+                      Excluir
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -128,6 +183,26 @@ export function Usuarios({ meuId }: { meuId: number }) {
       </div>
 
       <Auditoria />
+
+      {excluir && (
+        <Dialogo
+          titulo="Excluir usuário?"
+          fechar={excluindo ? undefined : () => setExcluir(null)}
+          rodape={
+            <>
+              <button className="btn" onClick={() => setExcluir(null)} disabled={excluindo}>Cancelar</button>
+              <button className="btn btn--perigo" onClick={() => confirmarExclusao(excluir)} disabled={excluindo}>
+                {excluindo && <Spinner />} Excluir
+              </button>
+            </>
+          }
+        >
+          <p>
+            {excluir.nome || excluir.email} sai da lista de usuários de vez. As ações dele continuam na auditoria, com o e-mail.
+            Para voltar a dar acesso, será preciso convidar de novo.
+          </p>
+        </Dialogo>
+      )}
 
       {convidando && (
         <Convidar
@@ -139,6 +214,7 @@ export function Usuarios({ meuId }: { meuId: number }) {
           }}
         />
       )}
+      {empresasDe && <EmpresasDoUsuario usuario={empresasDe} fechar={() => setEmpresasDe(null)} />}
       {redefinir && (
         <Redefinir
           usuario={redefinir}

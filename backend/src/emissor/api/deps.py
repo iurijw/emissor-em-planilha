@@ -38,10 +38,19 @@ def exigir_login(request: Request) -> Acesso:
 
 
 def exigir_admin(acesso: Annotated[Acesso, Depends(exigir_login)]) -> Acesso:
+    """Administrador da instalação (usuários, empresas, assinatura, diagnóstico, atualizações)."""
     if not acesso.admin:
         raise HTTPException(403, "Só um administrador pode fazer isto.")
     return acesso
 
 
+def exigir_admin_empresa(acesso: Annotated[Acesso, Depends(exigir_login)]) -> Acesso:
+    """Administrador da empresa da requisição (certificado, configurações e tributações dela)."""
+    if not acesso.admin_empresa:
+        raise HTTPException(403, "Só um administrador desta empresa pode fazer isto.")
+    return acesso
+
+
 UsuarioAtual = Annotated[Acesso, Depends(exigir_login)]
 AdminAtual = Annotated[Acesso, Depends(exigir_admin)]
+AdminEmpresa = Annotated[Acesso, Depends(exigir_admin_empresa)]

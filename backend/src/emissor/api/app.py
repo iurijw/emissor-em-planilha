@@ -8,6 +8,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -17,10 +18,17 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from emissor import auth, config
-from emissor.api import routes_auth, routes_config, routes_emissoes, routes_tabela, routes_tributacao
+from emissor import auth, config, empresas
+from emissor.api import (
+    routes_auth,
+    routes_config,
+    routes_emissoes,
+    routes_empresas,
+    routes_tabela,
+    routes_tributacao,
+)
 from emissor.api.deps import exigir_login, ip_cliente
-from emissor.db import engine
+from emissor.db import EmpresaInexistente, engine
 from emissor.logging_setup import bind_context, setup_logging
 from emissor.nfse.certificate import CertificadoError
 from emissor.nfse.errors import SefinError, TipoErro
@@ -31,6 +39,9 @@ from emissor.services.tributacao import TributacaoError
 log = logging.getLogger("emissor.api")
 
 FRONTEND_DIST = config.REPO_ROOT / "frontend" / "dist"
+
+# Rotas que funcionam sem empresa (usuário sem acesso a nenhuma ainda vê a conta, sai e lê as atualizações).
+SEM_EMPRESA = ("/api/auth/", "/api/saude", "/api/logs/cliente", "/api/atualizacoes", "/api/assinatura", "/api/empresas")
 
 
 def _redes_permitidas() -> list[ipaddress._BaseNetwork]:
@@ -89,6 +100,18 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
             request.state.acesso = await run_in_threadpool(
                 auth.resolver_sessao, request.cookies.get(auth.COOKIE), ip_cliente(request)
             )
+        empresas.definir(None)
+        acesso = request.state.acesso
+        if acesso is not None:
+            pedida = request.headers.get("x-empresa") or request.query_params.get("empresa")
+            try:
+                eid, papel = await run_in_threadpool(empresas.resolver, acesso.usuario_id, acesso.admin, pedida)
+            except empresas.EmpresaNegada as e:
+                if not caminho.startswith(SEM_EMPRESA):
+                    return JSONResponse({"mensagem": e.mensagem, "sem_empresa": True}, status_code=e.status)
+                eid, papel = None, None
+            request.state.acesso = replace(acesso, empresa_id=eid, papel_empresa=papel)
+            empresas.definir(eid)
         usuario = request.state.acesso.email if request.state.acesso else None
         inicio = time.perf_counter()
         with bind_context(request_id=rid, usuario=usuario):
@@ -127,6 +150,15 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     async def _auth(_req: Request, exc: auth.AuthError):
         return JSONResponse({"mensagem": exc.mensagem, **exc.extra}, status_code=exc.status)
 
+    @app.exception_handler(empresas.SemEmpresa)
+    async def _sem_empresa(_req: Request, exc: empresas.SemEmpresa):
+        log.error("operação sem empresa definida", exc_info=exc)
+        return JSONResponse({"mensagem": "Escolha a empresa antes de continuar.", "sem_empresa": True}, status_code=400)
+
+    @app.exception_handler(EmpresaInexistente)
+    async def _empresa_inexistente(_req: Request, exc: EmpresaInexistente):
+        return JSONResponse({"mensagem": str(exc)}, status_code=404)
+
     @app.exception_handler(LoteError)
     async def _lote(_req: Request, exc: LoteError):
         return JSONResponse({"mensagem": exc.mensagem, "detalhes": exc.detalhes}, status_code=400)
@@ -161,6 +193,7 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     app.include_router(routes_tabela.router, prefix="/api", dependencies=logado)
     app.include_router(routes_tributacao.router, prefix="/api", dependencies=logado)
     app.include_router(routes_emissoes.router, prefix="/api", dependencies=logado)
+    app.include_router(routes_empresas.router, prefix="/api", dependencies=logado)
 
     @app.get("/api/openapi.json", include_in_schema=False, dependencies=logado)
     async def openapi():

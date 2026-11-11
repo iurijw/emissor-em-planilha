@@ -3,7 +3,8 @@
 O PDF é gerado no download; o das notas emitidas até a 0.7 continua em ``data/pdf`` e é usado enquanto existir.
 
 Padrão de nome dos arquivos:
-``AAAAMMDD_NFSe-NNNN_<PRESTADOR>-para-<TOMADOR>_R<valor>``.
+``AAAAMMDD_NFSe-NNNN_<PRESTADOR>-para-<TOMADOR>_R<valor>``, em ``<ambiente>/AAAA/MM`` (empresa 1) ou
+``<ambiente>/<CNPJ>/AAAA/MM`` (as outras empresas da instalação).
 """
 
 from __future__ import annotations
@@ -30,15 +31,23 @@ def nome_base(data: datetime, numero: str | None, prestador: str, tomador: str, 
     return f"{data:%Y%m%d}_NFSe-{num}_{_slug(prestador, 30)}-para-{_slug(tomador, 30)}_R{valor_txt}"
 
 
-def _pasta(raiz: Path, ambiente: str, data: datetime) -> Path:
+def _pasta(raiz: Path, ambiente: str, data: datetime, empresa: str | None = None) -> Path:
     sub = "homologacao" if ambiente == "2" else "producao"
-    p = raiz / sub / f"{data:%Y}" / f"{data:%m}"
+    p = raiz / sub
+    if empresa:
+        p = p / empresa
+    p = p / f"{data:%Y}" / f"{data:%m}"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
-def caminho_xml(ambiente: str, data: datetime, base: str) -> Path:
-    return _pasta(config.XML_DIR, ambiente, data) / f"{base}.xml"
+def caminho_xml(
+    ambiente: str, data: datetime, base: str, empresa_id: int | None = None, cnpj: str | None = None
+) -> Path:
+    """A empresa 1 (a de antes de haver várias) fica onde sempre ficou; as outras numa pasta com o CNPJ, porque filiais
+    com o mesmo nome e o mesmo número de nota dariam o mesmo nome de arquivo."""
+    empresa = _slug(cnpj or str(empresa_id), 20) if empresa_id not in (None, 1) else None
+    return _pasta(config.XML_DIR, ambiente, data, empresa) / f"{base}.xml"
 
 
 def caminho_dps(ambiente: str, id_dps: str) -> Path:
