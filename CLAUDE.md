@@ -499,7 +499,7 @@ nova. Mockups escolhidos pelo Iuri: ícone A + linha do tempo A.
   abrir. Ele baixa `github.com/<repo>/archive/refs/tags/vX.Y.Z.zip` (confere a versão no `pyproject.toml` e caminhos),
   copia o banco (sqlite backup, últimas 3) e o código (últimas 2) para `data/backups`, grava só os arquivos que mudaram,
   apaga os que saíram só nas pastas do sistema (`ESPELHADAS`), nunca mexe em `data`, `temp`, `.venv`, `node_modules` e
-  `dist`, e volta o código anterior se a gravação falhar. Cópia com `.git` → `git pull --ff-only`. Resultado em
+  `dist`, e volta o código anterior se a gravação falhar. Cópia com `.git` → `git pull --ff-only` (sem terminal: `GIT_TERMINAL_PROMPT=0`, stdin fechado) e confere a versão do `pyproject.toml` depois; se o pull não a trouxe (cópia em outro ramo), falha com o ramo e `git checkout main` em vez de sair com 3 (até a 0.12.2 o `iniciar.bat` recomeçava e "atualizava" de novo, sem fim). Resultado em
   `data/atualizacao-resultado.json` (a falha aparece na janela). Sai com 3 quando atualizou: o `iniciar.bat` recomeça
   pelo arquivo novo. **O teste do código de saída e o recomeço ficam na mesma linha do comando** no `iniciar.bat`
   (o cmd lê o .bat aos pedaços; o arquivo pode ter mudado). Conferido com o ZIP real da tag v0.9.0 (CRLF preservado).
