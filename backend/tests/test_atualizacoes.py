@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import shutil
 import sqlite3
+import subprocess
 import zipfile
 
 import pytest
@@ -229,3 +231,43 @@ def test_main_com_falha_abre_a_versao_de_antes(monkeypatch):
     res = atualizacoes.ultimo_resultado()
     assert res["ok"] is False and res["para"] == "9.1.0" and "sem espaço" in res["mensagem"]
     assert not (config.DATA_DIR / "atualizar-agora").exists()
+
+
+def _git(pasta, *args):
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main", *args],
+        cwd=pasta,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _commit_versao(pasta, versao):
+    p = pasta / "backend" / "pyproject.toml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(f'[project]\nversion = "{versao}"\n')
+    _git(pasta, "add", "-A")
+    _git(pasta, "commit", "-m", versao)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="sem git")
+def test_copia_do_git_em_outro_ramo_nao_repete_a_atualizacao(tmp_path):
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    _git(origem, "init")
+    _commit_versao(origem, "0.1.0")
+    _git(tmp_path, "clone", str(origem), "inst")
+    raiz = tmp_path / "inst"
+    _git(raiz, "checkout", "-b", "teste-local")
+    _git(raiz, "push", "-u", "origin", "teste-local")
+    _commit_versao(origem, "9.1.0")  # versão publicada no main
+    inst = atualizacoes.Instalacao(raiz=raiz, dados=raiz / "data")
+
+    # Antes, o pull "dava certo" sem trazer nada e o iniciar.bat recomeçava a atualização sem fim.
+    with pytest.raises(atualizacoes.AtualizacaoError, match='ramo "teste-local".*git checkout main'):
+        atualizacoes.atualizar(inst, "9.1.0")
+    assert atualizacoes.versao_instalada(inst) == "0.1.0"
+
+    _git(raiz, "checkout", "main")
+    atualizacoes.atualizar(inst, "9.1.0")
+    assert atualizacoes.versao_instalada(inst) == "9.1.0"
