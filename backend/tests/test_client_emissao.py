@@ -281,6 +281,7 @@ def test_dicas_de_inscricao_municipal_e_do_leiaute():
 
     e0116 = "A IM deve ser informada para o emitente prestador do serviço na DPS"
     assert "Dados da empresa" in dica_para("E0116", e0116)
+    assert "Simples Nacional" in dica_para("E0116", e0116)
     assert "inscrição municipal" in dica_para(None, e0116)  # sem código: não cai na dica de município
     assert "3 dígitos" in dica_xsd("cTribMun: [facet 'pattern'] The value '080101003' is not accepted")
     assert "suporte" in dica_xsd("Element 'x': erro sem campo conhecido")
