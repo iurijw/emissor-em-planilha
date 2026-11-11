@@ -7,6 +7,12 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.13.0 (11/11/2026)
+
+- Instalação própria: emita por várias empresas no mesmo sistema, cada uma com o certificado dela ou por procuração.
+- A nota avulsa mostra no fim os tributos, as retenções e o valor líquido da nota.
+- A atualização pela tela não fica mais reiniciando sem parar quando a cópia do sistema está em outro ramo do git.
+
 ## 0.12.2 (10/11/2026)
 
 - Na hospedagem, a tela de primeiro acesso avisa que o link para criar o administrador foi enviado para o e-mail usado
