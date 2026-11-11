@@ -580,9 +580,12 @@ export function CamposTributacao({
   onChange,
   regime,
   municipioPrestador,
+  semPrevia,
 }: {
   valor: DadosTributacao;
   onChange: (t: DadosTributacao) => void;
+  /** Sem a prévia numa nota de exemplo (a nota avulsa mostra os valores da própria nota no fim). */
+  semPrevia?: boolean;
   /** Regime do prestador (Configurações): decide quais alíquotas a nota aceita. */
   regime: Regime | null | undefined;
   /** Município do prestador ainda não salvo (onboarding); sem ele, a consulta à prefeitura usa o das configurações. */
@@ -843,7 +846,7 @@ export function CamposTributacao({
         </div>
       </section>
 
-      <PreviaValores valor={valor} aliquotaIss={aliquotaIss} incide={incide} />
+      {!semPrevia && <PreviaValores valor={valor} aliquotaIss={aliquotaIss} incide={incide} />}
     </>
   );
 }
@@ -1022,9 +1025,33 @@ const reais = (v: number) => moeda(v.toFixed(2));
  * Prévia dos valores da NFS-e, no formato da revisão do Emissor Nacional, numa nota de exemplo. O ISSQN usa a
  * alíquota do Simples (quando a Sefin exige) ou a que a prefeitura cadastrou; sem ela, fica para a Sefin calcular.
  */
-function PreviaValores({ valor, aliquotaIss, incide }: { valor: DadosTributacao; aliquotaIss: string | null; incide: boolean }) {
+/**
+ * Valores de uma nota de verdade com a tributação escolhida (nota avulsa): ISSQN, tributos federais, retenções e o
+ * líquido, como na prévia da tela de tributação. A alíquota do ISS vem da mesma regra (a do Simples quando a Sefin
+ * exige, senão a cadastrada na prefeitura).
+ */
+export function ValoresDaNota({ tributacao, valor, regime }: { tributacao: DadosTributacao; valor: number; regime: Regime | null | undefined }) {
+  const conferencia = useConferencia(tributacao.c_trib_nac, tributacao.c_loc_prestacao).data;
+  const incide = tributacao.trib_issqn === "1";
+  const aliquotaPrefeitura = conferencia?.situacao === "encontrado" ? conferencia.aliquota : null;
+  const aliquotaIss = !incide ? null : issExigeAliquota(regime, tributacao) ? tributacao.p_aliq_iss : aliquotaPrefeitura;
+  return <PreviaValores valor={tributacao} aliquotaIss={aliquotaIss} incide={incide} valorNota={valor} />;
+}
+
+function PreviaValores({
+  valor,
+  aliquotaIss,
+  incide,
+  valorNota,
+}: {
+  valor: DadosTributacao;
+  aliquotaIss: string | null;
+  incide: boolean;
+  /** Valor de uma nota de verdade (nota avulsa): troca a nota de exemplo por ele. */
+  valorNota?: number;
+}) {
   const [exemplo, setExemplo] = useState("1.000,00");
-  const base = Number(exemplo.replace(/\./g, "").replace(",", ".")) || 0;
+  const base = valorNota ?? (Number(exemplo.replace(/\./g, "").replace(",", ".")) || 0);
   const [pisRet, cofinsRet, csllRet] = (valor.cst_pis_cofins && RETENCOES[valor.tp_ret_pis_cofins ?? ""]) || [false, false, false];
   const issRetido = incide && ["2", "3"].includes(valor.tp_ret_issqn);
   const iss = aliquotaIss ? de(base, aliquotaIss) : null;
@@ -1043,11 +1070,13 @@ function PreviaValores({ valor, aliquotaIss, incide }: { valor: DadosTributacao;
   return (
     <section className="previa-nfse">
       <div className="previa-nfse__cabeca">
-        <h3 className="secao-titulo">Prévia dos valores da NFS-e</h3>
-        <label className="previa-nfse__exemplo">
-          <span>Numa nota de R$</span>
-          <input className="num" inputMode="decimal" value={exemplo} onChange={(e) => setExemplo(e.target.value.replace(/[^\d.,]/g, ""))} />
-        </label>
+        <h3 className="secao-titulo">{valorNota === undefined ? "Prévia dos valores da NFS-e" : "Valores desta nota"}</h3>
+        {valorNota === undefined && (
+          <label className="previa-nfse__exemplo">
+            <span>Numa nota de R$</span>
+            <input className="num" inputMode="decimal" value={exemplo} onChange={(e) => setExemplo(e.target.value.replace(/[^\d.,]/g, ""))} />
+          </label>
+        )}
       </div>
       <h4>ISSQN calculado</h4>
       <dl>

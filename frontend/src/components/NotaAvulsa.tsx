@@ -7,7 +7,7 @@ import { EmissaoFluxo, type CorpoAvulsa } from "../pages/EmissaoFluxo";
 import { ErroCaixa, Gaveta, Spinner } from "../ui";
 import { useTributacoes } from "./Abas";
 import { buscarClientes, normalizarBusca } from "./EditorNomeCliente";
-import { CamposTributacao } from "./FiscalForm";
+import { CamposTributacao, ValoresDaNota } from "./FiscalForm";
 import { EnderecoTomador, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
 
 type Escolha = "padrao" | "propria" | number;
@@ -58,6 +58,8 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
     [clientesQ.data, docTexto, focoDoc, cadastro],
   );
   const valorNum = parseValor(valor);
+  const tributacaoDaNota =
+    escolha === "propria" ? propria : typeof escolha === "number" ? trib.data?.itens.find((t) => t.id === escolha)?.dados ?? null : trib.data?.padrao ?? null;
   const docInvalido = documento !== "" && !documentoValido(documento);
   // Enquanto digita no campo, só acusa quando já tem o tamanho de um CNPJ.
   const mostrarInvalido = docInvalido && (!focoDoc || documento.length >= 14);
@@ -329,10 +331,12 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             )}
             {escolha === "propria" && propria && (
               <div style={{ display: "flex", flexDirection: "column", gap: 22, marginTop: 18 }}>
-                <CamposTributacao valor={propria} onChange={setPropria} regime={trib.data?.regime} />
+                <CamposTributacao valor={propria} onChange={setPropria} regime={trib.data?.regime} semPrevia />
               </div>
             )}
           </section>
+
+          {tributacaoDaNota && <ValoresDaNota tributacao={tributacaoDaNota} valor={Number(valorNum) || 0} regime={trib.data?.regime} />}
         </div>
       </Gaveta>
       {conferir && (
