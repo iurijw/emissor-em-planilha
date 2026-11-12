@@ -51,6 +51,25 @@ def test_ibscbs_nas_configuracoes(api, sefin, pfx_bytes, nfse_exemplo_bytes):
     assert b"<cIndOp>100301</cIndOp>" in sefin.enviadas[0] and b"<CST>000</CST>" in sefin.enviadas[0]
 
 
+def test_ibscbs_com_servico_que_exige_tipo_de_operacao(api, sefin, pfx_bytes, nfse_exemplo_bytes):
+    """17.12 (administração de bens e negócios de terceiros) exige tpOper com o IBS/CBS (E0903)."""
+    dados = _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    fiscal = dados["fiscal"] | {"ibscbs": True, "c_trib_nac": "171201", "c_nbs": "114012100", "c_trib_mun": None}
+    r = api.put("/api/config", json={"fiscal": fiscal})
+    assert r.status_code == 400 and any("tipo de operação" in d for d in r.json()["detalhes"])
+    r = api.put("/api/config", json={"fiscal": fiscal | {"ibscbs_tp_oper": "2"}})
+    assert r.status_code == 400  # 2 e 3 exigiriam as NFS-e referenciadas
+    r = api.put("/api/config", json={"fiscal": fiscal | {"ibscbs_tp_oper": "5"}})
+    assert r.status_code == 200, r.text
+    assert r.json()["fiscal"]["ibscbs_tp_oper"] == "5"
+    assert [o["valor"] for o in api.get("/api/config/opcoes").json()["ibscbs_tp_oper"]] == ["5", "1", "4"]
+
+    ids = [ln["id"] for ln in api.get("/api/tabela").json()["linhas"]]
+    lote = _emitir(api, ids)
+    assert lote["contagem"] == {"autorizada": 1}, lote
+    assert b"<cIndOp>100301</cIndOp><tpOper>5</tpOper>" in sefin.enviadas[0]
+
+
 def test_abas_com_tributacao_propria(api, sefin, pfx_bytes, nfse_exemplo_bytes):
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
     abas = api.get("/api/abas").json()

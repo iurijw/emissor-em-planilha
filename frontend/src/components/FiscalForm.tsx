@@ -609,6 +609,18 @@ export function CamposTributacao({
   const exigeAliquota = issExigeAliquota(regime, valor);
   const incide = valor.trib_issqn === "1";
   const nbsEscolhido = servico?.nbs.find((n) => n.codigo === valor.c_nbs);
+  // Indicador que o sistema não emite (ex.: 020301, imóveis, vindo de uma nota antiga): o <select> mostraria a
+  // primeira opção, mas o valor salvo seria o antigo e o servidor recusaria. Troca pelo do NBS (se o sistema o
+  // emite) ou pelo dos serviços em geral.
+  useEffect(() => {
+    const suportados = op?.ibscbs_c_ind_op?.map((o) => o.valor);
+    if (!valor.ibscbs || !suportados?.length || suportados.includes(valor.ibscbs_c_ind_op)) return;
+    const doNbs = nbsEscolhido?.c_ind_op.find((c) => suportados.includes(c));
+    onChange({ ...valor, ibscbs_c_ind_op: doNbs ?? "100301" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valor.ibscbs, valor.ibscbs_c_ind_op, op, nbsEscolhido?.codigo]);
+  // 10.05, 15.09, 17.12 e 25.05 exigem o tipo de operação com o IBS/CBS (E0903); os demais não podem tê-lo (E0904).
+  const exigeTpOper = /^(1005|1509|1712|2505)/.test(valor.c_trib_nac);
   const retencao = RETENCOES[valor.tp_ret_pis_cofins ?? ""];
   const retemCsll = !!valor.cst_pis_cofins && !!retencao?.[2];
   const erroTribMun =
@@ -700,6 +712,17 @@ export function CamposTributacao({
                   ? ` Para o NBS escolhido, o Anexo VIII indica ${nbsEscolhido.c_ind_op.join(" ou ")}.`
                   : "")
               }
+            />
+          )}
+          {valor.ibscbs && exigeTpOper && (
+            <Selecao
+              rotulo="Tipo de operação"
+              largo
+              valor={valor.ibscbs_tp_oper ?? null}
+              opcoes={op?.ibscbs_tp_oper}
+              vazio="Escolha"
+              onChange={(v) => set("ibscbs_tp_oper", v)}
+              ajuda="Exigido para este serviço: quando o serviço é prestado e quando é pago. No comum (presta e recebe no mês), 5."
             />
           )}
         </div>

@@ -66,6 +66,8 @@ class ConfigFiscal:
     ibscbs_c_ind_op: str = "100301"
     ibscbs_c_class_trib: str = "000001"  # o CST vai como os 3 primeiros dígitos (E0959)
     ibscbs_ind_final: str | None = None  # opcional; será descontinuado pela NT 005
+    # tpOper: obrigatório nos subitens de codes.SUBITENS_EXIGEM_TP_OPER (E0903) e proibido nos demais (E0904)
+    ibscbs_tp_oper: str | None = None
     # Emissão
     tp_emit: str = "1"
 
@@ -134,6 +136,7 @@ CAMPOS_TRIBUTACAO = (
     "ibscbs_c_ind_op",
     "ibscbs_c_class_trib",
     "ibscbs_ind_final",
+    "ibscbs_tp_oper",
 )
 
 

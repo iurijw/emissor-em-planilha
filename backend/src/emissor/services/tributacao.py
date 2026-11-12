@@ -36,6 +36,7 @@ _ENUMS = {
     "cst_pis_cofins": codes.CST_PIS_COFINS,
     "tp_ret_pis_cofins": codes.TP_RET_PIS_COFINS,
     "ibscbs_ind_final": codes.IND_FINAL,
+    "ibscbs_tp_oper": codes.TP_OPER,
 }
 
 
@@ -152,15 +153,16 @@ def coerencia(t: dict[str, Any], base: ConfigFiscal | None = None) -> list[str]:
             erros.append("Para informar o IBS/CBS, o código NBS do serviço é obrigatório.")
         if t.get("ibscbs_c_ind_op") not in codes.C_IND_OP:
             erros.append(
-                f"Indicador da operação do IBS/CBS não suportado: {t.get('ibscbs_c_ind_op')!r}. Escolha um da lista."
+                f"Indicador da operação do IBS/CBS não suportado: {t.get('ibscbs_c_ind_op')!r}. Escolha um da lista "
+                "(o sistema emite só serviços ao próprio tomador, no Brasil, sem os dados de imóvel ou evento)."
             )
         c_class = t.get("ibscbs_c_class_trib") or ""
         if not c_class.isdigit() or len(c_class) != 6:
             erros.append("Classificação tributária do IBS/CBS (cClassTrib) deve ter 6 dígitos.")
-        if c_trib_nac[:4] in codes.SUBITENS_EXIGEM_TP_OPER:
+        if codes.exige_tp_oper(c_trib_nac) and not t.get("ibscbs_tp_oper"):
             erros.append(
-                f"O serviço {c_trib_nac} exige o tipo de operação do IBS/CBS, que o sistema ainda não envia: "
-                "desligue o IBS/CBS nesta tributação."
+                f"O serviço {c_trib_nac} exige o tipo de operação do IBS/CBS (quando o serviço é prestado e quando é "
+                "pago): escolha um na lista."
             )
     return erros
 

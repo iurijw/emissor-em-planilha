@@ -12,7 +12,7 @@ from datetime import datetime
 from lxml import etree
 
 from emissor.config import VER_APLIC
-from emissor.nfse.codes import SUBITENS_EXIGEM_TP_OPER
+from emissor.nfse.codes import TP_OPER, exige_tp_oper
 from emissor.nfse.constants import (
     LEIAUTE_NT009,
     NS_NFSE,
@@ -225,16 +225,18 @@ def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool) -> None:
         raise DpsBuildError(f"Código indicador da operação do IBS/CBS inválido: {cfg.ibscbs_c_ind_op!r} (6 dígitos).")
     if not re.fullmatch(r"\d{6}", cfg.ibscbs_c_class_trib or ""):
         raise DpsBuildError(f"Classificação tributária do IBS/CBS inválida: {cfg.ibscbs_c_class_trib!r} (6 dígitos).")
-    if cfg.c_trib_nac[:4] in SUBITENS_EXIGEM_TP_OPER:
+    tp_oper = cfg.ibscbs_tp_oper if exige_tp_oper(cfg.c_trib_nac) else None  # fora dos subitens: E0904
+    if exige_tp_oper(cfg.c_trib_nac) and tp_oper not in TP_OPER:
         raise DpsBuildError(
-            f"O serviço {cfg.c_trib_nac} exige o tipo de operação do IBS/CBS (tpOper), que este sistema ainda não "
-            "envia. Emita esta nota sem o grupo IBS/CBS ou pelo Emissor Nacional."
+            f"O serviço {cfg.c_trib_nac} exige o tipo de operação do IBS/CBS (tpOper, regra E0903): escolha um na "
+            "tributação."
         )
     g = _sub(inf, "IBSCBS")
     if not nt009:
         _sub(g, "finNFSe", "0")
     _opt(g, "indFinal", cfg.ibscbs_ind_final)
     _sub(g, "cIndOp", cfg.ibscbs_c_ind_op)
+    _opt(g, "tpOper", tp_oper)
     _sub(g, "indDest", "0")
     trib = _sub(_sub(g, "valores"), "trib")
     sit = trib if nt009 else _sub(trib, "gIBSCBS")
