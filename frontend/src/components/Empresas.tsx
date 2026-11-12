@@ -37,16 +37,130 @@ function linhaDoc(e: Empresa) {
   return e.cnpj ? formatarDocumento(e.cnpj) : "sem CNPJ";
 }
 
+// --- busca de empresas ---------------------------------------------------------------------------------------
+
+/** A partir de quantas empresas os seletores mostram o campo de busca. */
+const BUSCA_A_PARTIR = 5;
+
+function semAcento(c: string) {
+  return c.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/** Palavras da busca: as que têm número procuram no CNPJ/CPF (sem pontuação), as outras no texto. */
+function termosDaBusca(busca: string) {
+  return semAcento(busca)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => (/\d/.test(p) ? { doc: p.replace(/[^0-9a-z]/g, "") } : { texto: p }));
+}
+
+type Buscavel = { nome: string; cnpj: string | null; acesso?: string; ambiente?: string; certificado?: Empresa["certificado"] };
+
+/** Empresas com todas as palavras da busca: nome, CNPJ, certificado (titular e documento), acesso e ambiente. */
+export function filtrarEmpresas<T extends Buscavel>(lista: T[], busca: string): T[] {
+  const termos = termosDaBusca(busca);
+  if (termos.length === 0) return lista;
+  return lista.filter((e) => {
+    const docs = [e.cnpj, e.certificado?.cnpj, e.certificado?.cpf].filter(Boolean).map((d) => semAcento(d!).replace(/[^0-9a-z]/g, ""));
+    const texto = semAcento(
+      [
+        e.nome,
+        e.certificado?.titular,
+        e.acesso === "procuracao" ? "por procuração" : e.acesso ? "certificado próprio" : "",
+        e.ambiente === "1" ? "produção" : e.ambiente ? "homologação" : "",
+      ].join(" "),
+    );
+    return termos.every((t) => ("doc" in t ? Boolean(t.doc) && docs.some((d) => d.includes(t.doc!)) : texto.includes(t.texto!)));
+  });
+}
+
+/** O nome com as palavras buscadas em destaque (sem diferença de acento e caixa). */
+function Destaque({ texto, busca }: { texto: string; busca: string }) {
+  const palavras = termosDaBusca(busca).flatMap((t) => ("texto" in t ? [t.texto!] : []));
+  if (palavras.length === 0) return <>{texto}</>;
+  // Um caractere normalizado por caractere original (os acentos somem sem mudar as posições).
+  const normal = Array.from(texto, (c) => semAcento(c).slice(0, 1) || c).join("");
+  const marca = new Array(texto.length).fill(false);
+  for (const p of palavras) {
+    for (let i = normal.indexOf(p); i >= 0; i = normal.indexOf(p, i + 1)) marca.fill(true, i, i + p.length);
+  }
+  const partes: { t: string; m: boolean }[] = [];
+  Array.from(texto).forEach((c, i) => {
+    const ultima = partes[partes.length - 1];
+    if (ultima && ultima.m === marca[i]) ultima.t += c;
+    else partes.push({ t: c, m: marca[i] });
+  });
+  return <>{partes.map((p, i) => (p.m ? <mark key={i} className="busca-marca">{p.t}</mark> : <span key={i}>{p.t}</span>))}</>;
+}
+
+function IconeBusca() {
+  return (
+    <svg className="busca__icone" width="15" height="15" viewBox="0 0 16 16" aria-hidden>
+      <circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="m10.6 10.6 3.4 3.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Campo de busca das listas de empresas, com o botão de limpar. */
+function CampoBusca(props: {
+  valor: string;
+  mudar: (v: string) => void;
+  placeholder: string;
+  rotulo: string;
+  autoFocus?: boolean;
+  onKeyDown?: (ev: React.KeyboardEvent<HTMLInputElement>) => void;
+  controla?: string;
+  ativo?: string;
+  className?: string;
+}) {
+  return (
+    <div className={`busca ${props.className ?? ""}`}>
+      <IconeBusca />
+      <input
+        type="search"
+        className="busca__campo"
+        aria-label={props.rotulo}
+        autoFocus={props.autoFocus}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder={props.placeholder}
+        value={props.valor}
+        onChange={(e) => props.mudar(e.target.value)}
+        onKeyDown={props.onKeyDown}
+        aria-controls={props.controla}
+        aria-activedescendant={props.ativo}
+        role={props.controla ? "combobox" : undefined}
+        aria-expanded={props.controla ? true : undefined}
+      />
+      {props.valor && (
+        <button type="button" className="busca__limpar" aria-label="Limpar busca" onClick={() => props.mudar("")}>
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
+            <path d="M2 2l6 6M8 2 2 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Crachá da empresa no topo: qual empresa esta aba emite, e a lista para trocar. Some com uma empresa só. */
 export function SeletorEmpresa({ admin }: { admin: boolean }) {
   const lista = useEmpresas();
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState("");
+  const [ativo, setAtivo] = useState(0);
+  const [topo, setTopo] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const opcoes = useRef<HTMLDivElement>(null);
+  const fechar = () => {
+    setAberto(false);
+    setBusca("");
+  };
   useEffect(() => {
     if (!aberto) return;
-    const fora = (ev: MouseEvent) => !ref.current?.contains(ev.target as Node) && setAberto(false);
-    const esc = (ev: KeyboardEvent) => ev.key === "Escape" && setAberto(false);
+    const fora = (ev: MouseEvent) => !ref.current?.contains(ev.target as Node) && fechar();
+    const esc = (ev: KeyboardEvent) => ev.key === "Escape" && fechar();
     document.addEventListener("mousedown", fora);
     document.addEventListener("keydown", esc);
     return () => {
@@ -54,20 +168,41 @@ export function SeletorEmpresa({ admin }: { admin: boolean }) {
       document.removeEventListener("keydown", esc);
     };
   }, [aberto]);
+  useEffect(() => setAtivo(0), [busca]);
+  useEffect(() => {
+    // Mantém a opção escolhida pelo teclado à vista quando a lista rola.
+    opcoes.current?.querySelector<HTMLElement>(`[data-indice="${ativo}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [ativo]);
   const d = lista.data;
   if (!d || d.empresas.length < 2) return null;
   const atual = d.empresas.find((e) => e.id === d.atual) ?? d.empresas[0];
-  const termo = busca.trim().toLowerCase();
-  const filtradas = termo
-    ? d.empresas.filter((e) => e.nome.toLowerCase().includes(termo) || (e.cnpj || "").includes(termo.replace(/\D/g, "") || "§"))
-    : d.empresas;
+  const filtradas = filtrarEmpresas(d.empresas, busca);
+  const comBusca = d.empresas.length >= BUSCA_A_PARTIR;
+  const escolher = (e: Empresa) => (e.id === atual.id ? fechar() : trocarEmpresa(e.id));
+
+  function teclado(ev: React.KeyboardEvent<HTMLInputElement>) {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      const n = filtradas.length;
+      if (n) setAtivo((i) => (i + (ev.key === "ArrowDown" ? 1 : n - 1)) % n);
+    } else if (ev.key === "Enter" && filtradas[ativo]) {
+      ev.preventDefault();
+      escolher(filtradas[ativo]);
+    }
+  }
+
   return (
     <div className="cracha" ref={ref}>
       <button
         className="cracha__botao"
         aria-haspopup="listbox"
         aria-expanded={aberto}
-        onClick={() => setAberto((v) => !v)}
+        onClick={(ev) => {
+          if (aberto) return fechar();
+          // No celular a lista ocupa a largura da tela, logo abaixo do crachá.
+          setTopo(Math.round(ev.currentTarget.getBoundingClientRect().bottom + 6));
+          setAberto(true);
+        }}
         title={`${atual.nome} · ${linhaDoc(atual)} · ${atual.ambiente === "1" ? "Produção" : "Homologação"} (trocar de empresa)`}
       >
         <Ponto ambiente={atual.ambiente} />
@@ -77,39 +212,59 @@ export function SeletorEmpresa({ admin }: { admin: boolean }) {
         </svg>
       </button>
       {aberto && (
-        <div className="cracha__lista" role="listbox" aria-label="Empresas">
-          {d.empresas.length > 6 && (
-            <input
-              className="cracha__busca"
-              autoFocus
-              placeholder="Buscar por nome ou CNPJ"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
-          )}
-          {filtradas.map((e) => (
-            <button
-              key={e.id}
-              role="option"
-              aria-selected={e.id === atual.id}
-              className="cracha__item"
-              onClick={() => (e.id === atual.id ? setAberto(false) : trocarEmpresa(e.id))}
-            >
-              <Ponto ambiente={e.ambiente} />
-              <span className="cracha__texto">
-                <span className="cracha__nome">{e.nome}</span>
-                <span className="cracha__doc">
-                  <span className="num">{linhaDoc(e)}</span>
-                  {e.acesso === "procuracao" && <span className="cracha__marca">por procuração</span>}
-                  {!e.onboarding_concluido && <span className="cracha__marca">configurar</span>}
-                </span>
+        <div className="cracha__lista" style={{ "--cracha-topo": `${topo}px` } as React.CSSProperties}>
+          {comBusca && (
+            <div className="cracha__topo">
+              <CampoBusca
+                autoFocus={!window.matchMedia("(pointer: coarse)").matches /* no celular, sem abrir o teclado sozinho */}
+                valor={busca}
+                mudar={setBusca}
+                rotulo="Buscar empresa"
+                placeholder="Nome, CNPJ ou certificado"
+                onKeyDown={teclado}
+                controla="cracha-opcoes"
+                ativo={filtradas[ativo] ? `cracha-opcao-${filtradas[ativo].id}` : undefined}
+              />
+              <span className="cracha__conta" aria-live="polite">
+                {busca.trim() ? `${filtradas.length} de ${d.empresas.length}` : `${d.empresas.length} empresas`}
               </span>
-              <span className="cracha__amb">{e.ambiente === "1" ? "Produção" : "Homologação"}</span>
-            </button>
-          ))}
-          {filtradas.length === 0 && <p className="cracha__vazio">Nenhuma empresa com “{busca}”.</p>}
+            </div>
+          )}
+          <div className="cracha__opcoes" id="cracha-opcoes" role="listbox" aria-label="Empresas" ref={opcoes}>
+            {filtradas.map((e, i) => (
+              <button
+                key={e.id}
+                id={`cracha-opcao-${e.id}`}
+                data-indice={i}
+                role="option"
+                aria-selected={e.id === atual.id}
+                className={`cracha__item ${comBusca && i === ativo ? "cracha__item--ativo" : ""}`}
+                onMouseMove={() => comBusca && i !== ativo && setAtivo(i)}
+                onClick={() => escolher(e)}
+              >
+                <Ponto ambiente={e.ambiente} />
+                <span className="cracha__texto">
+                  <span className="cracha__nome">
+                    <Destaque texto={e.nome} busca={busca} />
+                  </span>
+                  <span className="cracha__doc">
+                    <span className="num">{linhaDoc(e)}</span>
+                    {e.acesso === "procuracao" && <span className="cracha__marca">por procuração</span>}
+                    {!e.onboarding_concluido && <span className="cracha__marca">configurar</span>}
+                  </span>
+                </span>
+                <span className="cracha__amb">{e.ambiente === "1" ? "Produção" : "Homologação"}</span>
+              </button>
+            ))}
+            {filtradas.length === 0 && (
+              <p className="cracha__vazio">
+                Nenhuma empresa com “{busca.trim()}”.{" "}
+                <button type="button" className="btn-texto" onClick={() => setBusca("")}>Limpar busca</button>
+              </p>
+            )}
+          </div>
           {admin && (
-            <a className="cracha__gerenciar" href="#/configuracoes?secao=empresas" onClick={() => setAberto(false)}>
+            <a className="cracha__gerenciar" href="#/configuracoes?secao=empresas" onClick={fechar}>
               Gerenciar empresas
             </a>
           )}
@@ -130,8 +285,13 @@ export function SecaoEmpresas({ empresaAtual }: { empresaAtual: number }) {
   const [desativar, setDesativar] = useState<Empresa | null>(null);
   const [conferencia, setConferencia] = useState<Record<number, { ok: boolean; mensagem: string } | "conferindo">>({});
   const [erro, setErro] = useState<unknown>(null);
+  const [busca, setBusca] = useState("");
   const d = lista.data;
   if (!d) return <ErroCaixa erro={lista.error} titulo="Não foi possível carregar as empresas" />;
+  const comBusca = d.empresas.length + d.desativadas.length >= BUSCA_A_PARTIR;
+  const buscando = comBusca && busca.trim() !== "";
+  const filtradas = buscando ? filtrarEmpresas(d.empresas, busca) : d.empresas;
+  const desativadas = buscando ? filtrarEmpresas(d.desativadas, busca) : d.desativadas;
 
   async function conferir(e: Empresa) {
     setConferencia((c) => ({ ...c, [e.id]: "conferindo" }));
@@ -161,15 +321,40 @@ export function SecaoEmpresas({ empresaAtual }: { empresaAtual: number }) {
         Cada empresa emite com o próprio CNPJ, numeração e tributações. Ela pode usar o certificado A1 dela ou o certificado do
         escritório, por procuração eletrônica.
       </p>
-      <ul className="empresas">
-        {d.empresas.map((e) => {
+      {comBusca && (
+        <div className="empresas__busca">
+          <CampoBusca valor={busca} mudar={setBusca} rotulo="Buscar empresa" placeholder="Buscar por nome, CNPJ ou certificado" />
+          <span className="empresas__conta" aria-live="polite">
+            {buscando ? (
+              <>
+                <b className="num">{filtradas.length}</b> de <span className="num">{d.empresas.length}</span>
+                {desativadas.length > 0 && <> · {desativadas.length} desativada(s)</>}
+              </>
+            ) : (
+              <>
+                <b className="num">{d.empresas.length}</b> empresas
+              </>
+            )}
+          </span>
+        </div>
+      )}
+      {buscando && filtradas.length === 0 && (
+        <div className="empresas__vazio">
+          Nenhuma empresa ativa com “{busca.trim()}”{desativadas.length > 0 ? ` (${desativadas.length} entre as desativadas, abaixo)` : ""}.{" "}
+          <button type="button" className="btn-texto" onClick={() => setBusca("")}>Limpar busca</button>
+        </div>
+      )}
+      <ul className="empresas" hidden={filtradas.length === 0}>
+        {filtradas.map((e) => {
           const c = conferencia[e.id];
           return (
             <li key={e.id} className="empresas__item">
               <Borda ambiente={e.ambiente} />
               <div className="empresas__corpo">
                 <div className="empresas__linha">
-                  <strong>{e.nome}</strong>
+                  <strong>
+                    <Destaque texto={e.nome} busca={buscando ? busca : ""} />
+                  </strong>
                   {e.id === empresaAtual && <span className="empresas__aqui">aberta nesta aba</span>}
                 </div>
                 <div className="empresas__meta">
@@ -214,13 +399,15 @@ export function SecaoEmpresas({ empresaAtual }: { empresaAtual: number }) {
       ) : (
         d.limite !== null && <p className="secao-texto">Limite de {d.limite} empresa(s) nesta instalação.</p>
       )}
-      {d.desativadas.length > 0 && (
-        <details className="empresas__desativadas">
-          <summary>Desativadas ({d.desativadas.length})</summary>
+      {desativadas.length > 0 && (
+        <details className="empresas__desativadas" open={buscando || undefined}>
+          <summary>
+            Desativadas ({buscando ? `${desativadas.length} de ${d.desativadas.length}` : d.desativadas.length})
+          </summary>
           <ul>
-            {d.desativadas.map((x) => (
+            {desativadas.map((x) => (
               <li key={x.id}>
-                {x.nome} <span className="num">{x.cnpj ? formatarDocumento(x.cnpj) : ""}</span>{" "}
+                <Destaque texto={x.nome} busca={buscando ? busca : ""} /> <span className="num">{x.cnpj ? formatarDocumento(x.cnpj) : ""}</span>{" "}
                 <button className="btn-texto" onClick={() => reativar(x.id)}>Reativar</button>
               </li>
             ))}
@@ -349,10 +536,15 @@ export function AdicionarEmpresa({ fechar }: { fechar: () => void }) {
   const [nome, setNome] = useState("");
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [buscaCert, setBuscaCert] = useState("");
   const qc = useQueryClient();
 
   // Procuradores já guardados: certificados de outro CNPJ/CPF (o do escritório, normalmente).
   const procuradores = (certs.data ?? []).filter((c) => !c.vencido);
+  const procuradoresVistos = filtrarEmpresas(
+    procuradores.map((c) => ({ ...c, nome: c.titular, cnpj: c.cnpj ?? c.cpf })),
+    buscaCert,
+  );
 
   async function enviarCertificado(): Promise<number> {
     if (!arquivo) throw new Error("Escolha o arquivo do certificado (.pfx ou .p12).");
@@ -445,11 +637,23 @@ export function AdicionarEmpresa({ fechar }: { fechar: () => void }) {
           </label>
           <fieldset className="campo-grupo">
             <legend>Certificado do procurador</legend>
-            {procuradores.map((c) => (
+            {procuradores.length >= BUSCA_A_PARTIR && (
+              <CampoBusca
+                className="busca--certificados"
+                valor={buscaCert}
+                mudar={setBuscaCert}
+                rotulo="Buscar certificado"
+                placeholder="Buscar por titular, CNPJ ou CPF"
+              />
+            )}
+            {procuradoresVistos.length === 0 && (
+              <p className="secao-texto" style={{ margin: "4px 0" }}>Nenhum certificado com “{buscaCert.trim()}”.</p>
+            )}
+            {procuradoresVistos.map((c) => (
               <label key={c.id} className="opcao">
                 <input type="radio" name="procurador" checked={certId === c.id} onChange={() => setCertId(c.id)} />
                 <span>
-                  {c.titular} <span className="num">{c.cnpj ? formatarDocumento(c.cnpj) : c.cpf ? formatarDocumento(c.cpf) : ""}</span>
+                  <Destaque texto={c.titular} busca={buscaCert} /> <span className="num">{c.cnpj ? formatarDocumento(c.cnpj) : c.cpf ? formatarDocumento(c.cpf) : ""}</span>
                   <small>
                     válido até {new Date(c.valido_ate).toLocaleDateString("pt-BR")}
                     {c.empresas.length > 0 && ` · usado por ${c.empresas.length} empresa(s)`}

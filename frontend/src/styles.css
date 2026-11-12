@@ -643,19 +643,21 @@ a { color: var(--azul-texto); }
 .cracha__seta { flex: 0 0 auto; color: var(--grafite); }
 .cracha__lista {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 45;
-  width: min(380px, calc(100vw - 32px)); max-height: min(70vh, 520px); overflow: auto;
+  width: min(400px, calc(100vw - 32px)); max-height: min(70vh, 520px);
   background: var(--folha); border: 1px solid var(--linha-forte); border-radius: 8px; box-shadow: var(--sombra);
-  padding: 6px; display: flex; flex-direction: column; gap: 2px;
+  display: flex; flex-direction: column; overflow: hidden;
 }
-.cracha__busca {
-  height: 34px; margin: 2px 2px 6px; padding: 0 10px;
-  border: 1px solid var(--linha-forte); border-radius: var(--raio); background: var(--papel);
-}
+/* A busca fica parada no alto e só as empresas rolam. */
+.cracha__topo { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px; border-bottom: 1px solid var(--linha); background: var(--folha); }
+.cracha__topo .busca { flex: 1; }
+.cracha__conta { flex: 0 0 auto; padding-right: 4px; font-size: 12px; color: var(--grafite); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cracha__opcoes { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .cracha__item {
   display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 0 10px 0 12px;
   border: 0; border-radius: var(--raio); background: none; cursor: pointer; text-align: left; overflow: hidden;
 }
-.cracha__item:hover { background: #f1f7fa; }
+.cracha__item:hover, .cracha__item--ativo { background: #f1f7fa; }
+.cracha__item--ativo { box-shadow: inset 0 0 0 1px var(--linha-forte); }
 .cracha__item[aria-selected="true"] { background: var(--azul-fundo); }
 .cracha__item .cracha__texto { flex: 1; padding: 6px 0; }
 .cracha__item .cracha__nome { white-space: normal; }
@@ -668,7 +670,7 @@ a { color: var(--azul-texto); }
   font-size: 10.5px; font-weight: 550;
 }
 .cracha__vazio { margin: 8px 10px; color: var(--grafite); }
-.cracha__gerenciar { margin-top: 4px; padding: 10px; border-top: 1px solid var(--linha); font-weight: 550; text-decoration: none; }
+.cracha__gerenciar { flex: 0 0 auto; padding: 11px 16px; border-top: 1px solid var(--linha); font-weight: 550; text-decoration: none; }
 .cracha__gerenciar:hover { text-decoration: underline; }
 .faixa-amb__empresa {
   font-weight: 700; letter-spacing: 0.04em; text-transform: none; font-stretch: 105%;
@@ -676,6 +678,32 @@ a { color: var(--azul-texto); }
 }
 
 .secao-texto { color: var(--grafite); margin: 0 0 14px; max-width: 75ch; }
+
+/* Campo de busca das listas de empresas (topo, Configurações e certificados do procurador). */
+.busca { position: relative; display: flex; align-items: center; min-width: 0; }
+.busca__icone { position: absolute; left: 10px; color: var(--grafite); pointer-events: none; }
+.busca__campo {
+  width: 100%; height: 34px; padding: 0 32px 0 32px; min-width: 0;
+  border: 1px solid var(--linha-forte); border-radius: var(--raio); background: var(--papel); color: var(--tinta);
+  font: inherit; font-size: 13.5px;
+}
+.busca__campo::placeholder { color: #7b8a93; }
+.busca__campo::-webkit-search-cancel-button { display: none; }
+.busca__campo:focus { outline: none; border-color: var(--azul); background: var(--folha); box-shadow: var(--foco); }
+.busca:focus-within .busca__icone { color: var(--azul-texto); }
+.busca__limpar {
+  position: absolute; right: 6px; display: grid; place-items: center; width: 22px; height: 22px;
+  border: 0; border-radius: 50%; background: #e8eff3; color: var(--grafite); cursor: pointer;
+}
+.busca__limpar:hover { background: var(--linha); color: var(--tinta); }
+.busca-marca { background: #cdebf8; color: inherit; border-radius: 2px; box-shadow: 0 0 0 1px #cdebf8; }
+.busca--certificados { max-width: 360px; margin: 2px 0 8px; }
+
+.empresas__busca { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+.empresas__busca .busca { flex: 0 1 380px; }
+.empresas__conta { color: var(--grafite); font-size: 13px; }
+.empresas__conta b { color: var(--tinta); font-weight: 600; }
+.empresas__vazio { padding: 18px 16px; border: 1px dashed var(--linha-forte); border-radius: 8px; color: var(--grafite); }
 .empresas { list-style: none; margin: 0; padding: 0; border: 1px solid var(--linha); border-radius: 8px; overflow: hidden; }
 .empresas__item { display: flex; align-items: stretch; gap: 14px; padding: 0 14px 0 0; background: var(--folha); }
 .empresas__item + .empresas__item { border-top: 1px solid var(--linha); }
@@ -694,6 +722,13 @@ a { color: var(--azul-texto); }
   .empresas__item { flex-wrap: wrap; }
   .empresas__acoes { width: 100%; justify-content: flex-start; padding: 0 0 12px 19px; }
   .cracha__botao { max-width: 160px; }
+  .cracha__lista {
+    position: fixed; top: var(--cracha-topo, 120px); left: 8px; right: 8px; width: auto;
+    max-height: calc(100dvh - var(--cracha-topo, 120px) - 12px);
+  }
+  .empresas__busca { flex-wrap: wrap; gap: 6px 14px; }
+  .empresas__busca .busca { flex: 1 1 100%; }
+  .busca__campo { font-size: 16px; height: 38px; } /* 16 px: o iPhone não amplia a página ao focar */
 }
 
 /* Adicionar empresa: escolha do modo e formulário */

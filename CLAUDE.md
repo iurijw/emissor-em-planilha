@@ -516,6 +516,10 @@ até o Iuri pedir (`empresas.limite()`: `EMISSOR_LIMITE_EMPRESAS`, senão 1 com 
   uma empresa só), nome da empresa na faixa do ambiente e na confirmação da emissão, Configurações → Empresas
   (adicionar por A1 ou por procuração, editar, trocar certificado, conferir procuração, desativar/reativar,
   compartilhar clientes) e empresas de cada usuário em Usuários.
+- **Busca nas listas de empresas** (2026-11-12): com 5 ou mais empresas, o crachá do topo, Configurações → Empresas e os
+  certificados do procurador (adicionar empresa) ganham um campo de busca (`filtrarEmpresas` em `Empresas.tsx`): todas as
+  palavras, sem acento/caixa, no nome, titular do certificado, "procuração"/"produção"/"homologação"; palavra com número
+  procura no CNPJ/CPF sem pontuação. No crachá, setas e Enter escolhem; no celular a lista ocupa a largura da tela.
 - **Preço na hospedagem (quando habilitar):** até 3 CNPJs no mesmo preço; cada um a mais R$ 14,90/mês. O app só lê
   `EMISSOR_LIMITE_EMPRESAS`; a cobrança fica no painel (repositório da hospedagem).
 
