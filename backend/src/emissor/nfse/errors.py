@@ -120,9 +120,12 @@ _DICAS_CODIGO = {
     "em Configurações → Dados da empresa; se a prefeitura não exige a inscrição na nota, deixe o campo vazio. Na "
     "homologação o cadastro costuma não ter a inscrição: apague o campo para testar e preencha de novo antes de "
     "emitir em produção, se a prefeitura exigir.",
-    "E0116": "A prefeitura exige a inscrição municipal do prestador na nota e ela foi enviada vazia. Preencha a "
-    "inscrição municipal em Configurações → Dados da empresa, igual ao cadastro da prefeitura (só os números, sem "
-    "pontos), e emita de novo.",
+    "E0116": "A prefeitura não liberou a emissão desta empresa no Sistema Nacional da NFS-e. Se a inscrição municipal "
+    "está vazia em Configurações → Dados da empresa, preencha igual ao cadastro da prefeitura (só os números, sem "
+    "pontos) e emita de novo. Se ela já está preenchida e certa, a recusa vem do cadastro da prefeitura no sistema "
+    "nacional, não da nota: alguns municípios só liberam o MEI e o Simples Nacional (em São Paulo, por exemplo, quem "
+    "está fora do Simples continua emitindo pela Nota Fiscal Paulistana). Nesse caso, pergunte à prefeitura se ela "
+    "habilita a empresa no emissor nacional; até lá, a nota não passa.",
     "E1235": "A Sefin recusou o XML pelo leiaute (o sistema confere o leiaute antes de enviar, então a Sefin pode "
     "estar usando uma versão diferente). Baixe o arquivo de diagnóstico em Configurações e envie ao suporte.",
     "E0084": "O cadastro nacional (CNC) não tem um estabelecimento deste CNPJ no município emissor. Confira o "
