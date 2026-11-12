@@ -59,11 +59,11 @@ def test_ibscbs_com_servico_que_exige_tipo_de_operacao(api, sefin, pfx_bytes, nf
     r = api.put("/api/config", json={"fiscal": fiscal})
     assert r.status_code == 400 and any("tipo de operação" in d for d in r.json()["detalhes"])
     r = api.put("/api/config", json={"fiscal": fiscal | {"ibscbs_tp_oper": "2"}})
-    assert r.status_code == 400  # 2 e 3 exigiriam as NFS-e referenciadas
+    assert r.status_code == 200  # 2 e 3 pedem as NFS-e referenciadas, que vêm de cada nota avulsa
     r = api.put("/api/config", json={"fiscal": fiscal | {"ibscbs_tp_oper": "5"}})
     assert r.status_code == 200, r.text
     assert r.json()["fiscal"]["ibscbs_tp_oper"] == "5"
-    assert [o["valor"] for o in api.get("/api/config/opcoes").json()["ibscbs_tp_oper"]] == ["5", "1", "4"]
+    assert [o["valor"] for o in api.get("/api/config/opcoes").json()["ibscbs_tp_oper"]] == ["5", "1", "4", "2", "3"]
 
     ids = [ln["id"] for ln in api.get("/api/tabela").json()["linhas"]]
     lote = _emitir(api, ids)
@@ -208,7 +208,6 @@ def test_coerencia_de_aliquotas_e_retencoes(config_fiscal):
         return coerencia(normalizar(t)[0] | {"c_trib_nac": "171901"}, base)
 
     assert erros(tp_ret_issqn="2") == []
-    assert any("intermediário" in e for e in erros(tp_ret_issqn="3"))
     assert any("MEI" in e for e in erros(replace(config_fiscal, op_simp_nac="2"), tp_ret_issqn="2"))
     simples_iss = replace(config_fiscal, reg_ap_trib_sn="1")
     assert any("1.80%" in e for e in erros(simples_iss, tp_ret_issqn="2", p_aliq_iss="1,5"))
@@ -434,6 +433,46 @@ def test_nota_avulsa_de_obra_com_deducao(api, sefin, pfx_bytes, nfse_exemplo_byt
     # na tabela, o serviço de obra pede a nota avulsa
     t = _tributacao(api, "Obras", tp_ret_issqn="1", **trib)
     aba = api.post("/api/abas", json={"nome": "Obras", "tributacao_id": t["id"]}).json()
+    api.put(f"/api/tabela?aba_id={aba['id']}", json={"linhas": [LINHA_PADRAO]})
+    linha = api.get(f"/api/tabela?aba_id={aba['id']}").json()["linhas"][0]
+    val = api.post("/api/tabela/validar", json={"linha_ids": [linha["id"]]}).json()
+    assert any("nota avulsa" in e for e in val["linhas"][0]["erros"])
+
+
+def test_nota_avulsa_com_intermediario(api, sefin, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    interm = {
+        "documento": "11.444.777/0001-61",
+        "nome": "INTERMEDIARIA EXEMPLO LTDA",
+        "c_mun": "4205407",
+        "cep": "88010-400",
+        "logradouro": "Rua Exemplo",
+        "numero": "1",
+        "bairro": "Centro",
+    }
+    api.put(
+        "/api/clientes/11222333000181",
+        json={
+            "nome": "CLIENTE EXEMPLO LTDA",
+            "c_mun": "4205407",
+            "cep": "88010400",
+            "logradouro": "Rua A",
+            "numero": "1",
+            "bairro": "Centro",
+        },
+    )
+    nota = {**LINHA_PADRAO, "tributacao": {"tp_ret_issqn": "3"}, "intermediario": interm}
+    sem = api.post("/api/avulsa/validar", json=nota | {"intermediario": None}).json()
+    assert any("intermediário" in e for e in sem["linhas"][0]["erros"])
+    val = api.post("/api/avulsa/validar", json=nota).json()
+    assert val["linhas"][0]["erros"] == [], val
+    r = api.post("/api/avulsa", json=nota)
+    assert r.status_code == 200, r.text
+    api.worker.processar_lote(r.json()["id"])
+    assert api.get(f"/api/lotes/{r.json()['id']}").json()["contagem"] == {"autorizada": 1}
+    assert b"<interm><CNPJ>11444777000161</CNPJ>" in sefin.enviadas[-1]
+    t = _tributacao(api, "Intermediada", tp_ret_issqn="3")
+    aba = api.post("/api/abas", json={"nome": "Interm", "tributacao_id": t["id"]}).json()
     api.put(f"/api/tabela?aba_id={aba['id']}", json={"linhas": [LINHA_PADRAO]})
     linha = api.get(f"/api/tabela?aba_id={aba['id']}").json()["linhas"][0]
     val = api.post("/api/tabela/validar", json={"linha_ids": [linha["id"]]}).json()

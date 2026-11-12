@@ -90,6 +90,7 @@ class ConfigFiscal:
     ibscbs_ind_final: str | None = None  # opcional; será descontinuado pela NT 005
     # tpOper: obrigatório nos subitens de codes.SUBITENS_EXIGEM_TP_OPER (E0903) e proibido nos demais (E0904)
     ibscbs_tp_oper: str | None = None
+    ibscbs_tp_ente_gov: str | None = None  # compra governamental (1 União, 2 Estado, 3 DF, 4 Município)
     # Grupos que a classificação exige: tributação regular (gTribRegular, E0965) e diferimento (gDif, E0972)
     ibscbs_c_class_trib_reg: str | None = None  # o CSTReg vai como os 3 primeiros dígitos
     ibscbs_p_dif_uf: str | None = None
@@ -197,6 +198,7 @@ CAMPOS_TRIBUTACAO = (
     "ibscbs_c_class_trib",
     "ibscbs_ind_final",
     "ibscbs_tp_oper",
+    "ibscbs_tp_ente_gov",
     "ibscbs_c_class_trib_reg",
     "ibscbs_p_dif_uf",
     "ibscbs_p_dif_mun",
@@ -273,6 +275,11 @@ class DadosNota:
     obra: dict | None = None
     # Atividade/evento (serv/atvEvento, item 12): nome, dt_ini, dt_fim e id_atv_evt ou o endereço (como o da obra)
     evento: dict | None = None
+    # Intermediário (infDPS/interm) e destinatário do IBS/CBS diferente do tomador (IBSCBS/dest): documento, nome, im
+    # (só o intermediário), c_mun, cep, logradouro, numero, complemento, bairro, email, fone
+    intermediario: dict | None = None
+    destinatario: dict | None = None
+    ref_nfse: list[str] = field(default_factory=list)  # IBSCBS/gRefNFSe: chaves das NFS-e referenciadas (tpOper 2/3)
 
     @classmethod
     def de_dict(cls, d: dict | None) -> DadosNota:
@@ -295,6 +302,9 @@ class DadosNota:
             ajuste_bc_v=dec(d.get("ajuste_bc_v")),
             obra=d.get("obra") or None,
             evento=d.get("evento") or None,
+            intermediario=d.get("intermediario") or None,
+            destinatario=d.get("destinatario") or None,
+            ref_nfse=[str(c) for c in d.get("ref_nfse") or [] if str(c).strip()],
         )
 
     def para_dict(self) -> dict:
@@ -312,6 +322,9 @@ class DadosNota:
             "ajuste_bc_v": f"{self.ajuste_bc_v:.2f}" if self.ajuste_bc_v is not None else None,
             "obra": self.obra or None,
             "evento": self.evento or None,
+            "intermediario": self.intermediario or None,
+            "destinatario": self.destinatario or None,
+            "ref_nfse": self.ref_nfse or None,
         }
         return {k: v for k, v in d.items() if v is not None}
 
@@ -327,6 +340,38 @@ class DadosNota:
             return None
         base = valor - (self.v_desc_incond or 0)
         return (base * self.ajuste_bc_p / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def _pessoa(d: dict | None, com_im: bool) -> Tomador | None:
+        if not d:
+            return None
+        partes = [d.get(k) for k in ("c_mun", "cep", "logradouro", "bairro")]
+        endereco = (
+            Endereco(
+                c_mun=d.get("c_mun") or "",
+                cep=d.get("cep") or "",
+                logradouro=d.get("logradouro") or "",
+                numero=d.get("numero") or "",
+                bairro=d.get("bairro") or "",
+                complemento=d.get("complemento") or None,
+            )
+            if all(partes)
+            else None
+        )
+        return Tomador(
+            documento=normalizar_documento(d.get("documento")) or "",
+            nome=d.get("nome") or "",
+            endereco=endereco,
+            email=d.get("email") or None,
+            fone=d.get("fone") or None,
+            inscricao_municipal=(d.get("im") or None) if com_im else None,
+        )
+
+    def intermediario_pessoa(self) -> Tomador | None:
+        return self._pessoa(self.intermediario, com_im=True)
+
+    def destinatario_pessoa(self) -> Tomador | None:
+        return self._pessoa(self.destinatario, com_im=False)
 
     def tomador(self) -> Tomador | None:
         """Tomador no exterior da nota, ou None."""

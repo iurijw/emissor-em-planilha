@@ -189,7 +189,7 @@ def test_ibscbs_exige_nbs_e_recusa_servico_com_tp_oper(dps_input):
         build_dps(_com_ibscbs(dps_input, c_nbs=None))
     with pytest.raises(DpsBuildError, match="tpOper"):
         build_dps(_com_ibscbs(dps_input, c_trib_nac="250501"))
-    with pytest.raises(DpsBuildError, match="tpOper"):
+    with pytest.raises(DpsBuildError, match="E0905"):
         build_dps(_com_ibscbs(dps_input, c_trib_nac="171201", ibscbs_tp_oper="2"))  # 2 exigiria gRefNFSe
     with pytest.raises(DpsBuildError, match="cClassTrib|Classificação"):
         build_dps(_com_ibscbs(dps_input, ibscbs_c_class_trib="12"))
@@ -443,3 +443,48 @@ def test_atividade_de_evento(dps_input, certificado, ambiente):
         build_dps(replace(dps_input, config=cfg))
     with pytest.raises(DpsBuildError, match="fim do evento"):
         build_dps(replace(dps_input, config=cfg, nota=DadosNota(evento=evento | OBRA | {"dt_fim": "2026-11-01"})))
+
+
+CHAVE_REF = "42054072211444777000161000000000000626085712554750"
+INTERM = {
+    "documento": "11444777000161",
+    "nome": "INTERMEDIARIA EXEMPLO LTDA",
+    "c_mun": "4205407",
+    "cep": "88010400",
+    "logradouro": "Rua Exemplo",
+    "numero": "1",
+    "bairro": "Centro",
+}
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_intermediario_destinatario_e_compra_governamental(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    nota = DadosNota(
+        intermediario=INTERM | {"im": "123"},
+        destinatario={"documento": "52998224725", "nome": "MARIA EXEMPLO"},
+        ref_nfse=[CHAVE_REF],
+    )
+    inp = _com_ibscbs(dps_input, tp_ret_issqn="3", ibscbs_tp_ente_gov="4", ibscbs_tp_oper="2")
+    _, xml = preparar_dps(replace(inp, ambiente=ambiente, nota=nota), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}interm/{N}CNPJ") == "11444777000161"
+    assert inf.findtext(f"{N}interm/{N}IM") == "123"
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribMun/{N}tpRetISSQN") == "3"
+    assert inf.findtext(f"{N}IBSCBS/{N}tpEnteGov") == "4"
+    assert inf.findtext(f"{N}IBSCBS/{N}gRefNFSe/{N}refNFSe") == CHAVE_REF
+    assert inf.findtext(f"{N}IBSCBS/{N}indDest") == "1"
+    assert inf.findtext(f"{N}IBSCBS/{N}dest/{N}CPF") == "52998224725"
+    with pytest.raises(DpsBuildError, match="intermediário"):
+        build_dps(replace(inp, nota=replace(nota, intermediario=None)))
+    with pytest.raises(DpsBuildError, match="E1388"):
+        build_dps(replace(inp, nota=replace(nota, intermediario={"documento": "11444777000161", "nome": "X"})))
+    with pytest.raises(DpsBuildError, match="E0905"):
+        build_dps(replace(inp, nota=replace(nota, ref_nfse=[])))
+    with pytest.raises(DpsBuildError, match="E0903"):
+        build_dps(replace(inp, config=replace(inp.config, ibscbs_tp_oper=None), nota=nota))
+    with pytest.raises(DpsBuildError, match="IBS/CBS ligado"):
+        build_dps(replace(dps_input, nota=DadosNota(destinatario={"documento": "52998224725", "nome": "M"})))

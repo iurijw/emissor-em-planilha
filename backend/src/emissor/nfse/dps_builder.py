@@ -22,6 +22,7 @@ from emissor.nfse.constants import (
     VERSAO_LEIAUTE,
     leiaute,
 )
+from emissor.nfse.documentos import documento_valido
 from emissor.nfse.models import (
     ConfigFiscal,
     DadosNota,
@@ -140,19 +141,19 @@ def _comext(serv: etree._Element, cfg: ConfigFiscal, nota: DadosNota) -> None:
     _sub(c, "mdic", cfg.comex_mdic)
 
 
-def _pessoa(parent: etree._Element, tag: str, t: Tomador) -> None:
+def _pessoa(parent: etree._Element, tag: str, t: Tomador, papel: str = "tomador") -> None:
     if t.exterior is not None:
         _pessoa_exterior(parent, tag, t)
         return
     el = _sub(parent, tag)
     doc = normalizar_documento(t.documento)
-    if not doc or len(doc) not in (11, 14):
-        raise DpsBuildError(f"Documento do tomador inválido: {t.documento!r}")
+    if not doc or len(doc) not in (11, 14) or not documento_valido(doc):
+        raise DpsBuildError(f"CNPJ/CPF do {papel} inválido: {t.documento!r}")
     _sub(el, "CPF" if len(doc) == 11 else "CNPJ", doc)
     _opt(el, "IM", limpar_texto(t.inscricao_municipal, max_len=15))
     nome = limpar_texto(t.nome, max_len=300)
     if not nome:
-        raise DpsBuildError("Nome do tomador é obrigatório.")
+        raise DpsBuildError(f"Nome do {papel} é obrigatório.")
     _sub(el, "xNome", nome)
     if t.endereco:
         e = t.endereco
@@ -218,6 +219,14 @@ def build_dps(inp: DpsInput) -> etree._Element:
     # Tomador
     if inp.tomador is not None:
         _pessoa(inf, "toma", inp.tomador)
+    interm = inp.nota.intermediario_pessoa()
+    if interm is not None:
+        doc = normalizar_documento(interm.documento) or ""
+        if len(doc) == 14 and interm.endereco is None:
+            raise DpsBuildError("Intermediário com CNPJ: informe o endereço completo dele (E1388).")
+        _pessoa(inf, "interm", interm, "intermediário")
+    elif cfg.tp_ret_issqn == "3":
+        raise DpsBuildError("ISS retido pelo intermediário: informe o intermediário na nota.")
 
     # Serviço
     serv = _sub(inf, "serv")
@@ -235,6 +244,8 @@ def build_dps(inp: DpsInput) -> etree._Element:
     else:
         _sub(c_serv, "xDescServ", descricao)
         _opt(c_serv, "cNBS", cfg.c_nbs)
+    if inp.nota.destinatario and not cfg.ibscbs:
+        raise DpsBuildError("O destinatário diferente do tomador só vai com o IBS/CBS ligado na tributação.")
     exterior = inp.tomador is not None and inp.tomador.exterior is not None
     if exige_comext(cfg, exterior):
         _comext(serv, cfg, inp.nota)
@@ -333,12 +344,12 @@ def build_dps(inp: DpsInput) -> etree._Element:
         _sub(tot, "indTotTrib", "0")
 
     if cfg.ibscbs:
-        _ibscbs(inf, cfg, nt009)
+        _ibscbs(inf, cfg, nt009, inp.nota)
 
     return dps
 
 
-def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool) -> None:
+def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool, nota: DadosNota) -> None:
     """Grupo IBS/CBS (``TCRTCInfoIBSCBS``): NFS-e regular, destinatário = tomador.
 
     Os valores e alíquotas não vão na DPS: a Sefin calcula e devolve em ``infNFSe/IBSCBS``. No leiaute da NT 009
@@ -350,19 +361,36 @@ def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool) -> None:
         raise DpsBuildError(f"Código indicador da operação do IBS/CBS inválido: {cfg.ibscbs_c_ind_op!r} (6 dígitos).")
     if not re.fullmatch(r"\d{6}", cfg.ibscbs_c_class_trib or ""):
         raise DpsBuildError(f"Classificação tributária do IBS/CBS inválida: {cfg.ibscbs_c_class_trib!r} (6 dígitos).")
-    tp_oper = cfg.ibscbs_tp_oper if exige_tp_oper(cfg.c_trib_nac) else None  # fora dos subitens: E0904
-    if exige_tp_oper(cfg.c_trib_nac) and tp_oper not in TP_OPER:
+    exige = exige_tp_oper(cfg.c_trib_nac, cfg.ibscbs_tp_ente_gov)
+    tp_oper = cfg.ibscbs_tp_oper if exige else None  # fora dos subitens e sem compra governamental: E0904
+    if exige and tp_oper not in TP_OPER:
         raise DpsBuildError(
-            f"O serviço {cfg.c_trib_nac} exige o tipo de operação do IBS/CBS (tpOper, regra E0903): escolha um na "
-            "tributação."
+            "Este serviço ou a compra governamental exige o tipo de operação do IBS/CBS (tpOper, regra E0903): escolha "
+            "um na tributação."
         )
+    refs = [re.sub(r"\s", "", c) for c in nota.ref_nfse][:99]
+    if tp_oper in codes.TP_OPER_COM_REFERENCIA and not refs:
+        raise DpsBuildError(
+            "Com esse tipo de operação (uma parte já feita), informe a chave da NFS-e anterior (gRefNFSe, E0905)."
+        )
+    for c in refs:
+        if not re.fullmatch(r"[0-9A-Z]{50}", c):
+            raise DpsBuildError(f"Chave de NFS-e referenciada inválida: {c!r} (50 caracteres, E0907).")
+    dest = nota.destinatario_pessoa()
     g = _sub(inf, "IBSCBS")
     if not nt009:
         _sub(g, "finNFSe", "0")
     _opt(g, "indFinal", cfg.ibscbs_ind_final)
     _sub(g, "cIndOp", cfg.ibscbs_c_ind_op)
     _opt(g, "tpOper", tp_oper)
-    _sub(g, "indDest", "0")
+    if tp_oper in codes.TP_OPER_COM_REFERENCIA:
+        ref = _sub(g, "gRefNFSe")
+        for c in refs:
+            _sub(ref, "refNFSe", c)
+    _opt(g, "tpEnteGov", cfg.ibscbs_tp_ente_gov)
+    _sub(g, "indDest", "1" if dest else "0")
+    if dest is not None:
+        _pessoa(g, "dest", dest, "destinatário")
     trib = _sub(_sub(g, "valores"), "trib")
     sit = trib if nt009 else _sub(trib, "gIBSCBS")
     _sub(sit, "CST", cfg.ibscbs_c_class_trib[:3])

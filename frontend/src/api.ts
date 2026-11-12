@@ -249,6 +249,8 @@ export interface Fiscal {
   ibscbs_ind_final: string | null;
   /** Tipo de operação (tpOper): só nos serviços 10.05, 15.09, 17.12 e 25.05. */
   ibscbs_tp_oper: string | null;
+  /** Compra governamental (tpEnteGov): 1 União, 2 Estado, 3 Distrito Federal, 4 Município. */
+  ibscbs_tp_ente_gov: string | null;
   ibscbs_c_class_trib_reg: string | null;
   ibscbs_p_dif_uf: string | null;
   ibscbs_p_dif_mun: string | null;
@@ -314,6 +316,7 @@ export const CAMPOS_TRIBUTACAO = [
   "ibscbs_c_class_trib",
   "ibscbs_ind_final",
   "ibscbs_tp_oper",
+  "ibscbs_tp_ente_gov",
   "ibscbs_c_class_trib_reg",
   "ibscbs_p_dif_uf",
   "ibscbs_p_dif_mun",

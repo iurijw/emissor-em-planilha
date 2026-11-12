@@ -241,6 +241,30 @@ def _erros_obra_evento(cfg: ConfigFiscal, nota: DadosNota, *, na_tabela: bool) -
             f"O serviço {cfg.c_trib_nac} exige os dados {grupo} em cada nota (E0370/E0390): emita pela nota avulsa."
         ]
     erros = []
+    retido_interm = cfg.tp_ret_issqn == "3"
+    com_referencia = (
+        cfg.ibscbs
+        and codes.exige_tp_oper(cfg.c_trib_nac, cfg.ibscbs_tp_ente_gov)
+        and cfg.ibscbs_tp_oper in codes.TP_OPER_COM_REFERENCIA
+    )
+    if na_tabela and (retido_interm or com_referencia):
+        falta = "o intermediário" if retido_interm else "a chave da NFS-e anterior"
+        return [f"A tributação desta aba pede {falta} em cada nota: emita pela nota avulsa."]
+    if retido_interm and not nota.intermediario:
+        erros.append("ISS retido pelo intermediário: informe o intermediário.")
+    if com_referencia and not nota.ref_nfse:
+        erros.append("Com esse tipo de operação do IBS/CBS, informe a chave da NFS-e anterior (E0905).")
+    if nota.destinatario and not cfg.ibscbs:
+        erros.append("O destinatário diferente do tomador só vai com o IBS/CBS ligado na tributação.")
+    for papel, p in (("intermediário", nota.intermediario_pessoa()), ("destinatário", nota.destinatario_pessoa())):
+        if p is None:
+            continue
+        if not documento_valido(p.documento) or len(p.documento) not in (11, 14):
+            erros.append(f"CNPJ/CPF do {papel} inválido.")
+        if not p.nome.strip():
+            erros.append(f"Nome do {papel} não informado.")
+        if papel == "intermediário" and len(p.documento) == 14 and p.endereco is None:
+            erros.append("Intermediário com CNPJ: informe o endereço completo dele (E1388).")
     serv = etree.Element("serv")
     for montar in (dps_builder.montar_obra, dps_builder.montar_evento):
         try:

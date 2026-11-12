@@ -8,6 +8,7 @@ import { ErroCaixa, Gaveta, Spinner } from "../ui";
 import { useTributacoes } from "./Abas";
 import { buscarClientes, normalizarBusca } from "./EditorNomeCliente";
 import { CamposTributacao, Pergunta, ValoresDaNota } from "./FiscalForm";
+import { corpoPessoa, OutraPessoa, pessoaPronta, pessoaVazia, type DadosPessoa } from "./OutraPessoa";
 import { exteriorVazio, faltaNoExterior, TomadorExterior, type DadosExterior } from "./TomadorExterior";
 import { ajusteEmReais, corpoDadosNota, DadosDaNota, dadosNotaVazios, type DadosNota } from "./DadosDaNota";
 import {
@@ -61,6 +62,10 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const [comex, setComex] = useState({ v_serv_moeda: "", n_di: "", n_re: "" });
   const [obra, setObra] = useState<DadosObra>(obraVazia);
   const [evento, setEvento] = useState<DadosEvento>(eventoVazio);
+  const [interm, setInterm] = useState<DadosPessoa>(pessoaVazia);
+  const [outroDest, setOutroDest] = useState(false);
+  const [dest, setDest] = useState<DadosPessoa>(pessoaVazia);
+  const [refs, setRefs] = useState("");
   const [escolha, setEscolha] = useState<Escolha>("padrao");
   const [propria, setPropria] = useState<DadosTributacao | null>(null);
   const [focoNome, setFocoNome] = useState(false);
@@ -150,8 +155,16 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const precisaObra = exigeObra(tributacaoDaNota?.c_trib_nac);
   const precisaEvento = exigeEvento(tributacaoDaNota?.c_trib_nac);
   const prestadoFora = (tributacaoDaNota?.c_pais_prestacao ?? null) != null;
+  // ISS retido pelo intermediário, destinatário do IBS/CBS e NFS-e referenciada (tpOper 2/3) vêm de cada nota.
+  const precisaInterm = tributacaoDaNota?.tp_ret_issqn === "3";
+  const comIbsCbs = !!tributacaoDaNota?.ibscbs;
+  const precisaRefs = comIbsCbs && ["2", "3"].includes(tributacaoDaNota?.ibscbs_tp_oper ?? "");
+  const chavesRef = refs.split(/[\s,;]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
   const pronto =
     tomadorPronto &&
+    (!precisaInterm || pessoaPronta(interm, true)) &&
+    (!comIbsCbs || !outroDest || pessoaPronta(dest, false)) &&
+    (!precisaRefs || (chavesRef.length > 0 && chavesRef.every((c) => /^[0-9A-Z]{50}$/.test(c)))) &&
     (!precisaObra || obraPronta(obra, prestadoFora)) &&
     (!precisaEvento || eventoPronto(evento, prestadoFora)) &&
     valorNum !== null &&
@@ -202,6 +215,9 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
       tomador_exterior: noExterior ? { ...exterior } : null,
       obra: precisaObra ? corpoObra(obra) : null,
       evento: precisaEvento ? corpoEvento(evento) : null,
+      intermediario: precisaInterm ? corpoPessoa(interm, true) : null,
+      destinatario: comIbsCbs && outroDest ? corpoPessoa(dest, false) : null,
+      ref_nfse: precisaRefs ? chavesRef : [],
       ...(comExterior
         ? { v_serv_moeda: moedaNum ?? comex.v_serv_moeda, n_di: comex.n_di.trim() || null, n_re: comex.n_re.trim() || null }
         : {}),
@@ -432,6 +448,45 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
 
           {precisaObra && <ObraNota valor={obra} onChange={setObra} exterior={prestadoFora} />}
           {precisaEvento && <EventoNota valor={evento} onChange={setEvento} exterior={prestadoFora} />}
+          {precisaInterm && (
+            <OutraPessoa
+              titulo="Intermediário"
+              ajuda="A tributação diz que o ISSQN é retido pelo intermediário: informe quem intermediou o serviço."
+              valor={interm}
+              onChange={setInterm}
+              comIm
+            />
+          )}
+          {comIbsCbs && (
+            <section>
+              <div className="grade-form">
+                <Pergunta
+                  texto="O destinatário do serviço (IBS/CBS) é outra pessoa, diferente do tomador?"
+                  sim={outroDest}
+                  onChange={setOutroDest}
+                  ajuda={outroDest ? "Quem recebe o serviço, quando não é quem paga (o tomador)." : undefined}
+                />
+              </div>
+            </section>
+          )}
+          {comIbsCbs && outroDest && (
+            <OutraPessoa titulo="Destinatário" ajuda="Vai no grupo do IBS/CBS da nota." valor={dest} onChange={setDest} comIm={false} />
+          )}
+          {precisaRefs && (
+            <section>
+              <h3 className="secao-titulo">NFS-e referenciada</h3>
+              <div className="grade-form">
+                <label className="campo largo">
+                  <span>Chave da NFS-e anterior</span>
+                  <input className="num" value={refs} onChange={(e) => setRefs(e.target.value)} placeholder="50 caracteres" />
+                  <small>
+                    O tipo de operação da tributação diz que o pagamento ou o fornecimento já foi feito: informe a nota daquela parte.
+                    Mais de uma, separadas por vírgula.
+                  </small>
+                </label>
+              </div>
+            </section>
+          )}
 
           {tributacaoDaNota && (
             <ValoresDaNota

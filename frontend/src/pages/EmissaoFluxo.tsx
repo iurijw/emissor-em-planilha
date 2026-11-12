@@ -30,6 +30,9 @@ export interface CorpoAvulsa {
   ajuste_bc_v?: string | null;
   obra?: Record<string, string> | null;
   evento?: Record<string, string> | null;
+  intermediario?: Record<string, string> | null;
+  destinatario?: Record<string, string> | null;
+  ref_nfse?: string[];
 }
 
 export function EmissaoFluxo(props: {

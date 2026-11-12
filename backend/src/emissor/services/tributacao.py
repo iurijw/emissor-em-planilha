@@ -37,6 +37,7 @@ _ENUMS = {
     "tp_ret_pis_cofins": codes.TP_RET_PIS_COFINS,
     "ibscbs_ind_final": codes.IND_FINAL,
     "ibscbs_tp_oper": codes.TP_OPER,
+    "ibscbs_tp_ente_gov": codes.TP_ENTE_GOV,
     "tp_imunidade": codes.TP_IMUNIDADE_DPS,
     "tp_susp": codes.TP_SUSP,
     "comex_md_prestacao": codes.MD_PRESTACAO,
@@ -222,10 +223,10 @@ def coerencia(t: dict[str, Any], base: ConfigFiscal | None = None) -> list[str]:
         if not c_class.isdigit() or len(c_class) != 6:
             erros.append("Classificação tributária do IBS/CBS (cClassTrib) deve ter 6 dígitos.")
         erros += _coerencia_grupos_ibscbs(t)
-        if codes.exige_tp_oper(c_trib_nac) and not t.get("ibscbs_tp_oper"):
+        if codes.exige_tp_oper(c_trib_nac, t.get("ibscbs_tp_ente_gov")) and not t.get("ibscbs_tp_oper"):
             erros.append(
-                f"O serviço {c_trib_nac} exige o tipo de operação do IBS/CBS (quando o serviço é prestado e quando é "
-                "pago): escolha um na lista."
+                "Este serviço ou a compra governamental exige o tipo de operação do IBS/CBS (quando o serviço é "
+                "prestado e quando é pago): escolha um na lista."
             )
     return erros
 
@@ -296,11 +297,6 @@ def _coerencia_grupos_ibscbs(t: dict[str, Any]) -> list[str]:
 def _coerencia_retencoes(t: dict[str, Any]) -> list[str]:
     erros = []
     tp_ret_iss = t.get("tp_ret_issqn")
-    if tp_ret_iss == "3":
-        erros.append(
-            "ISS retido pelo intermediário ainda não é suportado (a nota precisaria dos dados do intermediário). "
-            "Use “Retido pelo Tomador” ou “Não Retido”."
-        )
     if tp_ret_iss in ("2", "3") and t.get("trib_issqn") not in (None, "1"):
         erros.append("Só há retenção do ISS em operação tributável (E0580): mude a tributação do ISS ou a retenção.")
     tp_ret = t.get("tp_ret_pis_cofins")

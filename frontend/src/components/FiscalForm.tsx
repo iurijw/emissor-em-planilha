@@ -661,7 +661,8 @@ export function CamposTributacao({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [valor.ibscbs, valor.ibscbs_c_ind_op, op, nbsEscolhido?.codigo]);
   // 10.05, 15.09, 17.12 e 25.05 exigem o tipo de operação com o IBS/CBS (E0903); os demais não podem tê-lo (E0904).
-  const exigeTpOper = /^(1005|1509|1712|2505)/.test(valor.c_trib_nac);
+  const exigeTpOperServico = /^(1005|1509|1712|2505)/.test(valor.c_trib_nac);
+  const exigeTpOper = exigeTpOperServico || !!valor.ibscbs_tp_ente_gov;
   const retencao = RETENCOES[valor.tp_ret_pis_cofins ?? ""];
   const retemCsll = !!valor.cst_pis_cofins && !!retencao?.[2];
   const erroTribMun =
@@ -807,7 +808,24 @@ export function CamposTributacao({
               opcoes={op?.ibscbs_tp_oper}
               vazio="Escolha"
               onChange={(v) => set("ibscbs_tp_oper", v)}
-              ajuda="Exigido para este serviço: quando o serviço é prestado e quando é pago. No comum (presta e recebe no mês), 5."
+              ajuda={
+                ["2", "3"].includes(valor.ibscbs_tp_oper ?? "")
+                  ? "Com uma das partes já feita, a nota sai só pela nota avulsa, que pede a chave da NFS-e anterior."
+                  : "Quando o serviço é prestado e quando é pago. No comum (presta e recebe no mês), 5."
+              }
+            />
+          )}
+          {valor.ibscbs && (
+            <Selecao
+              rotulo="Compra governamental"
+              largo
+              valor={valor.ibscbs_tp_ente_gov ?? null}
+              opcoes={op?.ibscbs_tp_ente_gov}
+              vazio="Não"
+              onChange={(v) =>
+                onChange({ ...valor, ibscbs_tp_ente_gov: v, ibscbs_tp_oper: v || exigeTpOperServico ? valor.ibscbs_tp_oper : null })
+              }
+              ajuda="Tomador da administração pública direta, autarquia ou fundação: a Sefin aplica o redutor das compras governamentais."
             />
           )}
         </div>
@@ -882,8 +900,19 @@ export function CamposTributacao({
             texto="Há retenção do ISSQN pelo Tomador?"
             sim={retido}
             onChange={(sim) => onChange({ ...valor, tp_ret_issqn: sim ? "2" : "1" })}
-            ajuda={valor.tp_ret_issqn === "3" ? "Retenção pelo intermediário não é emitida por este sistema: use a do tomador." : undefined}
           />
+          {retido && (
+            <Selecao
+              rotulo="Quem retém o ISSQN"
+              valor={valor.tp_ret_issqn}
+              opcoes={[
+                { valor: "2", descricao: "Tomador" },
+                { valor: "3", descricao: "Intermediário" },
+              ]}
+              onChange={(v) => set("tp_ret_issqn", v ?? "2")}
+              ajuda={valor.tp_ret_issqn === "3" ? "Com intermediário a nota sai só pela nota avulsa, que pede os dados dele." : undefined}
+            />
+          )}
           {exigeAliquota ? (
             <Texto
               rotulo="Alíquota (%)"

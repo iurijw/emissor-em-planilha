@@ -336,6 +336,10 @@ class AvulsaEntrada(BaseModel):
     # Obra (construção civil) e atividade/evento (item 12): ver DadosNota
     obra: dict[str, str | None] | None = None
     evento: dict[str, str | None] | None = None
+    # Intermediário e destinatário (IBS/CBS) diferente do tomador; chaves de NFS-e referenciadas (tpOper 2/3)
+    intermediario: dict[str, str | None] | None = None
+    destinatario: dict[str, str | None] | None = None
+    ref_nfse: list[str] | None = None
 
 
 def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
@@ -387,6 +391,9 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
             "n_re": (entrada.n_re or "").strip(),
             "obra": _limpo(entrada.obra, _CAMPOS_OBRA),
             "evento": _limpo(entrada.evento, _CAMPOS_EVENTO),
+            "intermediario": _limpo(entrada.intermediario, _CAMPOS_PESSOA),
+            "destinatario": _limpo(entrada.destinatario, _CAMPOS_PESSOA),
+            "ref_nfse": [c.strip().upper() for c in entrada.ref_nfse or [] if c and c.strip()],
             **{k: v for k, v in descontos.items() if v and Decimal(v) != 0},
         }
     )
@@ -421,6 +428,19 @@ _CAMPOS_EXTERIOR = (
 
 _CAMPOS_ENDERECO = ("cep", "c_end_post", "cidade", "estado", "logradouro", "numero", "complemento", "bairro")
 _CAMPOS_OBRA = ("insc_imob_fisc", "c_obra", "c_cib", *_CAMPOS_ENDERECO)
+_CAMPOS_PESSOA = (
+    "documento",
+    "nome",
+    "im",
+    "c_mun",
+    "cep",
+    "logradouro",
+    "numero",
+    "complemento",
+    "bairro",
+    "email",
+    "fone",
+)
 _CAMPOS_EVENTO = ("nome", "dt_ini", "dt_fim", "id_atv_evt", *_CAMPOS_ENDERECO)
 
 

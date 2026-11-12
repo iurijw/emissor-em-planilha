@@ -48,6 +48,8 @@ export function EnderecoTomador({
   cpf,
   buscando,
   municipio,
+  titulo = "Endereço do tomador",
+  semCadastro = false,
 }: {
   valor: Endereco;
   onChange: (e: Endereco) => void;
@@ -55,6 +57,9 @@ export function EnderecoTomador({
   buscando: boolean;
   /** "Cidade / UF" do cadastro, para o resumo fechado. */
   municipio: string | null;
+  titulo?: string;
+  /** Endereço só desta nota (intermediário, destinatário): não diz que vai para o cadastro. */
+  semCadastro?: boolean;
 }) {
   const id = useId();
   const situacao: Situacao = buscando ? "buscando" : enderecoCompleto(valor) ? "completo" : enderecoVazio(valor) ? "sem" : "incompleto";
@@ -101,7 +106,7 @@ export function EnderecoTomador({
           setAberto((a) => !a);
         }}
       >
-        <span className="endereco-tomador__titulo">Endereço do tomador</span>
+        <span className="endereco-tomador__titulo">{titulo}</span>
         <span className="endereco-tomador__resumo" title={resumo}>
           {resumo}
           {situacao !== "buscando" && soDigitos(valor.cep).length === 8 && (
@@ -154,7 +159,7 @@ export function EnderecoTomador({
           {situacao === "incompleto"
             ? "Para ir na nota, o endereço precisa de logradouro, bairro, CEP e município. "
             : ""}
-          O que você mudar aqui fica salvo no cadastro do cliente.
+          {semCadastro ? "" : "O que você mudar aqui fica salvo no cadastro do cliente."}
         </small>
       </div>
     </div>
