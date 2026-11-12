@@ -7,6 +7,12 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.14.0 (12/11/2026)
+
+- Tributação com tipo de imunidade, exigibilidade suspensa, benefício municipal, exportação e compra governamental.
+- Nota avulsa com descontos, informações complementares, tomador no exterior, obra, evento, dedução da base, intermediário e destinatário.
+- Campos obrigatórios marcados com asterisco, e a nota avulsa mostra o que falta antes de emitir.
+
 ## 0.13.3 (12/11/2026)
 
 - A tributação com IBS/CBS salva nos serviços que pedem o tipo de operação (como 17.12): escolha o tipo na tela.
