@@ -50,6 +50,7 @@ export function EnderecoTomador({
   municipio,
   titulo = "Endereço do tomador",
   semCadastro = false,
+  obrigatorio = false,
 }: {
   valor: Endereco;
   onChange: (e: Endereco) => void;
@@ -60,6 +61,8 @@ export function EnderecoTomador({
   titulo?: string;
   /** Endereço só desta nota (intermediário, destinatário): não diz que vai para o cadastro. */
   semCadastro?: boolean;
+  /** Sem o endereço a Sefin recusa a nota (ISS retido pelo tomador, E0237; intermediário com CNPJ, E1388). */
+  obrigatorio?: boolean;
 }) {
   const id = useId();
   const situacao: Situacao = buscando ? "buscando" : enderecoCompleto(valor) ? "completo" : enderecoVazio(valor) ? "sem" : "incompleto";
@@ -67,8 +70,9 @@ export function EnderecoTomador({
   const [aberto, setAberto] = useState(false);
   const [mexeu, setMexeu] = useState(false);
   useEffect(() => {
-    if (!mexeu && situacao === "incompleto") setAberto(true);
-  }, [situacao, mexeu]);
+    if (!mexeu && (situacao === "incompleto" || (obrigatorio && situacao === "sem"))) setAberto(true);
+  }, [situacao, mexeu, obrigatorio]);
+  const ob = obrigatorio ? " campo--obrigatorio" : "";
 
   const set = (k: keyof Endereco, v: string) => onChange({ ...valor, [k]: v || null });
 
@@ -88,6 +92,8 @@ export function EnderecoTomador({
   const tag =
     situacao === "buscando" ? null : situacao === "completo" ? null : situacao === "incompleto" ? (
       <span className="tag-endereco tag-endereco--aviso">Endereço incompleto</span>
+    ) : obrigatorio ? (
+      <span className="tag-endereco tag-endereco--aviso">Sem endereço · obrigatório</span>
     ) : cpf ? (
       <span className="tag-endereco">Sem endereço · opcional para CPF</span>
     ) : (
@@ -124,6 +130,7 @@ export function EnderecoTomador({
             valor={valor.cep}
             onChange={(v) => set("cep", v ?? "")}
             disabled={buscando}
+            obrigatorio={obrigatorio}
             aoEncontrar={(e) => {
               onChange({
                 ...valor,
@@ -135,7 +142,7 @@ export function EnderecoTomador({
               if (e.logradouro) document.getElementById(`${id}-numero`)?.focus();
             }}
           />
-          <label className="campo largo">
+          <label className={`campo largo${ob}`}>
             <span>Logradouro</span>
             <input value={valor.logradouro ?? ""} onChange={(e) => set("logradouro", e.target.value)} disabled={buscando} />
           </label>
@@ -147,18 +154,25 @@ export function EnderecoTomador({
             <span>Complemento</span>
             <input value={valor.complemento ?? ""} onChange={(e) => set("complemento", e.target.value)} disabled={buscando} />
           </label>
-          <label className="campo">
+          <label className={`campo${ob}`}>
             <span>Bairro</span>
             <input value={valor.bairro ?? ""} onChange={(e) => set("bairro", e.target.value)} disabled={buscando} />
           </label>
           <div>
-            <CampoMunicipio rotulo="Município" codigo={valor.c_mun} onChange={(v) => onChange({ ...valor, c_mun: v })} />
+            <CampoMunicipio
+              rotulo="Município"
+              codigo={valor.c_mun}
+              onChange={(v) => onChange({ ...valor, c_mun: v })}
+              obrigatorio={obrigatorio}
+            />
           </div>
         </div>
         <small className="endereco-tomador__nota">
-          {situacao === "incompleto"
-            ? "Para ir na nota, o endereço precisa de logradouro, bairro, CEP e município. "
-            : ""}
+          {obrigatorio && situacao !== "completo"
+            ? "Esta nota exige o endereço: sem logradouro, bairro, CEP e município a Sefin a recusa. "
+            : situacao === "incompleto"
+              ? "Para ir na nota, o endereço precisa de logradouro, bairro, CEP e município. "
+              : ""}
           {semCadastro ? "" : "O que você mudar aqui fica salvo no cadastro do cliente."}
         </small>
       </div>

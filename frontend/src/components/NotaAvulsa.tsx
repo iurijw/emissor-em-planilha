@@ -7,7 +7,7 @@ import { EmissaoFluxo, type CorpoAvulsa } from "../pages/EmissaoFluxo";
 import { ErroCaixa, Gaveta, Spinner } from "../ui";
 import { useTributacoes } from "./Abas";
 import { buscarClientes, normalizarBusca } from "./EditorNomeCliente";
-import { CamposTributacao, Pergunta, ValoresDaNota } from "./FiscalForm";
+import { CamposTributacao, LegendaObrigatorio, Pergunta, ValoresDaNota } from "./FiscalForm";
 import { corpoPessoa, OutraPessoa, pessoaPronta, pessoaVazia, type DadosPessoa } from "./OutraPessoa";
 import { exteriorVazio, faltaNoExterior, TomadorExterior, type DadosExterior } from "./TomadorExterior";
 import { ajusteEmReais, corpoDadosNota, DadosDaNota, dadosNotaVazios, type DadosNota } from "./DadosDaNota";
@@ -25,7 +25,7 @@ import {
   type DadosEvento,
   type DadosObra,
 } from "./ObraEvento";
-import { EnderecoTomador, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
+import { EnderecoTomador, enderecoCompleto, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
 
 type Escolha = "padrao" | "propria" | number;
 
@@ -148,9 +148,6 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   // Exportação, serviço no exterior ou tomador no exterior: a nota leva o valor na moeda estrangeira (comExt).
   const comExterior = noExterior || tributacaoDaNota?.trib_issqn === "3" || (tributacaoDaNota?.c_pais_prestacao ?? null) != null;
   const moedaNum = parseValor(comex.v_serv_moeda);
-  const tomadorPronto = noExterior
-    ? faltaNoExterior(exterior).length === 0
-    : !!documento && !docInvalido && consultaAtual?.estado !== "buscando";
   // Construção civil e item 12: a nota leva os dados da obra ou do evento (E0370/E0390).
   const precisaObra = exigeObra(tributacaoDaNota?.c_trib_nac);
   const precisaEvento = exigeEvento(tributacaoDaNota?.c_trib_nac);
@@ -160,17 +157,33 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const comIbsCbs = !!tributacaoDaNota?.ibscbs;
   const precisaRefs = comIbsCbs && ["2", "3"].includes(tributacaoDaNota?.ibscbs_tp_oper ?? "");
   const chavesRef = refs.split(/[\s,;]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
-  const pronto =
-    tomadorPronto &&
-    (!precisaInterm || pessoaPronta(interm, true)) &&
-    (!comIbsCbs || !outroDest || pessoaPronta(dest, false)) &&
-    (!precisaRefs || (chavesRef.length > 0 && chavesRef.every((c) => /^[0-9A-Z]{50}$/.test(c)))) &&
-    (!precisaObra || obraPronta(obra, prestadoFora)) &&
-    (!precisaEvento || eventoPronto(evento, prestadoFora)) &&
-    valorNum !== null &&
-    Number(valorNum) > 0 &&
-    descricao.trim() !== "" &&
-    (!comExterior || (moedaNum !== null && Number(moedaNum) > 0));
+  // ISS retido pelo tomador: a Sefin exige o endereço dele (E0237).
+  const exigeEnderecoTomador = tributacaoDaNota?.tp_ret_issqn === "2";
+  // O que falta para a nota sair (os campos com * na tela); o servidor confere tudo de novo.
+  const faltando = [
+    ...(noExterior
+      ? faltaNoExterior(exterior).length
+        ? [`tomador (${faltaNoExterior(exterior).join(", ")})`]
+        : []
+      : !documento
+        ? ["CNPJ/CPF do tomador"]
+        : docInvalido
+          ? ["CNPJ/CPF válido do tomador"]
+          : exigeEnderecoTomador && !enderecoCompleto(endereco)
+            ? ["endereço do tomador"]
+            : []),
+    ...(valorNum === null || Number(valorNum) <= 0 ? ["valor"] : []),
+    ...(comExterior && (moedaNum === null || Number(moedaNum) <= 0) ? ["valor na moeda estrangeira"] : []),
+    ...(!descricao.trim() ? ["descrição do serviço"] : []),
+    ...(precisaObra && !obraPronta(obra, prestadoFora) ? ["dados da obra"] : []),
+    ...(precisaEvento && !eventoPronto(evento, prestadoFora) ? ["dados do evento"] : []),
+    ...(precisaInterm && !pessoaPronta(interm, true) ? ["dados do intermediário"] : []),
+    ...(comIbsCbs && outroDest && !pessoaPronta(dest, false) ? ["dados do destinatário"] : []),
+    ...(precisaRefs && !(chavesRef.length > 0 && chavesRef.every((c) => /^[0-9A-Z]{50}$/.test(c)))
+      ? ["chave da NFS-e referenciada"]
+      : []),
+  ];
+  const pronto = faltando.length === 0 && (noExterior || consultaAtual?.estado !== "buscando");
 
   function escolherTributacao(e: Escolha) {
     setEscolha(e);
@@ -237,6 +250,11 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
         fechar={fechar}
         rodape={
           <>
+            {faltando.length > 0 && (
+              <span className="falta-preencher" aria-live="polite">
+                <b>Falta:</b> {faltando.join(", ")}.
+              </span>
+            )}
             <button className="btn" onClick={fechar}>
               Cancelar
             </button>
@@ -255,6 +273,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
           <p style={{ margin: 0, color: "var(--grafite)" }}>
             Emite uma nota sem mexer na tabela. Ela usa a mesma numeração e aparece na aba Emissões.
           </p>
+          <LegendaObrigatorio />
           <section>
             <h3 className="secao-titulo">Tomador</h3>
             <div className="grade-form">
@@ -273,7 +292,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
               ) : (
                 <>
                   <div className="largo tomador-ou">
-                    <label className={`campo ${mostrarInvalido ? "campo--erro" : ""}`} style={{ position: "relative" }}>
+                    <label className={`campo campo--obrigatorio${mostrarInvalido ? " campo--erro" : ""}`} style={{ position: "relative" }}>
                       <span>CNPJ / CPF</span>
                       <input
                         className={docEhNome || !docTexto ? undefined : "num"}
@@ -362,20 +381,21 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                         cpf={documento.length === 11}
                         buscando={consultaAtual?.estado === "buscando"}
                         municipio={endereco.c_mun && endereco.c_mun === cadastro?.c_mun ? cadastro.municipio : null}
+                        obrigatorio={exigeEnderecoTomador}
                       />
                       {erroEndereco != null && <ErroCaixa erro={erroEndereco} titulo="Não foi possível salvar o endereço" />}
                     </div>
                   )}
                 </>
               )}
-              <label className="campo">
+              <label className="campo campo--obrigatorio">
                 <span>Valor</span>
                 <input className="num" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" inputMode="decimal" />
                 <small>{valorNum ? moeda(valorNum) : " "}</small>
               </label>
               {comExterior && (
                 <>
-                  <label className="campo">
+                  <label className="campo campo--obrigatorio">
                     <span>Valor na moeda estrangeira</span>
                     <input
                       className="num"
@@ -402,7 +422,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                   )}
                 </>
               )}
-              <label className="campo largo">
+              <label className="campo largo campo--obrigatorio">
                 <span>Descrição do serviço</span>
                 <textarea rows={4} value={descricao} maxLength={2000} onChange={(e) => setDescricao(e.target.value)} />
                 <PreviaDescricao texto={descricao} />
@@ -441,7 +461,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             )}
             {escolha === "propria" && propria && (
               <div style={{ display: "flex", flexDirection: "column", gap: 22, marginTop: 18 }}>
-                <CamposTributacao valor={propria} onChange={setPropria} regime={trib.data?.regime} semPrevia />
+                <CamposTributacao valor={propria} onChange={setPropria} regime={trib.data?.regime} semPrevia semLegenda />
               </div>
             )}
           </section>
@@ -455,6 +475,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
               valor={interm}
               onChange={setInterm}
               comIm
+              exigeEnderecoCnpj
             />
           )}
           {comIbsCbs && (
@@ -476,7 +497,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             <section>
               <h3 className="secao-titulo">NFS-e referenciada</h3>
               <div className="grade-form">
-                <label className="campo largo">
+                <label className="campo largo campo--obrigatorio">
                   <span>Chave da NFS-e anterior</span>
                   <input className="num" value={refs} onChange={(e) => setRefs(e.target.value)} placeholder="50 caracteres" />
                   <small>

@@ -38,6 +38,7 @@ export function CampoMunicipio(props: {
   codigo: string | null;
   onChange: (codigo: string | null) => void;
   ajuda?: string;
+  obrigatorio?: boolean;
 }) {
   const id = useId();
   const [termo, setTermo] = useState("");
@@ -90,7 +91,7 @@ export function CampoMunicipio(props: {
   const mostrarLista = aberto && opcoes.length > 0;
 
   return (
-    <label className={`campo${pendente ? " campo--erro" : ""}`} style={{ position: "relative" }}>
+    <label className={`campo${pendente ? " campo--erro" : ""}${props.obrigatorio ? " campo--obrigatorio" : ""}`} style={{ position: "relative" }}>
       <span>{props.rotulo}</span>
       <input
         aria-describedby={`${id}-ajuda`}
@@ -201,11 +202,17 @@ function Selecao(props: {
   vazio?: string;
   ajuda?: string;
   largo?: boolean;
+  /** Sem ele a Sefin recusa a nota: o rótulo ganha o asterisco. */
+  obrigatorio?: boolean;
 }) {
   return (
-    <label className={props.largo ? "campo largo" : "campo"}>
+    <label className={`campo${props.largo ? " largo" : ""}${props.obrigatorio ? " campo--obrigatorio" : ""}`}>
       <span>{props.rotulo}</span>
-      <select value={props.valor ?? ""} onChange={(e) => props.onChange(e.target.value || null)}>
+      <select
+        value={props.valor ?? ""}
+        aria-required={props.obrigatorio || undefined}
+        onChange={(e) => props.onChange(e.target.value || null)}
+      >
         {props.vazio !== undefined && <option value="">{props.vazio}</option>}
         {props.opcoes?.map((o) => (
           <option key={o.valor} value={o.valor}>
@@ -228,12 +235,14 @@ function Texto(props: {
   num?: boolean;
   largo?: boolean;
   placeholder?: string;
+  obrigatorio?: boolean;
 }) {
   return (
-    <label className={`campo ${props.largo ? "largo" : ""} ${props.erro ? "campo--erro" : ""}`}>
+    <label className={`campo${props.largo ? " largo" : ""}${props.erro ? " campo--erro" : ""}${props.obrigatorio ? " campo--obrigatorio" : ""}`}>
       <span>{props.rotulo}</span>
       <input
         className={props.num ? "num" : undefined}
+        aria-required={props.obrigatorio || undefined}
         value={props.valor ?? ""}
         placeholder={props.placeholder}
         aria-invalid={props.erro ? true : undefined}
@@ -316,9 +325,10 @@ function CampoServico(props: { codigo: string; onChange: (codigo: string) => voi
       : "";
 
   return (
-    <label className={`campo largo${erro ? " campo--erro" : ""}`} style={{ position: "relative" }}>
+    <label className={`campo largo campo--obrigatorio${erro ? " campo--erro" : ""}`} style={{ position: "relative" }}>
       <span>Serviço (código de tributação nacional)</span>
       <input
+        aria-required
         aria-describedby={`${id}-ajuda`}
         aria-expanded={mostrarLista}
         aria-autocomplete="list"
@@ -408,7 +418,7 @@ function CampoNbs(props: {
   if (!lista.length || livre) {
     const erro = props.valor && !/^\d{9}$/.test(props.valor) ? "O código NBS tem 9 dígitos, ex.: 1.1302.21.00." : undefined;
     return (
-      <label className={`campo largo${erro ? " campo--erro" : ""}`}>
+      <label className={`campo largo${erro ? " campo--erro" : ""}${props.obrigatorio ? " campo--obrigatorio" : ""}`}>
         <span>Código NBS</span>
         <input
           className="num"
@@ -433,7 +443,7 @@ function CampoNbs(props: {
     );
   }
   return (
-    <label className="campo largo">
+    <label className={`campo largo${props.obrigatorio ? " campo--obrigatorio" : ""}`}>
       <span>Código NBS</span>
       <select
         value={props.valor ?? ""}
@@ -482,6 +492,15 @@ function useConferencia(codigo: string, local: string | null, municipioPrestador
 }
 
 /** Pergunta de Sim/Não como no Emissor Nacional (Não primeiro). */
+/** Explica o asterisco dos campos obrigatórios (classe ``campo--obrigatorio``). */
+export function LegendaObrigatorio() {
+  return (
+    <p className="legenda-obrigatorio">
+      <b aria-hidden="true">*</b> Obrigatório: sem ele a nota é recusada.
+    </p>
+  );
+}
+
 export function Pergunta(props: { texto: string; sim: boolean; onChange: (sim: boolean) => void; ajuda?: string }) {
   const nome = useId();
   return (
@@ -528,6 +547,7 @@ export function CamposEmpresa({
   const set = <K extends keyof Fiscal>(k: K, v: Fiscal[K]) => onChange({ ...valor, [k]: v });
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
+      <LegendaObrigatorio />
       <section>
         <h3 className="secao-titulo">Prestador</h3>
         <div className="grade-form">
@@ -535,6 +555,7 @@ export function CamposEmpresa({
             rotulo="CNPJ"
             valor={formatarDocumento(valor.cnpj)}
             onChange={(v) => set("cnpj", v.replace(/[^0-9A-Za-z]/g, ""))}
+            obrigatorio
             num
           />
           <Texto
@@ -547,6 +568,7 @@ export function CamposEmpresa({
             rotulo="Município do prestador"
             codigo={valor.c_mun_emissor || null}
             onChange={(c) => set("c_mun_emissor", c ?? "")}
+            obrigatorio
           />
           <Texto rotulo="Telefone" valor={valor.fone} onChange={(v) => set("fone", v || null)} num />
           <Texto rotulo="E-mail" valor={valor.email} onChange={(v) => set("email", v || null)} largo />
@@ -577,6 +599,7 @@ export function CamposEmpresa({
               valor={pctTela(valor.p_tot_trib_sn)}
               onChange={(v) => set("p_tot_trib_sn", pctDado(v))}
               ajuda="Obrigatório para ME/EPP (E0712). Vai para a tributação padrão; as outras tributações têm o próprio campo."
+              obrigatorio
               num
             />
           )}
@@ -606,9 +629,12 @@ export function CamposTributacao({
   regime,
   municipioPrestador,
   semPrevia,
+  semLegenda,
 }: {
   valor: DadosTributacao;
   onChange: (t: DadosTributacao) => void;
+  /** Sem a explicação do asterisco (quem usa já a mostra, como a nota avulsa). */
+  semLegenda?: boolean;
   /** Sem a prévia numa nota de exemplo (a nota avulsa mostra os valores da própria nota no fim). */
   semPrevia?: boolean;
   /** Regime do prestador (Configurações): decide quais alíquotas a nota aceita. */
@@ -678,6 +704,7 @@ export function CamposTributacao({
 
   return (
     <>
+      {!semLegenda && <LegendaObrigatorio />}
       <section>
         <h3 className="secao-titulo">Informações gerais</h3>
         <div className="grade-form">
@@ -707,6 +734,7 @@ export function CamposTributacao({
               valor={valor.c_pais_prestacao || null}
               opcoes={op?.paises}
               vazio="Escolha"
+              obrigatorio
               onChange={(v) => set("c_pais_prestacao", v ?? "")}
             />
           ) : (
@@ -769,6 +797,7 @@ export function CamposTributacao({
               valor={valor.c_pais_result}
               opcoes={op?.paises}
               vazio="Escolha"
+              obrigatorio
               onChange={(v) => set("c_pais_result", v)}
               ajuda="Onde o serviço produz efeito (normalmente o país do tomador)."
             />
@@ -780,6 +809,7 @@ export function CamposTributacao({
               valor={valor.tp_imunidade}
               opcoes={op?.tp_imunidade}
               vazio="Escolha"
+              obrigatorio
               onChange={(v) => set("tp_imunidade", v)}
               ajuda="Obrigatório com imunidade (art. 150, VI, da Constituição)."
             />
@@ -807,6 +837,7 @@ export function CamposTributacao({
               valor={valor.ibscbs_tp_oper ?? null}
               opcoes={op?.ibscbs_tp_oper}
               vazio="Escolha"
+              obrigatorio
               onChange={(v) => set("ibscbs_tp_oper", v)}
               ajuda={
                 ["2", "3"].includes(valor.ibscbs_tp_oper ?? "")
@@ -842,6 +873,7 @@ export function CamposTributacao({
               valor={valor.comex_md_prestacao}
               opcoes={op?.comex_md_prestacao}
               vazio="Escolha"
+              obrigatorio
               onChange={(v) => set("comex_md_prestacao", v)}
               ajuda="Transfronteiriço: o serviço é feito daqui para o exterior (ex.: consultoria a distância)."
             />
@@ -918,6 +950,7 @@ export function CamposTributacao({
               rotulo="Alíquota (%)"
               valor={pctTela(valor.p_aliq_iss)}
               onChange={(v) => onChange({ ...valor, p_aliq_iss: pctDado(v), p_aliq_iss_atualizada_em: hoje() })}
+              obrigatorio
               ajuda={
                 "Alíquota efetiva do Simples no mês, de 1,80% a 5,00%. A cada emissão o sistema pergunta se ela continua valendo." +
                 (valor.p_aliq_iss_atualizada_em ? ` Atualizada em ${dataTela(valor.p_aliq_iss_atualizada_em)}.` : "") +
@@ -959,6 +992,7 @@ export function CamposTributacao({
                     rotulo="Número do processo"
                     valor={valor.n_processo}
                     onChange={(v) => set("n_processo", v.replace(/\D/g, "").slice(0, 30) || null)}
+                    obrigatorio
                     ajuda="30 dígitos, sem pontos. Se o número tiver menos, complete com zeros à esquerda."
                     erro={valor.n_processo && valor.n_processo.length !== 30 ? `Tem ${valor.n_processo.length} de 30 dígitos.` : undefined}
                     num
@@ -981,6 +1015,7 @@ export function CamposTributacao({
                     rotulo="Número do benefício municipal"
                     valor={valor.n_bm}
                     onChange={(v) => set("n_bm", v.replace(/\D/g, "").slice(0, 14))}
+                    obrigatorio
                     ajuda="14 dígitos, como a prefeitura divulga."
                     erro={valor.n_bm && valor.n_bm.length !== 14 ? `Tem ${valor.n_bm.length} de 14 dígitos.` : undefined}
                     num
@@ -1053,6 +1088,7 @@ export function CamposTributacao({
                 rotulo="Alíquota do PIS (%)"
                 valor={pctTela(valor.p_aliq_pis)}
                 onChange={(v) => set("p_aliq_pis", pctDado(v))}
+                obrigatorio={!!retencao?.[0]}
                 ajuda={retencao?.[0] ? "Retido: sai do valor líquido." : "Sobre o valor do serviço. Vazio = não informar."}
                 num
               />
@@ -1060,6 +1096,7 @@ export function CamposTributacao({
                 rotulo="Alíquota da COFINS (%)"
                 valor={pctTela(valor.p_aliq_cofins)}
                 onChange={(v) => set("p_aliq_cofins", pctDado(v))}
+                obrigatorio={!!retencao?.[1]}
                 ajuda={retencao?.[1] ? "Retida: sai do valor líquido." : "Sobre o valor do serviço. Vazio = não informar."}
                 num
               />
@@ -1077,6 +1114,7 @@ export function CamposTributacao({
               rotulo="Contribuições Sociais - Retidas (%)"
               valor={pctTela(valor.p_ret_csll)}
               onChange={(v) => set("p_ret_csll", pctDado(v))}
+              obrigatorio={retemCsll}
               ajuda="CSLL retida, como pede o tipo de retenção escolhido."
               num
             />
@@ -1119,6 +1157,7 @@ export function CamposTributacao({
               valor={pctTela(valor.p_tot_trib_sn)}
               onChange={(v) => set("p_tot_trib_sn", pctDado(v))}
               ajuda="Obrigatória para ME/EPP optante do Simples (Lei 12.741/2012)."
+              obrigatorio
               num
             />
           )}
@@ -1223,6 +1262,7 @@ function CamposIbsCbs({
             rotulo="Código de Classificação Tributária"
             valor={valor.ibscbs_c_class_trib}
             onChange={(v) => trocarClasse(v.replace(/\D/g, "").slice(0, 6))}
+            obrigatorio
             ajuda="6 dígitos, da tabela oficial de classificação tributária."
             num
           />
@@ -1248,7 +1288,7 @@ function CamposIbsCbs({
           </label>
         )}
         {atual?.trib_regular && (
-          <label className="campo largo">
+          <label className="campo largo campo--obrigatorio">
             <span>Classificação na tributação regular</span>
             <select value={valor.ibscbs_c_class_trib_reg ?? ""} onChange={(e) => set("ibscbs_c_class_trib_reg", e.target.value || null)}>
               <option value="">Escolha</option>
@@ -1263,18 +1303,21 @@ function CamposIbsCbs({
               rotulo="Diferimento do IBS estadual (%)"
               valor={pctTela(valor.ibscbs_p_dif_uf)}
               onChange={(v) => set("ibscbs_p_dif_uf", pctDado(v))}
+              obrigatorio
               num
             />
             <Texto
               rotulo="Diferimento do IBS municipal (%)"
               valor={pctTela(valor.ibscbs_p_dif_mun)}
               onChange={(v) => set("ibscbs_p_dif_mun", pctDado(v))}
+              obrigatorio
               num
             />
             <Texto
               rotulo="Diferimento da CBS (%)"
               valor={pctTela(valor.ibscbs_p_dif_cbs)}
               onChange={(v) => set("ibscbs_p_dif_cbs", pctDado(v))}
+              obrigatorio
               ajuda="Classificação de diferimento: a Sefin exige os três percentuais (0 vale)."
               num
             />

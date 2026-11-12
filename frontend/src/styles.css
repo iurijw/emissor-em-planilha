@@ -123,6 +123,12 @@ a { color: var(--azul-texto); }
 .campo textarea { height: auto; padding: 8px 10px; resize: vertical; }
 .campo input:focus, .campo select:focus, .campo textarea:focus, .input:focus { outline: none; border-color: var(--azul); box-shadow: var(--foco); }
 .campo--erro input, .campo--erro select { border-color: var(--erro); }
+/* Obrigatório: sem ele a Sefin recusa a nota (ou o sistema não deixa emitir). */
+.campo--obrigatorio > span::after, .campo-cep--obrigatorio > label::after { content: " *"; color: var(--erro); font-weight: 700; }
+.legenda-obrigatorio { margin: 0; color: var(--grafite); font-size: 12.5px; }
+.legenda-obrigatorio b { color: var(--erro); }
+.falta-preencher { margin-right: auto; min-width: 0; color: var(--grafite); font-size: 12.5px; line-height: 1.35; }
+.falta-preencher b { color: var(--tinta); font-weight: 600; }
 .campo__erro { color: var(--erro); font-size: 12px; }
 .previa-descricao span { color: var(--tinta); }
 .btn-texto {

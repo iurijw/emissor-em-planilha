@@ -81,8 +81,8 @@ export function corpoEvento(e: DadosEvento): Record<string, string> {
 
 function Endereco<T extends EnderecoLocal>({ valor, onChange, exterior }: { valor: T; onChange: (v: T) => void; exterior: boolean }) {
   const set = (k: keyof EnderecoLocal, v: string) => onChange({ ...valor, [k]: v });
-  const campo = (k: keyof EnderecoLocal, rotulo: string, max: number, largo = false) => (
-    <label className={largo ? "campo largo" : "campo"}>
+  const campo = (k: keyof EnderecoLocal, rotulo: string, max: number, largo = false, obrigatorio = false) => (
+    <label className={`campo${largo ? " largo" : ""}${obrigatorio ? " campo--obrigatorio" : ""}`}>
       <span>{rotulo}</span>
       <input value={valor[k]} maxLength={max} onChange={(e) => set(k, e.target.value)} />
     </label>
@@ -91,23 +91,24 @@ function Endereco<T extends EnderecoLocal>({ valor, onChange, exterior }: { valo
     <>
       {exterior ? (
         <>
-          {campo("c_end_post", "Código postal", 11)}
-          {campo("cidade", "Cidade", 60)}
-          {campo("estado", "Estado, província ou região", 60)}
+          {campo("c_end_post", "Código postal", 11, false, true)}
+          {campo("cidade", "Cidade", 60, false, true)}
+          {campo("estado", "Estado, província ou região", 60, false, true)}
         </>
       ) : (
         <CampoCep
           valor={valor.cep || null}
+          obrigatorio
           onChange={(c) => set("cep", c ?? "")}
           aoEncontrar={(r) =>
             onChange({ ...valor, cep: r.cep, logradouro: r.logradouro ?? valor.logradouro, bairro: r.bairro ?? valor.bairro })
           }
         />
       )}
-      {campo("logradouro", "Logradouro", 255, true)}
+      {campo("logradouro", "Logradouro", 255, true, true)}
       {campo("numero", "Número", 60)}
       {campo("complemento", "Complemento", 156)}
-      {campo("bairro", "Bairro", 60)}
+      {campo("bairro", "Bairro", 60, false, true)}
     </>
   );
 }
@@ -136,14 +137,14 @@ export function ObraNota({ valor, onChange, exterior }: { valor: DadosObra; onCh
           <small>Este serviço de construção exige os dados da obra em cada nota.</small>
         </fieldset>
         {valor.modo === "c_obra" && (
-          <label className="campo">
+          <label className="campo campo--obrigatorio">
             <span>Código da obra</span>
             <input className="num" value={valor.c_obra} maxLength={30} onChange={(e) => set("c_obra", e.target.value)} />
             <small>CNO (Cadastro Nacional de Obras) ou o código que a prefeitura deu.</small>
           </label>
         )}
         {valor.modo === "c_cib" && (
-          <label className="campo">
+          <label className="campo campo--obrigatorio">
             <span>CIB</span>
             <input className="num" value={valor.c_cib} maxLength={9} onChange={(e) => set("c_cib", e.target.value.toUpperCase())} />
             <small>Cadastro Imobiliário Brasileiro: 8 caracteres.</small>
@@ -167,16 +168,16 @@ export function EventoNota({ valor, onChange, exterior }: { valor: DadosEvento; 
     <section>
       <h3 className="secao-titulo">Atividade ou evento</h3>
       <div className="grade-form">
-        <label className="campo largo">
+        <label className="campo largo campo--obrigatorio">
           <span>Nome do evento</span>
           <input value={valor.nome} maxLength={255} onChange={(e) => set("nome", e.target.value)} />
           <small>Serviços do item 12 (espetáculos, shows, feiras, congressos) exigem os dados do evento.</small>
         </label>
-        <label className="campo">
+        <label className="campo campo--obrigatorio">
           <span>Início</span>
           <input type="date" value={valor.dt_ini} onChange={(e) => set("dt_ini", e.target.value)} />
         </label>
-        <label className={`campo ${datasErradas ? "campo--erro" : ""}`}>
+        <label className={`campo campo--obrigatorio${datasErradas ? " campo--erro" : ""}`}>
           <span>Fim</span>
           <input type="date" value={valor.dt_fim} onChange={(e) => set("dt_fim", e.target.value)} />
           {datasErradas && <small className="campo__erro">O fim não pode ser antes do início.</small>}
@@ -193,7 +194,7 @@ export function EventoNota({ valor, onChange, exterior }: { valor: DadosEvento; 
           </div>
         </fieldset>
         {valor.comCodigo ? (
-          <label className="campo">
+          <label className="campo campo--obrigatorio">
             <span>Código do evento</span>
             <input className="num" value={valor.id_atv_evt} maxLength={30} onChange={(e) => set("id_atv_evt", e.target.value)} />
           </label>

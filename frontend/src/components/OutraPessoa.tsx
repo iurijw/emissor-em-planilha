@@ -47,12 +47,15 @@ export function OutraPessoa({
   valor,
   onChange,
   comIm,
+  exigeEnderecoCnpj = false,
 }: {
   titulo: string;
   ajuda: string;
   valor: DadosPessoa;
   onChange: (p: DadosPessoa) => void;
   comIm: boolean;
+  /** Com CNPJ, o endereço é obrigatório (intermediário, E1388). */
+  exigeEnderecoCnpj?: boolean;
 }) {
   const doc = soDocumento(valor.documento);
   const invalido = doc.length >= 11 && !documentoValido(doc);
@@ -61,14 +64,14 @@ export function OutraPessoa({
       <h3 className="secao-titulo">{titulo}</h3>
       <p style={{ margin: "0 0 12px", color: "var(--grafite)", fontSize: 13 }}>{ajuda}</p>
       <div className="grade-form">
-        <label className={`campo ${invalido ? "campo--erro" : ""}`}>
+        <label className={`campo campo--obrigatorio${invalido ? " campo--erro" : ""}`}>
           <span>CNPJ / CPF</span>
-          <input className="num" value={formatarDocumento(doc)} onChange={(e) => onChange({ ...valor, documento: e.target.value })} />
+          <input className="num" aria-required value={formatarDocumento(doc)} onChange={(e) => onChange({ ...valor, documento: e.target.value })} />
           {invalido && <small className="campo__erro">CNPJ/CPF inválido.</small>}
         </label>
-        <label className="campo">
+        <label className="campo campo--obrigatorio">
           <span>Nome</span>
-          <input value={valor.nome} maxLength={300} onChange={(e) => onChange({ ...valor, nome: e.target.value })} />
+          <input aria-required value={valor.nome} maxLength={300} onChange={(e) => onChange({ ...valor, nome: e.target.value })} />
         </label>
         {comIm && (
           <label className="campo">
@@ -92,6 +95,7 @@ export function OutraPessoa({
               municipio={null}
               titulo="Endereço"
               semCadastro
+              obrigatorio={exigeEnderecoCnpj && doc.length === 14}
             />
           </div>
         )}

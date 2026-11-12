@@ -64,9 +64,9 @@ export function TomadorExterior({
   const campo = (
     k: keyof DadosExterior,
     rotulo: string,
-    extra?: { ajuda?: string; max?: number; largo?: boolean; tipo?: string },
+    extra?: { ajuda?: string; max?: number; largo?: boolean; tipo?: string; obrigatorio?: boolean },
   ) => (
-    <label className={extra?.largo ? "campo largo" : "campo"}>
+    <label className={`campo${extra?.largo ? " largo" : ""}${extra?.obrigatorio ? " campo--obrigatorio" : ""}`}>
       <span>{rotulo}</span>
       <input
         type={extra?.tipo ?? "text"}
@@ -80,7 +80,7 @@ export function TomadorExterior({
   const semNif = !valor.nif.trim();
   return (
     <>
-      <label className="campo">
+      <label className="campo campo--obrigatorio">
         <span>NIF</span>
         <input
           className="num"
@@ -90,10 +90,10 @@ export function TomadorExterior({
             onChange({ ...valor, nif: e.target.value, c_nao_nif: "" })
           }
         />
-        <small>Número de identificação fiscal do tomador no país dele.</small>
+        <small>Número de identificação fiscal do tomador no país dele.{semNif ? " Sem ele, diga ao lado por quê." : ""}</small>
       </label>
       {semNif ? (
-        <label className="campo">
+        <label className="campo campo--obrigatorio">
           <span>Sem NIF, por quê?</span>
           <select
             value={valor.c_nao_nif}
@@ -111,8 +111,8 @@ export function TomadorExterior({
       ) : (
         <span className="campo" aria-hidden="true" />
       )}
-      {campo("nome", "Nome da empresa/pessoa", { max: 300, largo: true })}
-      <label className="campo">
+      {campo("nome", "Nome da empresa/pessoa", { max: 300, largo: true, obrigatorio: true })}
+      <label className="campo campo--obrigatorio">
         <span>País</span>
         <select
           value={valor.c_pais}
@@ -126,15 +126,16 @@ export function TomadorExterior({
           ))}
         </select>
       </label>
-      {campo("c_end_post", "Código postal", { max: 11 })}
-      {campo("cidade", "Cidade", { max: 60 })}
-      {campo("estado", "Estado, província ou região", { max: 60 })}
-      {campo("logradouro", "Logradouro", { max: 255, largo: true })}
+      {campo("c_end_post", "Código postal", { max: 11, obrigatorio: true })}
+      {campo("cidade", "Cidade", { max: 60, obrigatorio: true })}
+      {campo("estado", "Estado, província ou região", { max: 60, obrigatorio: true })}
+      {campo("logradouro", "Logradouro", { max: 255, largo: true, obrigatorio: true })}
       {campo("numero", "Número", { max: 60 })}
       {campo("complemento", "Complemento", { max: 156 })}
       {campo("bairro", "Bairro ou distrito", {
         max: 60,
-        ajuda: "Obrigatório no leiaute; sem bairro, repita a cidade.",
+        obrigatorio: true,
+        ajuda: "Sem bairro, repita a cidade.",
       })}
       {campo("email", "E-mail", { max: 80, tipo: "email" })}
     </>

@@ -523,6 +523,10 @@ enviava. Primeira parte (as regras estão em `services/tributacao.py`, `_coerenc
   agora são aceitos e pedem `DadosNota.ref_nfse` (`gRefNFSe`, E0905). Intermediário e NFS-e referenciada são de cada
   nota: aba com `tp_ret_issqn 3` ou `tpOper` 2/3 dá erro ("emita pela nota avulsa"). Ainda fora: tomador/intermediário
   como emitente (`tpEmit` 2/3), imóvel (`imovel`), `bensMoveis` e `cCredPres`.
+- **Campos obrigatórios na tela** (pedido do Iuri): classe `campo--obrigatorio` (asterisco vermelho no rótulo; no CEP,
+  `campo-cep--obrigatorio`) nos campos sem os quais a Sefin recusa a nota, só quando valem (ex.: tipo de imunidade só com
+  imunidade, endereço do tomador só com ISS retido, E0237); `LegendaObrigatorio` explica o asterisco. Na nota avulsa,
+  `faltando` lista ao lado de "Conferir e emitir" o que ainda falta (é o mesmo teste que libera o botão).
 
 ### Várias empresas e procuração (2026-11-09, branch `claude/project-thread-dvqygz`)
 
