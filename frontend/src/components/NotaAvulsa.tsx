@@ -9,7 +9,21 @@ import { useTributacoes } from "./Abas";
 import { buscarClientes, normalizarBusca } from "./EditorNomeCliente";
 import { CamposTributacao, Pergunta, ValoresDaNota } from "./FiscalForm";
 import { exteriorVazio, faltaNoExterior, TomadorExterior, type DadosExterior } from "./TomadorExterior";
-import { corpoDadosNota, DadosDaNota, dadosNotaVazios, type DadosNota } from "./DadosDaNota";
+import { ajusteEmReais, corpoDadosNota, DadosDaNota, dadosNotaVazios, type DadosNota } from "./DadosDaNota";
+import {
+  corpoEvento,
+  corpoObra,
+  eventoPronto,
+  eventoVazio,
+  EventoNota,
+  exigeEvento,
+  exigeObra,
+  obraPronta,
+  obraVazia,
+  ObraNota,
+  type DadosEvento,
+  type DadosObra,
+} from "./ObraEvento";
 import { EnderecoTomador, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
 
 type Escolha = "padrao" | "propria" | number;
@@ -45,6 +59,8 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const [noExterior, setNoExterior] = useState(false);
   const [exterior, setExterior] = useState<DadosExterior>(exteriorVazio);
   const [comex, setComex] = useState({ v_serv_moeda: "", n_di: "", n_re: "" });
+  const [obra, setObra] = useState<DadosObra>(obraVazia);
+  const [evento, setEvento] = useState<DadosEvento>(eventoVazio);
   const [escolha, setEscolha] = useState<Escolha>("padrao");
   const [propria, setPropria] = useState<DadosTributacao | null>(null);
   const [focoNome, setFocoNome] = useState(false);
@@ -130,8 +146,14 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const tomadorPronto = noExterior
     ? faltaNoExterior(exterior).length === 0
     : !!documento && !docInvalido && consultaAtual?.estado !== "buscando";
+  // Construção civil e item 12: a nota leva os dados da obra ou do evento (E0370/E0390).
+  const precisaObra = exigeObra(tributacaoDaNota?.c_trib_nac);
+  const precisaEvento = exigeEvento(tributacaoDaNota?.c_trib_nac);
+  const prestadoFora = (tributacaoDaNota?.c_pais_prestacao ?? null) != null;
   const pronto =
     tomadorPronto &&
+    (!precisaObra || obraPronta(obra, prestadoFora)) &&
+    (!precisaEvento || eventoPronto(evento, prestadoFora)) &&
     valorNum !== null &&
     Number(valorNum) > 0 &&
     descricao.trim() !== "" &&
@@ -178,6 +200,8 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
       tributacao: escolha === "propria" ? propria : null,
       ...corpoDadosNota(dadosNota),
       tomador_exterior: noExterior ? { ...exterior } : null,
+      obra: precisaObra ? corpoObra(obra) : null,
+      evento: precisaEvento ? corpoEvento(evento) : null,
       ...(comExterior
         ? { v_serv_moeda: moedaNum ?? comex.v_serv_moeda, n_di: comex.n_di.trim() || null, n_re: comex.n_re.trim() || null }
         : {}),
@@ -406,6 +430,9 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             )}
           </section>
 
+          {precisaObra && <ObraNota valor={obra} onChange={setObra} exterior={prestadoFora} />}
+          {precisaEvento && <EventoNota valor={evento} onChange={setEvento} exterior={prestadoFora} />}
+
           {tributacaoDaNota && (
             <ValoresDaNota
               tributacao={tributacaoDaNota}
@@ -413,6 +440,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
               regime={trib.data?.regime}
               descIncond={Number(parseValor(dadosNota.v_desc_incond)) || 0}
               descCond={Number(parseValor(dadosNota.v_desc_cond)) || 0}
+              ajuste={ajusteEmReais(dadosNota, Number(valorNum) || 0)}
             />
           )}
         </div>

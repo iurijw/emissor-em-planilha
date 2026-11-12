@@ -117,6 +117,39 @@ MOV_TEMP_BENS = {
     "2": "Vinculada - Declaração de Importação",
     "3": "Vinculada - Declaração de Exportação",
 }
+# Serviços que exigem o grupo de obra (E0370); os demais não podem tê-lo, salvo 99.01.01 (E0372).
+SERVICOS_OBRA = frozenset(
+    "070201 070202 070401 070501 070502 070601 070602 070701 070801 071701 071901 141403 141404".split()
+)
+# ME/EPP com ISS pelo Simples só deduz/reduz a base nestes serviços (E0451/E0452).
+SERVICOS_AJUSTE_BC_SN = frozenset(
+    (
+        "042201 042301 050901 060101 060201 070201 070202 070501 070502 090201 090202 100101 100102 100103 100104 "
+        "100105 100201 100202 100301 100401 100402 100403 100501 100502 100601 100701 100801 100901 101001 150101 "
+        "150102 150103 150104 150105 151001 151002 151003 151004 151005 160201 170501 170601 171001 171002 171101 "
+        "171102 171201 210101 250301"
+    ).split()
+)
+
+
+def exige_obra(c_trib_nac: str | None) -> bool:
+    return (c_trib_nac or "") in SERVICOS_OBRA
+
+
+def aceita_obra(c_trib_nac: str | None) -> bool:
+    return exige_obra(c_trib_nac) or c_trib_nac == "990101"
+
+
+def exige_evento(c_trib_nac: str | None) -> bool:
+    """Item 12 da lista (espetáculos, shows, feiras...) exige o grupo atvEvento (E0390)."""
+    c = c_trib_nac or ""
+    return len(c) == 6 and c.isdigit() and c.startswith("12")
+
+
+def aceita_evento(c_trib_nac: str | None) -> bool:
+    return exige_evento(c_trib_nac) or c_trib_nac == "990101"
+
+
 MDIC = {"0": "Não enviar para o MDIC", "1": "Enviar para o MDIC"}
 C_NAO_NIF = {"1": "Dispensado do NIF", "2": "Não exigência do NIF"}
 TP_BM = {"1": "Isenção", "2": "Redução da BC em %", "3": "Redução da BC em R$", "4": "Alíquota Diferenciada"}

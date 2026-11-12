@@ -12,6 +12,7 @@ from datetime import datetime
 from lxml import etree
 
 from emissor.config import VER_APLIC
+from emissor.nfse import codes
 from emissor.nfse.codes import TP_OPER, classe_ibscbs, exige_tp_oper
 from emissor.nfse.constants import (
     LEIAUTE_NT009,
@@ -237,6 +238,8 @@ def build_dps(inp: DpsInput) -> etree._Element:
     exterior = inp.tomador is not None and inp.tomador.exterior is not None
     if exige_comext(cfg, exterior):
         _comext(serv, cfg, inp.nota)
+    montar_obra(serv, cfg, inp.nota)
+    montar_evento(serv, cfg, inp.nota)
     _info_compl(serv, inp.nota)
 
     # Valores
@@ -250,7 +253,18 @@ def build_dps(inp: DpsInput) -> etree._Element:
             _sub(desc, "vDescIncond", formatar_decimal(nota.v_desc_incond))
         if nota.v_desc_cond:
             _sub(desc, "vDescCond", formatar_decimal(nota.v_desc_cond))
-    tributos, erros = calcular_tributos(cfg, inp.valor, nota.v_desc_incond, nota.v_desc_cond)
+    ajuste = nota.ajuste_bc(inp.valor)
+    if ajuste is not None:
+        erro = erro_ajuste_bc(cfg)
+        if erro:
+            raise DpsBuildError(erro)
+        # v1_01: vDedRed{pDR | vDR}; NT 009: vAjusteBC{pAjusteBCISSQN | vAjusteBCISSQN} (mesmo lugar, nomes novos)
+        aj = _sub(valores, "vAjusteBC" if nt009 else "vDedRed")
+        if nota.ajuste_bc_v is not None:
+            _sub(aj, "vAjusteBCISSQN" if nt009 else "vDR", formatar_decimal(nota.ajuste_bc_v))
+        else:
+            _sub(aj, "pAjusteBCISSQN" if nt009 else "pDR", formatar_decimal(nota.ajuste_bc_p))
+    tributos, erros = calcular_tributos(cfg, inp.valor, nota.v_desc_incond, nota.v_desc_cond, ajuste)
     if iss_exige_aliquota(cfg) and tributos.p_aliq_iss is None:
         erros.insert(0, "Informe a alíquota do ISS retido na tributação (obrigatória para ISS retido no Simples).")
     if erros:
@@ -374,6 +388,104 @@ def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool) -> None:
             g_dif = _sub(grupo, "gDif")
             for tag, p in zip(("pDifUF", "pDifMun", "pDifCBS"), dif, strict=True):
                 _sub(g_dif, tag, formatar_decimal(p))
+
+
+def erro_ajuste_bc(cfg: ConfigFiscal) -> str | None:
+    """Quem não pode deduzir/reduzir a base do ISSQN (sem os ajustes por documento, que este sistema não envia)."""
+    if cfg.op_simp_nac == "2":
+        return "MEI não pode deduzir/reduzir a base do ISSQN (E0436)."
+    if cfg.reg_esp_trib != "0":
+        return "Com regime especial de tributação não há dedução/redução da base do ISSQN (E0445)."
+    if cfg.trib_issqn != "1":
+        return "Dedução/redução da base só existe em operação tributável."
+    if cfg.op_simp_nac == "3" and cfg.reg_ap_trib_sn == "1" and cfg.c_trib_nac not in codes.SERVICOS_AJUSTE_BC_SN:
+        return (
+            f"ME/EPP com ISS pelo Simples não deduz/reduz a base do ISSQN no serviço {cfg.c_trib_nac} (E0451/E0452): "
+            "só em obras, hospedagem, turismo, agenciamento e outros serviços da lista da Sefin."
+        )
+    return None
+
+
+def _endereco_simples(parent: etree._Element, d: dict, cfg: ConfigFiscal, grupo: str) -> None:
+    """``TCEnderecoSimples``/``TCEnderObraEvento``: CEP (no Brasil) ou endExt (prestação no exterior, E0382/E0384)."""
+    end = _sub(parent, "end")
+    if cfg.c_pais_prestacao:
+        faltam = [
+            r
+            for k, r in (("c_end_post", "código postal"), ("cidade", "cidade"), ("estado", "estado"))
+            if not limpar_texto(d.get(k))
+        ]
+        if faltam:
+            raise DpsBuildError(f"Endereço {grupo} no exterior incompleto: falta {', '.join(faltam)}.")
+        ext = _sub(end, "endExt")
+        _sub(ext, "cEndPost", limpar_texto(d.get("c_end_post"), max_len=11))
+        _sub(ext, "xCidade", limpar_texto(d.get("cidade"), max_len=60))
+        _sub(ext, "xEstProvReg", limpar_texto(d.get("estado"), max_len=60))
+    else:
+        cep = somente_digitos(d.get("cep"))
+        if not cep or len(cep) != 8:
+            raise DpsBuildError(f"Informe o CEP {grupo} (8 dígitos, do município da prestação: E0380/E0398).")
+        _sub(end, "CEP", cep)
+    for campo, rotulo in (("logradouro", "logradouro"), ("bairro", "bairro")):
+        if not limpar_texto(d.get(campo)):
+            raise DpsBuildError(f"Endereço {grupo} incompleto: falta o {rotulo}.")
+    _sub(end, "xLgr", limpar_texto(d.get("logradouro"), max_len=255))
+    _sub(end, "nro", limpar_texto(d.get("numero"), max_len=60) or "S/N")
+    _opt(end, "xCpl", limpar_texto(d.get("complemento"), max_len=156))
+    _sub(end, "xBairro", limpar_texto(d.get("bairro"), max_len=60))
+
+
+def montar_obra(serv: etree._Element, cfg: ConfigFiscal, nota: DadosNota) -> None:
+    """Grupo ``obra``: obrigatório nos serviços de construção (E0370), proibido nos demais salvo 99.01.01 (E0372)."""
+    o = nota.obra
+    if not o:
+        if codes.exige_obra(cfg.c_trib_nac):
+            raise DpsBuildError(
+                f"O serviço {cfg.c_trib_nac} exige os dados da obra (E0370): código da obra (CNO), CIB ou endereço."
+            )
+        return
+    if not codes.aceita_obra(cfg.c_trib_nac):
+        raise DpsBuildError(f"O serviço {cfg.c_trib_nac} não leva dados de obra (E0372): tire a obra da nota.")
+    el = _sub(serv, "obra")
+    _opt(el, "inscImobFisc", limpar_texto(o.get("insc_imob_fisc"), max_len=30))
+    c_obra = limpar_texto(o.get("c_obra"), max_len=30)
+    c_cib = re.sub(r"[\s.-]", "", o.get("c_cib") or "").upper()
+    if c_obra:
+        _sub(el, "cObra", c_obra)
+    elif c_cib:
+        if len(c_cib) != 8:
+            raise DpsBuildError("O CIB tem 8 caracteres (7 + dígito verificador, E0373).")
+        _sub(el, "cCIB", c_cib)
+    else:
+        _endereco_simples(el, o, cfg, "da obra")
+
+
+def montar_evento(serv: etree._Element, cfg: ConfigFiscal, nota: DadosNota) -> None:
+    """Grupo ``atvEvento``: obrigatório no item 12 (E0390), proibido nos demais salvo 99.01.01 (E0392)."""
+    ev = nota.evento
+    if not ev:
+        if codes.exige_evento(cfg.c_trib_nac):
+            raise DpsBuildError(f"O serviço {cfg.c_trib_nac} exige os dados do evento (E0390): nome, datas e local.")
+        return
+    if not codes.aceita_evento(cfg.c_trib_nac):
+        raise DpsBuildError(f"O serviço {cfg.c_trib_nac} não leva dados de evento (E0392): tire o evento da nota.")
+    nome = limpar_texto(ev.get("nome"), max_len=255)
+    ini, fim = ev.get("dt_ini") or "", ev.get("dt_fim") or ""
+    if not nome:
+        raise DpsBuildError("Informe o nome do evento.")
+    if not (re.fullmatch(r"\d{4}-\d{2}-\d{2}", ini) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", fim)):
+        raise DpsBuildError("Informe as datas de início e fim do evento.")
+    if fim < ini:
+        raise DpsBuildError("O fim do evento não pode ser antes do início.")
+    el = _sub(serv, "atvEvento")
+    _sub(el, "xNome", nome)
+    _sub(el, "dtIni", ini)
+    _sub(el, "dtFim", fim)
+    id_evt = limpar_texto(ev.get("id_atv_evt"), max_len=30)
+    if id_evt:
+        _sub(el, "idAtvEvt", id_evt)
+    else:
+        _endereco_simples(el, ev, cfg, "do evento")
 
 
 def _info_compl(serv: etree._Element, nota: DadosNota) -> None:

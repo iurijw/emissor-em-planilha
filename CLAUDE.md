@@ -507,6 +507,15 @@ enviava. Primeira parte (as regras estão em `services/tributacao.py`, `_coerenc
   é no Brasil, E0590) são da tributação. Qualquer um dos três exige `comExt` (E0330): `comex_*` na tributação (moedas
   do PTAX em `data/moedas_bacen.json`) e `vServMoeda`/`nDI`/`nRE` na nota (`exige_comext`). Como o valor na moeda é
   por nota, uma aba com tributação de exportação dá erro ("emita pela nota avulsa"). O DANFSe já lia `NIF`/`endExt`.
+- **Construção civil e eventos** (terceira parte, só na nota avulsa): `DadosNota.obra` (`serv/obra`: `inscImobFisc` e
+  `cObra`, `cCIB` ou o endereço com CEP/`endExt`) obrigatória nos subitens de `codes.SERVICOS_OBRA` (E0370) e proibida
+  nos outros salvo 99.01.01 (E0372); `DadosNota.evento` (`serv/atvEvento`: nome, datas e `idAtvEvt` ou endereço) no
+  item 12 (E0390/E0392). Uma aba com esses serviços dá erro ("emita pela nota avulsa"). **Dedução/redução da base do
+  ISSQN** (`ajuste_bc_p` ou `ajuste_bc_v`, sem documentos): `vDedRed{pDR|vDR}` no v1_01 e `vAjusteBC{pAjusteBCISSQN|
+  vAjusteBCISSQN}` na NT 009, depois de `vDescCondIncond`; o percentual vale sobre o valor menos o desconto
+  incondicionado e sai antes do BM. Recusada localmente para MEI (E0436), regime especial (E0445), operação não
+  tributável e ME/EPP com ISS pelo Simples fora de `codes.SERVICOS_AJUSTE_BC_SN` (E0451/E0452); o resto (parametrização
+  do município, alíquota efetiva mínima de 2%, E0444/E0447) fica com a Sefin.
 
 ### Várias empresas e procuração (2026-11-09, branch `claude/project-thread-dvqygz`)
 
@@ -857,5 +866,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-05 | Recusa da Sefin na homologação leva um `aviso` (cadastro da Produção Restrita incompleto; erros de cadastro como E0120/E0084 podem não acontecer em produção), também nas emissões já gravadas (`Emissao.erro()`); dicas para E0120 e E0084 | Pedido do Iuri: um cliente ficou parado na homologação com E0120/E0084 e outro só emitiu depois de passar a produção |
 | 2026-11-06 | Dicas para E0116, E1235 e para os erros do leiaute conferido no sistema (pelo campo); dica de inscrição municipal antes da de município; notas já recusadas mostram a dica atual; endereço com caractere nulo responde 404 | Pedido do Iuri: explicar melhor os erros vistos nos clientes (E0116 em produção, E0120 com dica de município errada); robôs geravam centenas de erros 500 no log |
 | 2026-11-09 | Várias empresas (CNPJs) na mesma instalação, cada uma com o A1 dela ou por procuração (certificado do procurador); isolamento por filtro automático do ORM; clientes por empresa com opção de compartilhar; desligado na hospedagem até o Iuri pedir (lá: 3 CNPJs no preço, R$ 14,90 por CNPJ a mais) | Pedido do Iuri: escritórios emitem por vários clientes; a procuração eletrônica para a NFS-e por API passou a valer em 01/11/2026 |
-| 2026-11-12 | Tipo de imunidade, exigibilidade suspensa, benefício municipal e grupos de diferimento/tributação regular do IBS/CBS na tributação; descontos, pedido e informações complementares só na nota avulsa; exportação e tomador no exterior só na nota avulsa (o tomador estrangeiro não vai para o cadastro) | Pedido do Iuri: opções do leiaute que a tela não oferecia ou mandava incompletas (imunidade sem o tipo) |
+| 2026-11-12 | Tipo de imunidade, exigibilidade suspensa, benefício municipal e grupos de diferimento/tributação regular do IBS/CBS na tributação; descontos, pedido e informações complementares só na nota avulsa; exportação, tomador no exterior, obra, evento e dedução da base só na nota avulsa (o tomador estrangeiro não vai para o cadastro) | Pedido do Iuri: opções do leiaute que a tela não oferecia ou mandava incompletas (imunidade sem o tipo) |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

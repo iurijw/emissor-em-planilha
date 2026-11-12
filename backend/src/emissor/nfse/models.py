@@ -265,6 +265,14 @@ class DadosNota:
     v_serv_moeda: Decimal | None = None  # comExt/vServMoeda: valor na moeda da tributação
     n_di: str | None = None  # comExt/nDI
     n_re: str | None = None  # comExt/nRE
+    # Dedução/redução da base do ISSQN (vDedRed no v1_01, vAjusteBC na NT 009): percentual ou valor, sem documentos
+    ajuste_bc_p: Decimal | None = None
+    ajuste_bc_v: Decimal | None = None
+    # Obra (serv/obra): insc_imob_fisc e um de c_obra, c_cib ou o endereço (cep ou c_end_post/cidade/estado no
+    # exterior, logradouro, numero, complemento, bairro)
+    obra: dict | None = None
+    # Atividade/evento (serv/atvEvento, item 12): nome, dt_ini, dt_fim e id_atv_evt ou o endereço (como o da obra)
+    evento: dict | None = None
 
     @classmethod
     def de_dict(cls, d: dict | None) -> DadosNota:
@@ -283,6 +291,10 @@ class DadosNota:
             v_serv_moeda=dec(d.get("v_serv_moeda")),
             n_di=d.get("n_di") or None,
             n_re=d.get("n_re") or None,
+            ajuste_bc_p=dec(d.get("ajuste_bc_p")),
+            ajuste_bc_v=dec(d.get("ajuste_bc_v")),
+            obra=d.get("obra") or None,
+            evento=d.get("evento") or None,
         )
 
     def para_dict(self) -> dict:
@@ -296,12 +308,25 @@ class DadosNota:
             "v_serv_moeda": f"{self.v_serv_moeda:.2f}" if self.v_serv_moeda is not None else None,
             "n_di": self.n_di,
             "n_re": self.n_re,
+            "ajuste_bc_p": f"{self.ajuste_bc_p:.2f}" if self.ajuste_bc_p is not None else None,
+            "ajuste_bc_v": f"{self.ajuste_bc_v:.2f}" if self.ajuste_bc_v is not None else None,
+            "obra": self.obra or None,
+            "evento": self.evento or None,
         }
         return {k: v for k, v in d.items() if v is not None}
 
     @property
     def vazia(self) -> bool:
         return not self.para_dict()
+
+    def ajuste_bc(self, valor: Decimal) -> Decimal | None:
+        """Dedução/redução da base em R$: o percentual vale sobre o valor menos o desconto incondicionado."""
+        if self.ajuste_bc_v is not None:
+            return self.ajuste_bc_v
+        if self.ajuste_bc_p is None:
+            return None
+        base = valor - (self.v_desc_incond or 0)
+        return (base * self.ajuste_bc_p / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def tomador(self) -> Tomador | None:
         """Tomador no exterior da nota, ou None."""

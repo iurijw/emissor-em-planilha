@@ -330,6 +330,12 @@ class AvulsaEntrada(BaseModel):
     v_serv_moeda: str | float | None = None  # comércio exterior: valor na moeda estrangeira
     n_di: str | None = None
     n_re: str | None = None
+    # Dedução/redução da base do ISSQN: percentual (texto "10,5") ou valor em R$
+    ajuste_bc_p: str | float | None = None
+    ajuste_bc_v: str | float | None = None
+    # Obra (construção civil) e atividade/evento (item 12): ver DadosNota
+    obra: dict[str, str | None] | None = None
+    evento: dict[str, str | None] | None = None
 
 
 def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
@@ -352,6 +358,7 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
         ("v_desc_incond", "Desconto incondicionado"),
         ("v_desc_cond", "Desconto condicionado"),
         ("v_serv_moeda", "Valor na moeda estrangeira"),
+        ("ajuste_bc_v", "Dedução/redução da base"),
     ):
         bruto = getattr(entrada, campo)
         if bruto in (None, ""):
@@ -360,6 +367,16 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
             descontos[campo] = tabela_service.parse_valor(bruto)
         except ValueError as exc:
             raise HTTPException(400, f"{rotulo} inválido: {bruto!r}.") from exc
+    if entrada.ajuste_bc_p not in (None, ""):
+        try:
+            p = Decimal(str(entrada.ajuste_bc_p).replace("%", "").replace(",", ".").strip())
+        except InvalidOperation as exc:
+            raise HTTPException(400, f"Percentual de dedução/redução inválido: {entrada.ajuste_bc_p!r}.") from exc
+        if not Decimal("0") < p <= Decimal("100"):
+            raise HTTPException(400, "O percentual de dedução/redução deve ser maior que 0 e até 100% (E0453).")
+        if "ajuste_bc_v" in descontos:
+            raise HTTPException(400, "Informe a dedução/redução em percentual ou em reais, não os dois.")
+        descontos["ajuste_bc_p"] = f"{p:.2f}"
     nota = DadosNota.de_dict(
         {
             "x_inf_comp": (entrada.x_inf_comp or "").strip(),
@@ -368,6 +385,8 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
             "tomador_exterior": _tomador_exterior(entrada.tomador_exterior),
             "n_di": (entrada.n_di or "").strip(),
             "n_re": (entrada.n_re or "").strip(),
+            "obra": _limpo(entrada.obra, _CAMPOS_OBRA),
+            "evento": _limpo(entrada.evento, _CAMPOS_EVENTO),
             **{k: v for k, v in descontos.items() if v and Decimal(v) != 0},
         }
     )
@@ -398,6 +417,17 @@ _CAMPOS_EXTERIOR = (
     "email",
     "fone",
 )
+
+
+_CAMPOS_ENDERECO = ("cep", "c_end_post", "cidade", "estado", "logradouro", "numero", "complemento", "bairro")
+_CAMPOS_OBRA = ("insc_imob_fisc", "c_obra", "c_cib", *_CAMPOS_ENDERECO)
+_CAMPOS_EVENTO = ("nome", "dt_ini", "dt_fim", "id_atv_evt", *_CAMPOS_ENDERECO)
+
+
+def _limpo(d: dict[str, str | None] | None, campos: tuple[str, ...]) -> dict[str, str] | None:
+    if not d:
+        return None
+    return {k: v for k in campos if (v := str(d.get(k) or "").strip())} or None
 
 
 def _tomador_exterior(d: dict[str, str | None] | None) -> dict[str, str] | None:

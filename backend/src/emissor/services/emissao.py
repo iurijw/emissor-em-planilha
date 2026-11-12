@@ -26,12 +26,13 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from lxml import etree
 from sqlmodel import Session, select
 
 from emissor import empresas
 from emissor.db import Emissao, LinhaTabela, Lote, agora, obter_cliente, obter_config, para_local, sessao
 from emissor.logging_setup import bind_context
-from emissor.nfse import codes
+from emissor.nfse import codes, dps_builder
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
 from emissor.nfse.constants import Ambiente
@@ -183,8 +184,13 @@ def validar_linhas(
                 v.avisos.append(
                     f"Este cliente tem aba própria (“{dona.nome}”); aqui a nota sai com a tributação desta aba."
                 )
+        if cfg_ef is not None:
+            v.erros.extend(_erros_obra_evento(cfg_ef, nota, na_tabela=ln.aba_id is not None))
+        ajuste = nota.ajuste_bc(valor) if valor is not None else None
+        if cfg_ef is not None and ajuste is not None and (erro := dps_builder.erro_ajuste_bc(cfg_ef)):
+            v.erros.append(erro)
         if cfg_ef is not None and valor is not None:
-            v.erros.extend(calcular_tributos(cfg_ef, valor, nota.v_desc_incond, nota.v_desc_cond)[1])
+            v.erros.extend(calcular_tributos(cfg_ef, valor, nota.v_desc_incond, nota.v_desc_cond, ajuste)[1])
         if nota.x_inf_comp and len(nota.x_inf_comp) > 2000:
             v.erros.append(f"Informações complementares com {len(nota.x_inf_comp)} caracteres (máximo 2000).")
         if len(nota.itens_pedido) > 99:
@@ -225,6 +231,23 @@ def validar_linhas(
             v.erros.append("Esta linha já está em uma emissão em andamento.")
         res.append(v)
     return res
+
+
+def _erros_obra_evento(cfg: ConfigFiscal, nota: DadosNota, *, na_tabela: bool) -> list[str]:
+    """Obra (construção civil, E0370/E0372) e evento (item 12, E0390/E0392): dados de cada nota, só na avulsa."""
+    if na_tabela and (codes.exige_obra(cfg.c_trib_nac) or codes.exige_evento(cfg.c_trib_nac)):
+        grupo = "da obra" if codes.exige_obra(cfg.c_trib_nac) else "do evento"
+        return [
+            f"O serviço {cfg.c_trib_nac} exige os dados {grupo} em cada nota (E0370/E0390): emita pela nota avulsa."
+        ]
+    erros = []
+    serv = etree.Element("serv")
+    for montar in (dps_builder.montar_obra, dps_builder.montar_evento):
+        try:
+            montar(serv, cfg, nota)
+        except DpsBuildError as e:
+            erros.append(str(e))
+    return erros
 
 
 def _erros_tomador_exterior(t) -> list[str]:

@@ -412,3 +412,29 @@ def test_nota_avulsa_de_exportacao(api, sefin, pfx_bytes, nfse_exemplo_bytes):
     linha = api.get(f"/api/tabela?aba_id={aba['id']}").json()["linhas"][0]
     val = api.post("/api/tabela/validar", json={"linha_ids": [linha["id"]]}).json()
     assert any("nota avulsa" in e for e in val["linhas"][0]["erros"])
+
+
+def test_nota_avulsa_de_obra_com_deducao(api, sefin, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    obra = {"cep": "88010400", "logradouro": "Rua das Obras", "numero": "10", "bairro": "Centro"}
+    trib = {"c_trib_nac": "070201", "c_nbs": "101011100"}
+    nota = {**LINHA_PADRAO, "tributacao": trib, "obra": obra, "ajuste_bc_p": "40"}
+    val = api.post("/api/avulsa/validar", json=nota).json()
+    erros = val["linhas"][0]["erros"]
+    # o prestador do exemplo é ME/EPP: com ISS pelo Simples só alguns serviços deduzem (070201 está entre eles)
+    assert erros == [], val
+    sem_obra = api.post("/api/avulsa/validar", json=nota | {"obra": None}).json()
+    assert any("E0370" in e for e in sem_obra["linhas"][0]["erros"])
+    r = api.post("/api/avulsa", json=nota)
+    assert r.status_code == 200, r.text
+    api.worker.processar_lote(r.json()["id"])
+    lote = api.get(f"/api/lotes/{r.json()['id']}").json()
+    assert lote["contagem"] == {"autorizada": 1}, lote
+    assert b"<obra>" in sefin.enviadas[-1]
+    # na tabela, o serviço de obra pede a nota avulsa
+    t = _tributacao(api, "Obras", tp_ret_issqn="1", **trib)
+    aba = api.post("/api/abas", json={"nome": "Obras", "tributacao_id": t["id"]}).json()
+    api.put(f"/api/tabela?aba_id={aba['id']}", json={"linhas": [LINHA_PADRAO]})
+    linha = api.get(f"/api/tabela?aba_id={aba['id']}").json()["linhas"][0]
+    val = api.post("/api/tabela/validar", json={"linha_ids": [linha["id"]]}).json()
+    assert any("nota avulsa" in e for e in val["linhas"][0]["erros"])

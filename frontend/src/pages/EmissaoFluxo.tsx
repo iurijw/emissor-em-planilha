@@ -26,6 +26,10 @@ export interface CorpoAvulsa {
   v_serv_moeda?: string | null;
   n_di?: string | null;
   n_re?: string | null;
+  ajuste_bc_p?: string | null;
+  ajuste_bc_v?: string | null;
+  obra?: Record<string, string> | null;
+  evento?: Record<string, string> | null;
 }
 
 export function EmissaoFluxo(props: {

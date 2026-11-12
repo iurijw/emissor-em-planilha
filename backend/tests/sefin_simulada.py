@@ -312,6 +312,12 @@ class SefinSimulada:
         desc_cond = Decimal(t("valores/vDescCondIncond/vDescCond") or 0)
         # E1295: vBC = vServ - vDescIncond - redução do benefício municipal
         v_bc = v_serv - desc_incond
+        # Dedução/redução (vDedRed no v1_01, vAjusteBC na NT 009): percentual sobre vServ - vDescIncond
+        for pr, vr in (("vDedRed/pDR", "vDedRed/vDR"), ("vAjusteBC/pAjusteBCISSQN", "vAjusteBC/vAjusteBCISSQN")):
+            if t(f"valores/{vr}"):
+                v_bc -= Decimal(t(f"valores/{vr}"))
+            elif t(f"valores/{pr}"):
+                v_bc -= (v_bc * Decimal(t(f"valores/{pr}")) / 100).quantize(DOIS, ROUND_HALF_UP)
         if t("valores/trib/tribMun/BM/vRedBCBM"):
             v_bc -= Decimal(t("valores/trib/tribMun/BM/vRedBCBM"))
         elif t("valores/trib/tribMun/BM/pRedBCBM"):

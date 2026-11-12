@@ -1330,19 +1330,22 @@ export function ValoresDaNota({
   regime,
   descIncond = 0,
   descCond = 0,
+  ajuste = 0,
 }: {
   tributacao: DadosTributacao;
   valor: number;
   regime: Regime | null | undefined;
   descIncond?: number;
   descCond?: number;
+  /** Dedução/redução da base do ISSQN, em R$. */
+  ajuste?: number;
 }) {
   const conferencia = useConferencia(tributacao.c_trib_nac, tributacao.c_loc_prestacao).data;
   const incide = tributacao.trib_issqn === "1";
   const aliquotaPrefeitura = conferencia?.situacao === "encontrado" ? conferencia.aliquota : null;
   const aliquotaIss = !incide ? null : issExigeAliquota(regime, tributacao) ? tributacao.p_aliq_iss : aliquotaPrefeitura;
   return (
-    <PreviaValores valor={tributacao} aliquotaIss={aliquotaIss} incide={incide} valorNota={valor} descIncond={descIncond} descCond={descCond} />
+    <PreviaValores valor={tributacao} aliquotaIss={aliquotaIss} incide={incide} valorNota={valor} descIncond={descIncond} descCond={descCond} ajuste={ajuste} />
   );
 }
 
@@ -1353,6 +1356,7 @@ function PreviaValores({
   valorNota,
   descIncond = 0,
   descCond = 0,
+  ajuste = 0,
 }: {
   valor: DadosTributacao;
   aliquotaIss: string | null;
@@ -1361,13 +1365,17 @@ function PreviaValores({
   valorNota?: number;
   descIncond?: number;
   descCond?: number;
+  ajuste?: number;
 }) {
   const [exemplo, setExemplo] = useState("1.000,00");
   const servico = valorNota ?? (Number(exemplo.replace(/\./g, "").replace(",", ".")) || 0);
   // Desconto incondicionado e benefício municipal reduzem a base (E1295); o condicionado só sai do líquido (E1508).
   const base = Math.max(servico - descIncond, 0);
-  const beneficio = incide && valor.n_bm ? (valor.v_red_bcbm ? Number(valor.v_red_bcbm) : de(base, valor.p_red_bcbm)) : 0;
-  const baseIss = Math.max(base - beneficio, 0);
+  // Dedução/redução da base (só do ISSQN) sai antes do benefício municipal.
+  const deducao = incide ? Math.min(ajuste, base) : 0;
+  const beneficio =
+    incide && valor.n_bm ? (valor.v_red_bcbm ? Number(valor.v_red_bcbm) : de(base - deducao, valor.p_red_bcbm)) : 0;
+  const baseIss = Math.max(base - deducao - beneficio, 0);
   const [pisRet, cofinsRet, csllRet] = (valor.cst_pis_cofins && RETENCOES[valor.tp_ret_pis_cofins ?? ""]) || [false, false, false];
   const issRetido = incide && ["2", "3"].includes(valor.tp_ret_issqn);
   const iss = aliquotaIss ? de(baseIss, aliquotaIss) : null;
@@ -1398,6 +1406,7 @@ function PreviaValores({
       <dl>
         {linha("Serviço prestado", reais(servico))}
         {descIncond > 0 && linha("Desconto incondicionado", reais(descIncond))}
+        {deducao > 0 && linha("Dedução/redução da base", reais(deducao))}
         {beneficio > 0 && linha("Redução do benefício municipal", reais(beneficio))}
         {linha("Base de cálculo", incide ? reais(baseIss) : "—")}
         {linha("Alíquota aplicada", !incide ? "—" : aliquotaIss ? `${pctTela(aliquotaIss)}%` : "a da prefeitura")}

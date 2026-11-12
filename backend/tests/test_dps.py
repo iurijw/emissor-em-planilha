@@ -389,3 +389,57 @@ def test_exportacao_com_tomador_no_exterior(dps_input, certificado, ambiente):
         build_dps(replace(inp, nota=DadosNota(tomador_exterior=externo)))
     with pytest.raises(DpsBuildError, match="E0590"):
         build_dps(replace(inp, config=replace(cfg, c_pais_result=None)))
+
+
+OBRA = {"cep": "88010400", "logradouro": "Rua das Obras", "numero": "10", "bairro": "Centro"}
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_obra_e_deducao_da_base(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    cfg = replace(dps_input.config, c_trib_nac="070201", c_nbs="101011100", op_simp_nac="1", reg_ap_trib_sn=None)
+    nota = DadosNota(obra=OBRA | {"insc_imob_fisc": "123"}, ajuste_bc_p=Decimal("40"))
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=cfg, nota=nota), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}serv/{N}obra/{N}end/{N}CEP") == "88010400"
+    assert inf.findtext(f"{N}serv/{N}obra/{N}inscImobFisc") == "123"
+    tag = "vAjusteBC/{N}pAjusteBCISSQN" if ambiente is Ambiente.HOMOLOGACAO else "vDedRed/{N}pDR"
+    assert inf.findtext(f"{N}valores/{N}" + tag.format(N=N)) == "40.00"
+    # código da obra no lugar do endereço; valor em R$
+    root = build_dps(
+        replace(dps_input, config=cfg, nota=DadosNota(obra={"c_obra": "CNO-1"}, ajuste_bc_v=Decimal("100")))
+    )
+    assert root.findtext(f"{N}infDPS/{N}serv/{N}obra/{N}cObra") == "CNO-1"
+    assert (root.findtext(f".//{N}vDR") or root.findtext(f".//{N}vAjusteBCISSQN")) == "100.00"
+    with pytest.raises(DpsBuildError, match="E0370"):
+        build_dps(replace(dps_input, config=cfg))
+    with pytest.raises(DpsBuildError, match="E0372"):
+        build_dps(replace(dps_input, nota=DadosNota(obra=OBRA)))
+    with pytest.raises(DpsBuildError, match="E0436"):
+        build_dps(replace(dps_input, config=replace(cfg, op_simp_nac="2"), nota=nota))
+    # ME/EPP com ISS pelo Simples: só nos serviços da lista
+    simples = replace(dps_input.config, op_simp_nac="3", reg_ap_trib_sn="1")
+    with pytest.raises(DpsBuildError, match="E0451"):
+        build_dps(replace(dps_input, config=simples, nota=DadosNota(ajuste_bc_p=Decimal("10"))))
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_atividade_de_evento(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    cfg = replace(dps_input.config, c_trib_nac="120101", c_nbs="125022000")
+    evento = {"nome": "Feira de Teste", "dt_ini": "2026-11-20", "dt_fim": "2026-11-22"}
+    nota = DadosNota(evento=evento | OBRA)
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=cfg, nota=nota), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    assert root.findtext(f".//{N}atvEvento/{N}xNome") == "Feira de Teste"
+    root = build_dps(replace(dps_input, config=cfg, nota=DadosNota(evento=evento | {"id_atv_evt": "EV-9"})))
+    assert root.findtext(f".//{N}atvEvento/{N}idAtvEvt") == "EV-9"
+    with pytest.raises(DpsBuildError, match="E0390"):
+        build_dps(replace(dps_input, config=cfg))
+    with pytest.raises(DpsBuildError, match="fim do evento"):
+        build_dps(replace(dps_input, config=cfg, nota=DadosNota(evento=evento | OBRA | {"dt_fim": "2026-11-01"})))
