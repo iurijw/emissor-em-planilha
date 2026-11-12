@@ -30,11 +30,13 @@ export function CampoCep({
   onChange,
   aoEncontrar,
   disabled,
+  obrigatorio,
 }: {
   valor: string | null;
   onChange: (cep: string | null) => void;
   aoEncontrar: (e: EnderecoCep) => void;
   disabled?: boolean;
+  obrigatorio?: boolean;
 }) {
   const id = useId();
   const [estado, setEstado] = useState<Estado>({ tipo: "parado" });
@@ -87,7 +89,7 @@ export function CampoCep({
   };
 
   return (
-    <div className={`campo largo campo-cep ${estado.tipo === "erro" ? "campo-cep--erro" : ""}`}>
+    <div className={`campo largo campo-cep${estado.tipo === "erro" ? " campo-cep--erro" : ""}${obrigatorio ? " campo-cep--obrigatorio" : ""}`}>
       <label htmlFor={id}>CEP</label>
       <div className="campo-cep__linha">
         <input

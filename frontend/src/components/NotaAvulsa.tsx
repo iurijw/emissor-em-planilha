@@ -7,8 +7,25 @@ import { EmissaoFluxo, type CorpoAvulsa } from "../pages/EmissaoFluxo";
 import { ErroCaixa, Gaveta, Spinner } from "../ui";
 import { useTributacoes } from "./Abas";
 import { buscarClientes, normalizarBusca } from "./EditorNomeCliente";
-import { CamposTributacao, ValoresDaNota } from "./FiscalForm";
-import { EnderecoTomador, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
+import { CamposTributacao, LegendaObrigatorio, Pergunta, ValoresDaNota } from "./FiscalForm";
+import { corpoPessoa, OutraPessoa, pessoaPronta, pessoaVazia, type DadosPessoa } from "./OutraPessoa";
+import { exteriorVazio, faltaNoExterior, TomadorExterior, type DadosExterior } from "./TomadorExterior";
+import { ajusteEmReais, corpoDadosNota, DadosDaNota, dadosNotaVazios, type DadosNota } from "./DadosDaNota";
+import {
+  corpoEvento,
+  corpoObra,
+  eventoPronto,
+  eventoVazio,
+  EventoNota,
+  exigeEvento,
+  exigeObra,
+  obraPronta,
+  obraVazia,
+  ObraNota,
+  type DadosEvento,
+  type DadosObra,
+} from "./ObraEvento";
+import { EnderecoTomador, enderecoCompleto, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
 
 type Escolha = "padrao" | "propria" | number;
 
@@ -39,6 +56,16 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const setDocumento = (d: string) => setDocTexto(formatarDocumento(d));
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
+  const [dadosNota, setDadosNota] = useState<DadosNota>(dadosNotaVazios);
+  const [noExterior, setNoExterior] = useState(false);
+  const [exterior, setExterior] = useState<DadosExterior>(exteriorVazio);
+  const [comex, setComex] = useState({ v_serv_moeda: "", n_di: "", n_re: "" });
+  const [obra, setObra] = useState<DadosObra>(obraVazia);
+  const [evento, setEvento] = useState<DadosEvento>(eventoVazio);
+  const [interm, setInterm] = useState<DadosPessoa>(pessoaVazia);
+  const [outroDest, setOutroDest] = useState(false);
+  const [dest, setDest] = useState<DadosPessoa>(pessoaVazia);
+  const [refs, setRefs] = useState("");
   const [escolha, setEscolha] = useState<Escolha>("padrao");
   const [propria, setPropria] = useState<DadosTributacao | null>(null);
   const [focoNome, setFocoNome] = useState(false);
@@ -118,7 +145,45 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
 
   const consultaAtual = consulta?.documento === documento ? consulta : null;
   const enderecoAlterado = !enderecosIguais(endereco, enderecoDe(cadastro)) && !(enderecoVazio(endereco) && !cadastro);
-  const pronto = consultaAtual?.estado !== "buscando" && !!documento && !docInvalido && valorNum !== null && Number(valorNum) > 0 && descricao.trim() !== "";
+  // Exportação, serviço no exterior ou tomador no exterior: a nota leva o valor na moeda estrangeira (comExt).
+  const comExterior = noExterior || tributacaoDaNota?.trib_issqn === "3" || (tributacaoDaNota?.c_pais_prestacao ?? null) != null;
+  const moedaNum = parseValor(comex.v_serv_moeda);
+  // Construção civil e item 12: a nota leva os dados da obra ou do evento (E0370/E0390).
+  const precisaObra = exigeObra(tributacaoDaNota?.c_trib_nac);
+  const precisaEvento = exigeEvento(tributacaoDaNota?.c_trib_nac);
+  const prestadoFora = (tributacaoDaNota?.c_pais_prestacao ?? null) != null;
+  // ISS retido pelo intermediário, destinatário do IBS/CBS e NFS-e referenciada (tpOper 2/3) vêm de cada nota.
+  const precisaInterm = tributacaoDaNota?.tp_ret_issqn === "3";
+  const comIbsCbs = !!tributacaoDaNota?.ibscbs;
+  const precisaRefs = comIbsCbs && ["2", "3"].includes(tributacaoDaNota?.ibscbs_tp_oper ?? "");
+  const chavesRef = refs.split(/[\s,;]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
+  // ISS retido pelo tomador: a Sefin exige o endereço dele (E0237).
+  const exigeEnderecoTomador = tributacaoDaNota?.tp_ret_issqn === "2";
+  // O que falta para a nota sair (os campos com * na tela); o servidor confere tudo de novo.
+  const faltando = [
+    ...(noExterior
+      ? faltaNoExterior(exterior).length
+        ? [`tomador (${faltaNoExterior(exterior).join(", ")})`]
+        : []
+      : !documento
+        ? ["CNPJ/CPF do tomador"]
+        : docInvalido
+          ? ["CNPJ/CPF válido do tomador"]
+          : exigeEnderecoTomador && !enderecoCompleto(endereco)
+            ? ["endereço do tomador"]
+            : []),
+    ...(valorNum === null || Number(valorNum) <= 0 ? ["valor"] : []),
+    ...(comExterior && (moedaNum === null || Number(moedaNum) <= 0) ? ["valor na moeda estrangeira"] : []),
+    ...(!descricao.trim() ? ["descrição do serviço"] : []),
+    ...(precisaObra && !obraPronta(obra, prestadoFora) ? ["dados da obra"] : []),
+    ...(precisaEvento && !eventoPronto(evento, prestadoFora) ? ["dados do evento"] : []),
+    ...(precisaInterm && !pessoaPronta(interm, true) ? ["dados do intermediário"] : []),
+    ...(comIbsCbs && outroDest && !pessoaPronta(dest, false) ? ["dados do destinatário"] : []),
+    ...(precisaRefs && !(chavesRef.length > 0 && chavesRef.every((c) => /^[0-9A-Z]{50}$/.test(c)))
+      ? ["chave da NFS-e referenciada"]
+      : []),
+  ];
+  const pronto = faltando.length === 0 && (noExterior || consultaAtual?.estado !== "buscando");
 
   function escolherTributacao(e: Escolha) {
     setEscolha(e);
@@ -128,7 +193,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   async function abrirConferencia() {
     // Endereço mexido aqui: grava no cadastro antes, porque a nota usa o endereço do cadastro. Tomador novo com nome
     // (o CPF, que a Receita não traz) também entra no cadastro, para aparecer nas próximas notas.
-    if (enderecoAlterado || (!cadastro && nome.trim())) {
+    if (!noExterior && (enderecoAlterado || (!cadastro && nome.trim()))) {
       setErroEndereco(null);
       setSalvando(true);
       try {
@@ -153,12 +218,22 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
       }
     }
     setConferir({
-      nome: nome.trim(),
-      documento,
+      nome: noExterior ? exterior.nome.trim() : nome.trim(),
+      documento: noExterior ? "" : documento,
       valor: valorNum ?? valor,
       descricao,
       tributacao_id: typeof escolha === "number" ? escolha : null,
       tributacao: escolha === "propria" ? propria : null,
+      ...corpoDadosNota(dadosNota),
+      tomador_exterior: noExterior ? { ...exterior } : null,
+      obra: precisaObra ? corpoObra(obra) : null,
+      evento: precisaEvento ? corpoEvento(evento) : null,
+      intermediario: precisaInterm ? corpoPessoa(interm, true) : null,
+      destinatario: comIbsCbs && outroDest ? corpoPessoa(dest, false) : null,
+      ref_nfse: precisaRefs ? chavesRef : [],
+      ...(comExterior
+        ? { v_serv_moeda: moedaNum ?? comex.v_serv_moeda, n_di: comex.n_di.trim() || null, n_re: comex.n_re.trim() || null }
+        : {}),
     });
   }
 
@@ -175,6 +250,11 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
         fechar={fechar}
         rodape={
           <>
+            {faltando.length > 0 && (
+              <span className="falta-preencher" aria-live="polite">
+                <b>Falta:</b> {faltando.join(", ")}.
+              </span>
+            )}
             <button className="btn" onClick={fechar}>
               Cancelar
             </button>
@@ -193,109 +273,156 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
           <p style={{ margin: 0, color: "var(--grafite)" }}>
             Emite uma nota sem mexer na tabela. Ela usa a mesma numeração e aparece na aba Emissões.
           </p>
+          <LegendaObrigatorio />
           <section>
             <h3 className="secao-titulo">Tomador</h3>
             <div className="grade-form">
-              <div className="largo tomador-ou">
-                <label className={`campo ${mostrarInvalido ? "campo--erro" : ""}`} style={{ position: "relative" }}>
-                  <span>CNPJ / CPF</span>
-                  <input
-                    className={docEhNome || !docTexto ? undefined : "num"}
-                    autoFocus
-                    value={docEhNome ? docTexto : formatarDocumento(documento)}
-                    onChange={(e) => setDocTexto(e.target.value)}
-                    onFocus={() => setFocoDoc(true)}
-                    onBlur={() =>
-                      window.setTimeout(() => {
-                        setFocoDoc(false);
-                        // Nome digitado aqui sem escolher da lista: passa para o campo do nome.
-                        setDocTexto((t) => {
-                          if (!pareceNome(t)) return t;
-                          setNome((n) => (n.trim() ? n : t.trim()));
-                          return "";
-                        });
-                      }, 150)
-                    }
-                    placeholder="Número ou nome do cliente"
-                  />
-                  {sugestoesDoc.length > 0 && (
-                    <Sugestoes
-                      clientes={sugestoesDoc}
-                      escolher={(c) => {
-                        setNome(c.nome);
-                        setDocumento(c.documento);
-                        setFocoDoc(false);
-                      }}
-                    />
+              <Pergunta
+                texto="O tomador está no exterior?"
+                sim={noExterior}
+                onChange={setNoExterior}
+                ajuda={
+                  noExterior
+                    ? "Sem CNPJ/CPF: a nota leva o NIF e o endereço no país do tomador. Ele não entra no cadastro de clientes."
+                    : undefined
+                }
+              />
+              {noExterior ? (
+                <TomadorExterior valor={exterior} onChange={setExterior} />
+              ) : (
+                <>
+                  <div className="largo tomador-ou">
+                    <label className={`campo campo--obrigatorio${mostrarInvalido ? " campo--erro" : ""}`} style={{ position: "relative" }}>
+                      <span>CNPJ / CPF</span>
+                      <input
+                        className={docEhNome || !docTexto ? undefined : "num"}
+                        autoFocus
+                        value={docEhNome ? docTexto : formatarDocumento(documento)}
+                        onChange={(e) => setDocTexto(e.target.value)}
+                        onFocus={() => setFocoDoc(true)}
+                        onBlur={() =>
+                          window.setTimeout(() => {
+                            setFocoDoc(false);
+                            // Nome digitado aqui sem escolher da lista: passa para o campo do nome.
+                            setDocTexto((t) => {
+                              if (!pareceNome(t)) return t;
+                              setNome((n) => (n.trim() ? n : t.trim()));
+                              return "";
+                            });
+                          }, 150)
+                        }
+                        placeholder="Número ou nome do cliente"
+                      />
+                      {sugestoesDoc.length > 0 && (
+                        <Sugestoes
+                          clientes={sugestoesDoc}
+                          escolher={(c) => {
+                            setNome(c.nome);
+                            setDocumento(c.documento);
+                            setFocoDoc(false);
+                          }}
+                        />
+                      )}
+                      {mostrarInvalido ? (
+                        <small className="campo__erro">CNPJ/CPF inválido.</small>
+                      ) : (
+                        <small>
+                          {cadastro
+                            ? "Cliente cadastrado."
+                            : consultaAtual?.estado === "buscando"
+                              ? "Buscando a empresa na Receita…"
+                              : consultaAtual?.estado === "falhou"
+                                ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."}`
+                                : documento.length === 11
+                                  ? "CPF sem cadastro: com o nome, entra nos clientes ao conferir a nota."
+                                  : " "}
+                        </small>
+                      )}
+                    </label>
+                    <span className="tomador-ou__ou" aria-hidden="true">
+                      e
+                    </span>
+                    <label className="campo" style={{ position: "relative" }}>
+                      <span>Nome da empresa/pessoa</span>
+                      <input
+                        value={nome}
+                        onChange={(e) => setNome(e.target.value)}
+                        onFocus={() => setFocoNome(true)}
+                        onBlur={() => window.setTimeout(() => setFocoNome(false), 150)}
+                        placeholder="Digite para buscar no cadastro"
+                      />
+                      {sugestoes.length > 0 && (
+                        <Sugestoes
+                          clientes={sugestoes}
+                          escolher={(c) => {
+                            setNome(c.nome);
+                            setDocumento(c.documento);
+                            setFocoNome(false);
+                          }}
+                        />
+                      )}
+                      {faltaDocumento ? (
+                        <small className="campo__erro">
+                          {porNome.length > 1
+                            ? "Há mais de um cliente com esse nome. Escolha na lista ou informe o CNPJ/CPF."
+                            : "Nenhum cliente cadastrado com esse nome. Informe o CNPJ/CPF para emitir."}
+                        </small>
+                      ) : (
+                        <small>Em branco, vem do cadastro ou da Receita.</small>
+                      )}
+                    </label>
+                  </div>
+                  {documento && !docInvalido && (
+                    <div className="largo">
+                      <EnderecoTomador
+                        key={documento}
+                        valor={endereco}
+                        onChange={setEndereco}
+                        cpf={documento.length === 11}
+                        buscando={consultaAtual?.estado === "buscando"}
+                        municipio={endereco.c_mun && endereco.c_mun === cadastro?.c_mun ? cadastro.municipio : null}
+                        obrigatorio={exigeEnderecoTomador}
+                      />
+                      {erroEndereco != null && <ErroCaixa erro={erroEndereco} titulo="Não foi possível salvar o endereço" />}
+                    </div>
                   )}
-                  {mostrarInvalido ? (
-                    <small className="campo__erro">CNPJ/CPF inválido.</small>
-                  ) : (
-                    <small>
-                      {cadastro
-                        ? "Cliente cadastrado."
-                        : consultaAtual?.estado === "buscando"
-                          ? "Buscando a empresa na Receita…"
-                          : consultaAtual?.estado === "falhou"
-                            ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."}`
-                            : documento.length === 11
-                              ? "CPF sem cadastro: com o nome, entra nos clientes ao conferir a nota."
-                              : " "}
-                    </small>
-                  )}
-                </label>
-                <span className="tomador-ou__ou" aria-hidden="true">
-                  e
-                </span>
-                <label className="campo" style={{ position: "relative" }}>
-                  <span>Nome da empresa/pessoa</span>
-                  <input
-                    value={nome}
-                    onChange={(e) => setNome(e.target.value)}
-                    onFocus={() => setFocoNome(true)}
-                    onBlur={() => window.setTimeout(() => setFocoNome(false), 150)}
-                    placeholder="Digite para buscar no cadastro"
-                  />
-                  {sugestoes.length > 0 && (
-                    <Sugestoes
-                      clientes={sugestoes}
-                      escolher={(c) => {
-                        setNome(c.nome);
-                        setDocumento(c.documento);
-                        setFocoNome(false);
-                      }}
-                    />
-                  )}
-                  {faltaDocumento ? (
-                    <small className="campo__erro">
-                      {porNome.length > 1
-                        ? "Há mais de um cliente com esse nome. Escolha na lista ou informe o CNPJ/CPF."
-                        : "Nenhum cliente cadastrado com esse nome. Informe o CNPJ/CPF para emitir."}
-                    </small>
-                  ) : (
-                    <small>Em branco, vem do cadastro ou da Receita.</small>
-                  )}
-                </label>
-              </div>
-              {documento && !docInvalido && (
-                <div className="largo">
-                  <EnderecoTomador
-                    key={documento}
-                    valor={endereco}
-                    onChange={setEndereco}
-                    cpf={documento.length === 11}
-                    buscando={consultaAtual?.estado === "buscando"}
-                    municipio={endereco.c_mun && endereco.c_mun === cadastro?.c_mun ? cadastro.municipio : null}
-                  />
-                  {erroEndereco != null && <ErroCaixa erro={erroEndereco} titulo="Não foi possível salvar o endereço" />}
-                </div>
+                </>
               )}
-              <label className="campo">
+              <label className="campo campo--obrigatorio">
                 <span>Valor</span>
                 <input className="num" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" inputMode="decimal" />
                 <small>{valorNum ? moeda(valorNum) : " "}</small>
               </label>
-              <label className="campo largo">
+              {comExterior && (
+                <>
+                  <label className="campo campo--obrigatorio">
+                    <span>Valor na moeda estrangeira</span>
+                    <input
+                      className="num"
+                      value={comex.v_serv_moeda}
+                      onChange={(e) => setComex({ ...comex, v_serv_moeda: e.target.value })}
+                      placeholder="0,00"
+                      inputMode="decimal"
+                    />
+                    <small>Na moeda escolhida na tributação. O valor ao lado continua em reais.</small>
+                  </label>
+                  {tributacaoDaNota?.comex_mov_temp_bens === "2" && (
+                    <label className="campo">
+                      <span>Número da DI</span>
+                      <input className="num" maxLength={12} value={comex.n_di} onChange={(e) => setComex({ ...comex, n_di: e.target.value })} />
+                      <small>Declaração de importação ligada à movimentação temporária de bens.</small>
+                    </label>
+                  )}
+                  {tributacaoDaNota?.comex_mov_temp_bens === "3" && (
+                    <label className="campo">
+                      <span>Número do RE</span>
+                      <input className="num" maxLength={12} value={comex.n_re} onChange={(e) => setComex({ ...comex, n_re: e.target.value })} />
+                      <small>Registro de exportação ligado à movimentação temporária de bens.</small>
+                    </label>
+                  )}
+                </>
+              )}
+              <label className="campo largo campo--obrigatorio">
                 <span>Descrição do serviço</span>
                 <textarea rows={4} value={descricao} maxLength={2000} onChange={(e) => setDescricao(e.target.value)} />
                 <PreviaDescricao texto={descricao} />
@@ -304,6 +431,9 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                   <BotaoVariaveis className="btn-texto" />
                 </small>
               </label>
+              <div className="largo">
+                <DadosDaNota valor={dadosNota} onChange={setDadosNota} />
+              </div>
             </div>
           </section>
 
@@ -331,12 +461,64 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             )}
             {escolha === "propria" && propria && (
               <div style={{ display: "flex", flexDirection: "column", gap: 22, marginTop: 18 }}>
-                <CamposTributacao valor={propria} onChange={setPropria} regime={trib.data?.regime} semPrevia />
+                <CamposTributacao valor={propria} onChange={setPropria} regime={trib.data?.regime} semPrevia semLegenda />
               </div>
             )}
           </section>
 
-          {tributacaoDaNota && <ValoresDaNota tributacao={tributacaoDaNota} valor={Number(valorNum) || 0} regime={trib.data?.regime} />}
+          {precisaObra && <ObraNota valor={obra} onChange={setObra} exterior={prestadoFora} />}
+          {precisaEvento && <EventoNota valor={evento} onChange={setEvento} exterior={prestadoFora} />}
+          {precisaInterm && (
+            <OutraPessoa
+              titulo="Intermediário"
+              ajuda="A tributação diz que o ISSQN é retido pelo intermediário: informe quem intermediou o serviço."
+              valor={interm}
+              onChange={setInterm}
+              comIm
+              exigeEnderecoCnpj
+            />
+          )}
+          {comIbsCbs && (
+            <section>
+              <div className="grade-form">
+                <Pergunta
+                  texto="O destinatário do serviço (IBS/CBS) é outra pessoa, diferente do tomador?"
+                  sim={outroDest}
+                  onChange={setOutroDest}
+                  ajuda={outroDest ? "Quem recebe o serviço, quando não é quem paga (o tomador)." : undefined}
+                />
+              </div>
+            </section>
+          )}
+          {comIbsCbs && outroDest && (
+            <OutraPessoa titulo="Destinatário" ajuda="Vai no grupo do IBS/CBS da nota." valor={dest} onChange={setDest} comIm={false} />
+          )}
+          {precisaRefs && (
+            <section>
+              <h3 className="secao-titulo">NFS-e referenciada</h3>
+              <div className="grade-form">
+                <label className="campo largo campo--obrigatorio">
+                  <span>Chave da NFS-e anterior</span>
+                  <input className="num" value={refs} onChange={(e) => setRefs(e.target.value)} placeholder="50 caracteres" />
+                  <small>
+                    O tipo de operação da tributação diz que o pagamento ou o fornecimento já foi feito: informe a nota daquela parte.
+                    Mais de uma, separadas por vírgula.
+                  </small>
+                </label>
+              </div>
+            </section>
+          )}
+
+          {tributacaoDaNota && (
+            <ValoresDaNota
+              tributacao={tributacaoDaNota}
+              valor={Number(valorNum) || 0}
+              regime={trib.data?.regime}
+              descIncond={Number(parseValor(dadosNota.v_desc_incond)) || 0}
+              descCond={Number(parseValor(dadosNota.v_desc_cond)) || 0}
+              ajuste={ajusteEmReais(dadosNota, Number(valorNum) || 0)}
+            />
+          )}
         </div>
       </Gaveta>
       {conferir && (

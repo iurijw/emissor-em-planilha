@@ -57,14 +57,45 @@ class Tributos:
         return sum((p for p in partes if p), Decimal("0"))
 
 
-def calcular(cfg: ConfigFiscal, valor: Decimal) -> tuple[Tributos, list[str]]:
-    """Tributos da nota de ``valor`` e os problemas que fariam a Sefin rejeitá-la."""
+def calcular(
+    cfg: ConfigFiscal,
+    valor: Decimal,
+    desc_incond: Decimal | None = None,
+    desc_cond: Decimal | None = None,
+    ajuste: Decimal | None = None,
+) -> tuple[Tributos, list[str]]:
+    """Tributos da nota de ``valor`` e os problemas que fariam a Sefin rejeitá-la.
+
+    Com desconto incondicionado os percentuais valem sobre o valor menos o desconto (a base do ISSQN também cai,
+    E1295); o condicionado só sai do líquido (E1508).
+    """
     t = Tributos()
     erros: list[str] = []
+    bruto = valor
+    for nome, d in (("incondicionado", desc_incond), ("condicionado", desc_cond)):
+        if d is not None and not Decimal("0") < d < bruto:
+            erros.append(f"O desconto {nome} deve ser maior que zero e menor que o valor do serviço (E0431/E0432).")
+    if desc_incond and desc_incond < bruto:
+        valor = bruto - desc_incond
+    # Dedução/redução da base (só do ISSQN): sai antes do benefício municipal (vBC = vServ - vDescIncond - ajuste - BM).
+    base_iss = valor
+    if ajuste is not None:
+        if not Decimal("0") < ajuste < valor:
+            erros.append(
+                f"A dedução/redução da base (R$ {ajuste:.2f}) deve ser maior que zero e menor que o valor do serviço "
+                f"menos o desconto incondicionado (R$ {valor:.2f})."
+            )
+        else:
+            base_iss = valor - ajuste
+    red = pct(cfg.v_red_bcbm) if cfg.n_bm and cfg.trib_issqn == "1" else None
+    if red is not None and red >= base_iss:
+        erros.append(
+            f"A redução do benefício municipal (R$ {red:.2f}) não pode passar da base de cálculo (R$ {base_iss:.2f})."
+        )
     if iss_exige_aliquota(cfg):
         # Sem a alíquota, quem chama decide (a emissão pergunta antes; ``dps_builder`` recusa).
         t.p_aliq_iss = pct(cfg.p_aliq_iss)
-        t.v_iss_retido = _de(valor, t.p_aliq_iss)
+        t.v_iss_retido = _de(base_iss, t.p_aliq_iss)
     if cfg.cst_pis_cofins:
         t.p_aliq_pis, t.p_aliq_cofins = pct(cfg.p_aliq_pis), pct(cfg.p_aliq_cofins)
         if t.p_aliq_pis is not None or t.p_aliq_cofins is not None:
@@ -80,9 +111,10 @@ def calcular(cfg: ConfigFiscal, valor: Decimal) -> tuple[Tributos, list[str]]:
     for campo in ("v_ret_irrf", "v_ret_csll", "v_ret_cp"):
         if getattr(t, campo) is not None and getattr(t, campo) <= 0:
             setattr(t, campo, None)
-    if t.total_retido > valor:
+    liquido = bruto - (desc_incond or 0) - (desc_cond or 0)
+    if t.total_retido > liquido:
         erros.append(
-            f"As retenções (R$ {t.total_retido:.2f}) passam do valor do serviço (R$ {valor:.2f}). "
-            "Confira os percentuais da tributação."
+            f"As retenções (R$ {t.total_retido:.2f}) passam do valor líquido do serviço (R$ {liquido:.2f}). "
+            "Confira os percentuais da tributação e os descontos."
         )
     return t, erros

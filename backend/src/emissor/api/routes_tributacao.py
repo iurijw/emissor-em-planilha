@@ -15,7 +15,7 @@ from emissor import auth
 from emissor.api.deps import AdminEmpresa, UsuarioAtual
 from emissor.api.routes_emissoes import obter_lote
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, Tributacao, agora, obter_config, sessao
-from emissor.nfse.models import aplicar_tributacao, normalizar_documento, tributacao_de
+from emissor.nfse.models import DadosNota, aplicar_tributacao, normalizar_documento, tributacao_de
 from emissor.services import parametros
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
@@ -318,6 +318,28 @@ class AvulsaEntrada(BaseModel):
     descricao: str = ""
     tributacao_id: int | None = None  # tributação predefinida
     tributacao: dict[str, Any] | None = None  # tributação só desta nota (completa, partindo dos padrões)
+    # Só desta nota: informações complementares e descontos (valores em R$, como o valor)
+    x_inf_comp: str | None = None
+    x_ped: str | None = None
+    itens_pedido: list[str] | None = None
+    v_desc_incond: str | float | None = None
+    v_desc_cond: str | float | None = None
+    # Tomador no exterior (no lugar de documento/nome): nif ou c_nao_nif, nome, c_pais, c_end_post, cidade, estado,
+    # logradouro, numero, complemento, bairro, email, fone
+    tomador_exterior: dict[str, str | None] | None = None
+    v_serv_moeda: str | float | None = None  # comércio exterior: valor na moeda estrangeira
+    n_di: str | None = None
+    n_re: str | None = None
+    # Dedução/redução da base do ISSQN: percentual (texto "10,5") ou valor em R$
+    ajuste_bc_p: str | float | None = None
+    ajuste_bc_v: str | float | None = None
+    # Obra (construção civil) e atividade/evento (item 12): ver DadosNota
+    obra: dict[str, str | None] | None = None
+    evento: dict[str, str | None] | None = None
+    # Intermediário e destinatário (IBS/CBS) diferente do tomador; chaves de NFS-e referenciadas (tpOper 2/3)
+    intermediario: dict[str, str | None] | None = None
+    destinatario: dict[str, str | None] | None = None
+    ref_nfse: list[str] | None = None
 
 
 def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
@@ -335,6 +357,46 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
         nome_trib, dados_trib = t.nome, t.dados()
     elif entrada.tributacao is not None:
         dados_trib = trib_service.validar_completa(entrada.tributacao, trib_service.config_base(s))
+    descontos = {}
+    for campo, rotulo in (
+        ("v_desc_incond", "Desconto incondicionado"),
+        ("v_desc_cond", "Desconto condicionado"),
+        ("v_serv_moeda", "Valor na moeda estrangeira"),
+        ("ajuste_bc_v", "Dedução/redução da base"),
+    ):
+        bruto = getattr(entrada, campo)
+        if bruto in (None, ""):
+            continue
+        try:
+            descontos[campo] = tabela_service.parse_valor(bruto)
+        except ValueError as exc:
+            raise HTTPException(400, f"{rotulo} inválido: {bruto!r}.") from exc
+    if entrada.ajuste_bc_p not in (None, ""):
+        try:
+            p = Decimal(str(entrada.ajuste_bc_p).replace("%", "").replace(",", ".").strip())
+        except InvalidOperation as exc:
+            raise HTTPException(400, f"Percentual de dedução/redução inválido: {entrada.ajuste_bc_p!r}.") from exc
+        if not Decimal("0") < p <= Decimal("100"):
+            raise HTTPException(400, "O percentual de dedução/redução deve ser maior que 0 e até 100% (E0453).")
+        if "ajuste_bc_v" in descontos:
+            raise HTTPException(400, "Informe a dedução/redução em percentual ou em reais, não os dois.")
+        descontos["ajuste_bc_p"] = f"{p:.2f}"
+    nota = DadosNota.de_dict(
+        {
+            "x_inf_comp": (entrada.x_inf_comp or "").strip(),
+            "x_ped": (entrada.x_ped or "").strip(),
+            "itens_pedido": [i.strip() for i in entrada.itens_pedido or [] if i and i.strip()],
+            "tomador_exterior": _tomador_exterior(entrada.tomador_exterior),
+            "n_di": (entrada.n_di or "").strip(),
+            "n_re": (entrada.n_re or "").strip(),
+            "obra": _limpo(entrada.obra, _CAMPOS_OBRA),
+            "evento": _limpo(entrada.evento, _CAMPOS_EVENTO),
+            "intermediario": _limpo(entrada.intermediario, _CAMPOS_PESSOA),
+            "destinatario": _limpo(entrada.destinatario, _CAMPOS_PESSOA),
+            "ref_nfse": [c.strip().upper() for c in entrada.ref_nfse or [] if c and c.strip()],
+            **{k: v for k, v in descontos.items() if v and Decimal(v) != 0},
+        }
+    )
     return NotaAvulsa(
         nome=entrada.nome.strip(),
         documento=entrada.documento,
@@ -343,7 +405,59 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
         tributacao_nome=nome_trib,
         tributacao=dados_trib,
         tributacao_id=entrada.tributacao_id,
+        nota=nota,
     )
+
+
+_CAMPOS_EXTERIOR = (
+    "nif",
+    "c_nao_nif",
+    "nome",
+    "c_pais",
+    "c_end_post",
+    "cidade",
+    "estado",
+    "logradouro",
+    "numero",
+    "complemento",
+    "bairro",
+    "email",
+    "fone",
+)
+
+
+_CAMPOS_ENDERECO = ("cep", "c_end_post", "cidade", "estado", "logradouro", "numero", "complemento", "bairro")
+_CAMPOS_OBRA = ("insc_imob_fisc", "c_obra", "c_cib", *_CAMPOS_ENDERECO)
+_CAMPOS_PESSOA = (
+    "documento",
+    "nome",
+    "im",
+    "c_mun",
+    "cep",
+    "logradouro",
+    "numero",
+    "complemento",
+    "bairro",
+    "email",
+    "fone",
+)
+_CAMPOS_EVENTO = ("nome", "dt_ini", "dt_fim", "id_atv_evt", *_CAMPOS_ENDERECO)
+
+
+def _limpo(d: dict[str, str | None] | None, campos: tuple[str, ...]) -> dict[str, str] | None:
+    if not d:
+        return None
+    return {k: v for k in campos if (v := str(d.get(k) or "").strip())} or None
+
+
+def _tomador_exterior(d: dict[str, str | None] | None) -> dict[str, str] | None:
+    if not d:
+        return None
+    limpo = {k: str(d.get(k) or "").strip() for k in _CAMPOS_EXTERIOR}
+    limpo["c_pais"] = limpo["c_pais"].upper()
+    if limpo["nif"]:
+        limpo["c_nao_nif"] = ""
+    return {k: v for k, v in limpo.items() if v} or None
 
 
 def _total(valor: str) -> str:

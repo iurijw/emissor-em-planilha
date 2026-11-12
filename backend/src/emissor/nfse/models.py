@@ -27,6 +27,18 @@ class Endereco:
 
 
 @dataclass
+class EnderecoExterior:
+    c_pais: str  # ISO2, diferente de BR (E0246)
+    c_end_post: str  # código postal (até 11)
+    cidade: str
+    estado: str  # estado, província ou região
+    logradouro: str
+    numero: str
+    bairro: str
+    complemento: str | None = None
+
+
+@dataclass
 class ConfigFiscal:
     # Prestador
     cnpj: str
@@ -40,11 +52,21 @@ class ConfigFiscal:
     reg_esp_trib: str = "0"
     # Serviço
     c_loc_prestacao: str | None = None  # padrão = c_mun_emissor
+    c_pais_prestacao: str | None = None  # serviço prestado no exterior (ISO2): vai no lugar do município
     c_trib_nac: str = "171901"
     c_trib_mun: str | None = None
     c_nbs: str | None = "113022100"
     # Tributação
     trib_issqn: str = "1"
+    c_pais_result: str | None = None  # exportação (tribISSQN 3): país onde se deu o resultado (E0590)
+    tp_imunidade: str | None = None  # obrigatório com tribISSQN 2 (E0592); 0 não é aceito (E0593)
+    # Exigibilidade do ISSQN suspensa (exigSusp): 1 decisão judicial, 2 processo administrativo; nº com 30 dígitos
+    tp_susp: str | None = None
+    n_processo: str | None = None
+    # Benefício municipal (BM): nº de 14 dígitos parametrizado pela prefeitura, com a redução da base em % ou R$
+    n_bm: str | None = None
+    p_red_bcbm: str | None = None
+    v_red_bcbm: str | None = None
     tp_ret_issqn: str = "1"
     cst_pis_cofins: str | None = "00"  # None → não envia grupo tribFed
     tp_ret_pis_cofins: str | None = None
@@ -68,6 +90,21 @@ class ConfigFiscal:
     ibscbs_ind_final: str | None = None  # opcional; será descontinuado pela NT 005
     # tpOper: obrigatório nos subitens de codes.SUBITENS_EXIGEM_TP_OPER (E0903) e proibido nos demais (E0904)
     ibscbs_tp_oper: str | None = None
+    ibscbs_tp_ente_gov: str | None = None  # compra governamental (1 União, 2 Estado, 3 DF, 4 Município)
+    # Grupos que a classificação exige: tributação regular (gTribRegular, E0965) e diferimento (gDif, E0972)
+    ibscbs_c_class_trib_reg: str | None = None  # o CSTReg vai como os 3 primeiros dígitos
+    ibscbs_p_dif_uf: str | None = None
+    ibscbs_p_dif_mun: str | None = None
+    ibscbs_p_dif_cbs: str | None = None
+    # Comércio exterior (serv/comExt): obrigatório com exportação, tomador ou local no exterior (E0330). O valor na
+    # moeda estrangeira e os nº de DI/RE são de cada nota (DadosNota).
+    comex_md_prestacao: str | None = None
+    comex_vinc_prest: str | None = None
+    comex_tp_moeda: str | None = None  # código do Banco Central (3 dígitos)
+    comex_mec_af_p: str | None = None
+    comex_mec_af_t: str | None = None
+    comex_mov_temp_bens: str | None = None
+    comex_mdic: str | None = None
     # Emissão
     tp_emit: str = "1"
 
@@ -83,6 +120,10 @@ CAMPOS_PERCENTUAIS = (
     "p_tot_trib_fed",
     "p_tot_trib_est",
     "p_tot_trib_mun",
+    "p_red_bcbm",
+    "ibscbs_p_dif_uf",
+    "ibscbs_p_dif_mun",
+    "ibscbs_p_dif_cbs",
 )
 
 # tpRetPisCofins → (PIS retido, COFINS retido, CSLL retida); None = o código não diz (CSLL opcional).
@@ -101,6 +142,11 @@ RETENCOES_PIS_COFINS: dict[str, tuple[bool, bool, bool | None]] = {
 }
 
 
+def exige_comext(cfg: ConfigFiscal, tomador_no_exterior: bool) -> bool:
+    """Grupo de comércio exterior obrigatório (E0330): exportação, prestação ou tomador no exterior."""
+    return cfg.trib_issqn == "3" or bool(cfg.c_pais_prestacao) or tomador_no_exterior
+
+
 def iss_exige_aliquota(cfg: ConfigFiscal) -> bool:
     """A Sefin exige ``pAliq`` (E0621/E0628): ME/EPP com ISS pelo Simples e ISS retido.
 
@@ -114,10 +160,25 @@ def iss_exige_aliquota(cfg: ConfigFiscal) -> bool:
 # tpEmit) valem sempre os das configurações.
 CAMPOS_TRIBUTACAO = (
     "c_loc_prestacao",
+    "c_pais_prestacao",
+    "c_pais_result",
+    "comex_md_prestacao",
+    "comex_vinc_prest",
+    "comex_tp_moeda",
+    "comex_mec_af_p",
+    "comex_mec_af_t",
+    "comex_mov_temp_bens",
+    "comex_mdic",
     "c_trib_nac",
     "c_trib_mun",
     "c_nbs",
     "trib_issqn",
+    "tp_imunidade",
+    "tp_susp",
+    "n_processo",
+    "n_bm",
+    "p_red_bcbm",
+    "v_red_bcbm",
     "tp_ret_issqn",
     "cst_pis_cofins",
     "tp_ret_pis_cofins",
@@ -137,6 +198,11 @@ CAMPOS_TRIBUTACAO = (
     "ibscbs_c_class_trib",
     "ibscbs_ind_final",
     "ibscbs_tp_oper",
+    "ibscbs_tp_ente_gov",
+    "ibscbs_c_class_trib_reg",
+    "ibscbs_p_dif_uf",
+    "ibscbs_p_dif_mun",
+    "ibscbs_p_dif_cbs",
 )
 
 
@@ -160,12 +226,14 @@ def aplicar_tributacao(cfg: ConfigFiscal, tributacao: dict | None) -> ConfigFisc
 
 @dataclass
 class Tomador:
-    documento: str  # CNPJ (14) ou CPF (11), só dígitos/letras
+    documento: str  # CNPJ (14) ou CPF (11), só dígitos/letras; no exterior, o NIF (ou vazio com c_nao_nif)
     nome: str
     endereco: Endereco | None = None
     fone: str | None = None
     email: str | None = None
     inscricao_municipal: str | None = None
+    exterior: EnderecoExterior | None = None  # tomador no exterior: identificado pelo NIF ou pelo motivo de não ter
+    c_nao_nif: str | None = None  # 1 dispensado, 2 não exigência (sem NIF)
 
     @property
     def tipo_documento(self) -> str:
@@ -182,7 +250,151 @@ class DpsInput:
     tomador: Tomador | None
     valor: Decimal
     descricao: str
-    extras: dict = field(default_factory=dict)
+    nota: DadosNota = field(default_factory=lambda: DadosNota())
+
+
+@dataclass
+class DadosNota:
+    """O que vale só para uma nota (nota avulsa): informações complementares e descontos."""
+
+    x_inf_comp: str | None = None  # infoCompl/xInfComp, até 2000 caracteres
+    x_ped: str | None = None  # infoCompl/xPed: número do pedido/ordem de compra
+    itens_pedido: list[str] = field(default_factory=list)  # infoCompl/gItemPed/xItemPed (até 99)
+    v_desc_incond: Decimal | None = None  # desconto incondicionado: reduz a base do ISSQN (vBC)
+    v_desc_cond: Decimal | None = None  # desconto condicionado: só sai do valor líquido
+    # Tomador no exterior (só na nota avulsa): nif ou c_nao_nif, nome, email, fone e os campos de EnderecoExterior
+    tomador_exterior: dict | None = None
+    v_serv_moeda: Decimal | None = None  # comExt/vServMoeda: valor na moeda da tributação
+    n_di: str | None = None  # comExt/nDI
+    n_re: str | None = None  # comExt/nRE
+    # Dedução/redução da base do ISSQN (vDedRed no v1_01, vAjusteBC na NT 009): percentual ou valor, sem documentos
+    ajuste_bc_p: Decimal | None = None
+    ajuste_bc_v: Decimal | None = None
+    # Obra (serv/obra): insc_imob_fisc e um de c_obra, c_cib ou o endereço (cep ou c_end_post/cidade/estado no
+    # exterior, logradouro, numero, complemento, bairro)
+    obra: dict | None = None
+    # Atividade/evento (serv/atvEvento, item 12): nome, dt_ini, dt_fim e id_atv_evt ou o endereço (como o da obra)
+    evento: dict | None = None
+    # Intermediário (infDPS/interm) e destinatário do IBS/CBS diferente do tomador (IBSCBS/dest): documento, nome, im
+    # (só o intermediário), c_mun, cep, logradouro, numero, complemento, bairro, email, fone
+    intermediario: dict | None = None
+    destinatario: dict | None = None
+    ref_nfse: list[str] = field(default_factory=list)  # IBSCBS/gRefNFSe: chaves das NFS-e referenciadas (tpOper 2/3)
+
+    @classmethod
+    def de_dict(cls, d: dict | None) -> DadosNota:
+        d = d or {}
+
+        def dec(v):
+            return Decimal(str(v)) if v not in (None, "") else None
+
+        return cls(
+            x_inf_comp=d.get("x_inf_comp") or None,
+            x_ped=d.get("x_ped") or None,
+            itens_pedido=[str(i) for i in d.get("itens_pedido") or [] if str(i).strip()],
+            v_desc_incond=dec(d.get("v_desc_incond")),
+            v_desc_cond=dec(d.get("v_desc_cond")),
+            tomador_exterior=d.get("tomador_exterior") or None,
+            v_serv_moeda=dec(d.get("v_serv_moeda")),
+            n_di=d.get("n_di") or None,
+            n_re=d.get("n_re") or None,
+            ajuste_bc_p=dec(d.get("ajuste_bc_p")),
+            ajuste_bc_v=dec(d.get("ajuste_bc_v")),
+            obra=d.get("obra") or None,
+            evento=d.get("evento") or None,
+            intermediario=d.get("intermediario") or None,
+            destinatario=d.get("destinatario") or None,
+            ref_nfse=[str(c) for c in d.get("ref_nfse") or [] if str(c).strip()],
+        )
+
+    def para_dict(self) -> dict:
+        d = {
+            "x_inf_comp": self.x_inf_comp,
+            "x_ped": self.x_ped,
+            "itens_pedido": self.itens_pedido or None,
+            "v_desc_incond": f"{self.v_desc_incond:.2f}" if self.v_desc_incond is not None else None,
+            "v_desc_cond": f"{self.v_desc_cond:.2f}" if self.v_desc_cond is not None else None,
+            "tomador_exterior": self.tomador_exterior or None,
+            "v_serv_moeda": f"{self.v_serv_moeda:.2f}" if self.v_serv_moeda is not None else None,
+            "n_di": self.n_di,
+            "n_re": self.n_re,
+            "ajuste_bc_p": f"{self.ajuste_bc_p:.2f}" if self.ajuste_bc_p is not None else None,
+            "ajuste_bc_v": f"{self.ajuste_bc_v:.2f}" if self.ajuste_bc_v is not None else None,
+            "obra": self.obra or None,
+            "evento": self.evento or None,
+            "intermediario": self.intermediario or None,
+            "destinatario": self.destinatario or None,
+            "ref_nfse": self.ref_nfse or None,
+        }
+        return {k: v for k, v in d.items() if v is not None}
+
+    @property
+    def vazia(self) -> bool:
+        return not self.para_dict()
+
+    def ajuste_bc(self, valor: Decimal) -> Decimal | None:
+        """Dedução/redução da base em R$: o percentual vale sobre o valor menos o desconto incondicionado."""
+        if self.ajuste_bc_v is not None:
+            return self.ajuste_bc_v
+        if self.ajuste_bc_p is None:
+            return None
+        base = valor - (self.v_desc_incond or 0)
+        return (base * self.ajuste_bc_p / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def _pessoa(d: dict | None, com_im: bool) -> Tomador | None:
+        if not d:
+            return None
+        partes = [d.get(k) for k in ("c_mun", "cep", "logradouro", "bairro")]
+        endereco = (
+            Endereco(
+                c_mun=d.get("c_mun") or "",
+                cep=d.get("cep") or "",
+                logradouro=d.get("logradouro") or "",
+                numero=d.get("numero") or "",
+                bairro=d.get("bairro") or "",
+                complemento=d.get("complemento") or None,
+            )
+            if all(partes)
+            else None
+        )
+        return Tomador(
+            documento=normalizar_documento(d.get("documento")) or "",
+            nome=d.get("nome") or "",
+            endereco=endereco,
+            email=d.get("email") or None,
+            fone=d.get("fone") or None,
+            inscricao_municipal=(d.get("im") or None) if com_im else None,
+        )
+
+    def intermediario_pessoa(self) -> Tomador | None:
+        return self._pessoa(self.intermediario, com_im=True)
+
+    def destinatario_pessoa(self) -> Tomador | None:
+        return self._pessoa(self.destinatario, com_im=False)
+
+    def tomador(self) -> Tomador | None:
+        """Tomador no exterior da nota, ou None."""
+        t = self.tomador_exterior
+        if not t:
+            return None
+        return Tomador(
+            documento=(t.get("nif") or "").strip(),
+            nome=t.get("nome") or "",
+            email=t.get("email") or None,
+            fone=t.get("fone") or None,
+            c_nao_nif=None if (t.get("nif") or "").strip() else t.get("c_nao_nif") or None,
+            exterior=EnderecoExterior(
+                c_pais=(t.get("c_pais") or "").upper(),
+                c_end_post=t.get("c_end_post") or "",
+                cidade=t.get("cidade") or "",
+                estado=t.get("estado") or "",
+                logradouro=t.get("logradouro") or "",
+                numero=t.get("numero") or "",
+                bairro=t.get("bairro") or "",
+                complemento=t.get("complemento") or None,
+            ),
+        )
 
 
 # --- normalização de dados ------------------------------------------------------

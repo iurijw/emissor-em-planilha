@@ -1,0 +1,785 @@
+{
+"fonte": "Banco Central do Brasil, tabela de moedas do PTAX (consulta de 12/11/2026)",
+"moedas": [
+{
+"codigo": "005",
+"sigla": "AFN",
+"nome": "AFN"
+},
+{
+"codigo": "009",
+"sigla": "ETB",
+"nome": "ETB"
+},
+{
+"codigo": "015",
+"sigla": "THB",
+"nome": "THB"
+},
+{
+"codigo": "020",
+"sigla": "PAB",
+"nome": "PAB"
+},
+{
+"codigo": "027",
+"sigla": "VES",
+"nome": "Bolívar venezuelano"
+},
+{
+"codigo": "030",
+"sigla": "BOB",
+"nome": "Boliviano"
+},
+{
+"codigo": "035",
+"sigla": "GHS",
+"nome": "GHS"
+},
+{
+"codigo": "040",
+"sigla": "CRC",
+"nome": "CRC"
+},
+{
+"codigo": "045",
+"sigla": "SVC",
+"nome": "SVC"
+},
+{
+"codigo": "051",
+"sigla": "NIO",
+"nome": "NIO"
+},
+{
+"codigo": "055",
+"sigla": "DKK",
+"nome": "Coroa dinamarquesa"
+},
+{
+"codigo": "060",
+"sigla": "ISK",
+"nome": "ISK"
+},
+{
+"codigo": "065",
+"sigla": "NOK",
+"nome": "Coroa norueguesa"
+},
+{
+"codigo": "070",
+"sigla": "SEK",
+"nome": "Coroa sueca"
+},
+{
+"codigo": "075",
+"sigla": "CZK",
+"nome": "Coroa tcheca"
+},
+{
+"codigo": "090",
+"sigla": "GMD",
+"nome": "GMD"
+},
+{
+"codigo": "095",
+"sigla": "DZD",
+"nome": "DZD"
+},
+{
+"codigo": "100",
+"sigla": "KWD",
+"nome": "KWD"
+},
+{
+"codigo": "105",
+"sigla": "BHD",
+"nome": "BHD"
+},
+{
+"codigo": "115",
+"sigla": "IQD",
+"nome": "IQD"
+},
+{
+"codigo": "125",
+"sigla": "JOD",
+"nome": "JOD"
+},
+{
+"codigo": "130",
+"sigla": "LYD",
+"nome": "LYD"
+},
+{
+"codigo": "132",
+"sigla": "MKD",
+"nome": "MKD"
+},
+{
+"codigo": "133",
+"sigla": "RSD",
+"nome": "RSD"
+},
+{
+"codigo": "134",
+"sigla": "SDG",
+"nome": "SDG"
+},
+{
+"codigo": "135",
+"sigla": "TND",
+"nome": "TND"
+},
+{
+"codigo": "136",
+"sigla": "SSP",
+"nome": "SSP"
+},
+{
+"codigo": "138",
+"sigla": "XDR",
+"nome": "XDR"
+},
+{
+"codigo": "139",
+"sigla": "MAD",
+"nome": "MAD"
+},
+{
+"codigo": "145",
+"sigla": "AED",
+"nome": "Dirham dos Emirados"
+},
+{
+"codigo": "149",
+"sigla": "STN",
+"nome": "STN"
+},
+{
+"codigo": "150",
+"sigla": "AUD",
+"nome": "Dólar australiano"
+},
+{
+"codigo": "155",
+"sigla": "BSD",
+"nome": "BSD"
+},
+{
+"codigo": "160",
+"sigla": "BMD",
+"nome": "BMD"
+},
+{
+"codigo": "165",
+"sigla": "CAD",
+"nome": "Dólar canadense"
+},
+{
+"codigo": "170",
+"sigla": "GYD",
+"nome": "GYD"
+},
+{
+"codigo": "173",
+"sigla": "NAD",
+"nome": "NAD"
+},
+{
+"codigo": "175",
+"sigla": "BBD",
+"nome": "BBD"
+},
+{
+"codigo": "180",
+"sigla": "BZD",
+"nome": "BZD"
+},
+{
+"codigo": "185",
+"sigla": "BND",
+"nome": "BND"
+},
+{
+"codigo": "190",
+"sigla": "KYD",
+"nome": "KYD"
+},
+{
+"codigo": "195",
+"sigla": "SGD",
+"nome": "Dólar de Singapura"
+},
+{
+"codigo": "197",
+"sigla": "CLF",
+"nome": "CLF"
+},
+{
+"codigo": "200",
+"sigla": "FJD",
+"nome": "FJD"
+},
+{
+"codigo": "205",
+"sigla": "HKD",
+"nome": "Dólar de Hong Kong"
+},
+{
+"codigo": "210",
+"sigla": "TTD",
+"nome": "TTD"
+},
+{
+"codigo": "215",
+"sigla": "XCD",
+"nome": "XCD"
+},
+{
+"codigo": "220",
+"sigla": "USD",
+"nome": "Dólar dos Estados Unidos"
+},
+{
+"codigo": "230",
+"sigla": "JMD",
+"nome": "JMD"
+},
+{
+"codigo": "235",
+"sigla": "LRD",
+"nome": "LRD"
+},
+{
+"codigo": "245",
+"sigla": "NZD",
+"nome": "Dólar neozelandês"
+},
+{
+"codigo": "250",
+"sigla": "SBD",
+"nome": "SBD"
+},
+{
+"codigo": "255",
+"sigla": "SRD",
+"nome": "SRD"
+},
+{
+"codigo": "260",
+"sigla": "VND",
+"nome": "VND"
+},
+{
+"codigo": "275",
+"sigla": "AMD",
+"nome": "AMD"
+},
+{
+"codigo": "295",
+"sigla": "CVE",
+"nome": "Escudo cabo-verdiano"
+},
+{
+"codigo": "326",
+"sigla": "XCG",
+"nome": "XCG"
+},
+{
+"codigo": "328",
+"sigla": "AWG",
+"nome": "AWG"
+},
+{
+"codigo": "345",
+"sigla": "HUF",
+"nome": "Florim húngaro"
+},
+{
+"codigo": "363",
+"sigla": "CDF",
+"nome": "CDF"
+},
+{
+"codigo": "365",
+"sigla": "BIF",
+"nome": "BIF"
+},
+{
+"codigo": "368",
+"sigla": "KMF",
+"nome": "KMF"
+},
+{
+"codigo": "370",
+"sigla": "XAF",
+"nome": "XAF"
+},
+{
+"codigo": "372",
+"sigla": "XOF",
+"nome": "XOF"
+},
+{
+"codigo": "380",
+"sigla": "XPF",
+"nome": "XPF"
+},
+{
+"codigo": "390",
+"sigla": "DJF",
+"nome": "DJF"
+},
+{
+"codigo": "398",
+"sigla": "GNF",
+"nome": "GNF"
+},
+{
+"codigo": "406",
+"sigla": "MGA",
+"nome": "MGA"
+},
+{
+"codigo": "420",
+"sigla": "RWF",
+"nome": "RWF"
+},
+{
+"codigo": "425",
+"sigla": "CHF",
+"nome": "Franco suíço"
+},
+{
+"codigo": "440",
+"sigla": "HTG",
+"nome": "HTG"
+},
+{
+"codigo": "450",
+"sigla": "PYG",
+"nome": "Guarani paraguaio"
+},
+{
+"codigo": "460",
+"sigla": "UAH",
+"nome": "UAH"
+},
+{
+"codigo": "470",
+"sigla": "JPY",
+"nome": "Iene"
+},
+{
+"codigo": "482",
+"sigla": "GEL",
+"nome": "GEL"
+},
+{
+"codigo": "490",
+"sigla": "ALL",
+"nome": "ALL"
+},
+{
+"codigo": "495",
+"sigla": "HNL",
+"nome": "HNL"
+},
+{
+"codigo": "500",
+"sigla": "SLL",
+"nome": "SLL"
+},
+{
+"codigo": "503",
+"sigla": "MDL",
+"nome": "MDL"
+},
+{
+"codigo": "506",
+"sigla": "RON",
+"nome": "RON"
+},
+{
+"codigo": "530",
+"sigla": "GIP",
+"nome": "GIP"
+},
+{
+"codigo": "535",
+"sigla": "EGP",
+"nome": "EGP"
+},
+{
+"codigo": "540",
+"sigla": "GBP",
+"nome": "Libra Esterlina"
+},
+{
+"codigo": "545",
+"sigla": "FKP",
+"nome": "FKP"
+},
+{
+"codigo": "560",
+"sigla": "LBP",
+"nome": "LBP"
+},
+{
+"codigo": "570",
+"sigla": "SHP",
+"nome": "SHP"
+},
+{
+"codigo": "575",
+"sigla": "SYP",
+"nome": "SYP"
+},
+{
+"codigo": "585",
+"sigla": "SZL",
+"nome": "SZL"
+},
+{
+"codigo": "603",
+"sigla": "LSL",
+"nome": "LSL"
+},
+{
+"codigo": "607",
+"sigla": "AZN",
+"nome": "AZN"
+},
+{
+"codigo": "608",
+"sigla": "TMT",
+"nome": "TMT"
+},
+{
+"codigo": "622",
+"sigla": "MZN",
+"nome": "Metical moçambicano"
+},
+{
+"codigo": "625",
+"sigla": "ERN",
+"nome": "ERN"
+},
+{
+"codigo": "630",
+"sigla": "NGN",
+"nome": "NGN"
+},
+{
+"codigo": "635",
+"sigla": "AOA",
+"nome": "Kwanza angolano"
+},
+{
+"codigo": "640",
+"sigla": "TWD",
+"nome": "TWD"
+},
+{
+"codigo": "642",
+"sigla": "TRY",
+"nome": "Lira turca"
+},
+{
+"codigo": "660",
+"sigla": "PEN",
+"nome": "Sol peruano"
+},
+{
+"codigo": "665",
+"sigla": "BTN",
+"nome": "BTN"
+},
+{
+"codigo": "670",
+"sigla": "MRO",
+"nome": "MRO"
+},
+{
+"codigo": "671",
+"sigla": "MRU",
+"nome": "MRU"
+},
+{
+"codigo": "680",
+"sigla": "TOP",
+"nome": "TOP"
+},
+{
+"codigo": "685",
+"sigla": "MOP",
+"nome": "MOP"
+},
+{
+"codigo": "706",
+"sigla": "ARS",
+"nome": "Peso argentino"
+},
+{
+"codigo": "715",
+"sigla": "CLP",
+"nome": "Peso chileno"
+},
+{
+"codigo": "720",
+"sigla": "COP",
+"nome": "Peso colombiano"
+},
+{
+"codigo": "721",
+"sigla": "COU",
+"nome": "COU"
+},
+{
+"codigo": "725",
+"sigla": "CUP",
+"nome": "CUP"
+},
+{
+"codigo": "730",
+"sigla": "DOP",
+"nome": "DOP"
+},
+{
+"codigo": "735",
+"sigla": "PHP",
+"nome": "PHP"
+},
+{
+"codigo": "741",
+"sigla": "MXN",
+"nome": "Peso mexicano"
+},
+{
+"codigo": "745",
+"sigla": "UYU",
+"nome": "Peso uruguaio"
+},
+{
+"codigo": "755",
+"sigla": "BWP",
+"nome": "BWP"
+},
+{
+"codigo": "760",
+"sigla": "MWK",
+"nome": "MWK"
+},
+{
+"codigo": "766",
+"sigla": "ZMW",
+"nome": "ZMW"
+},
+{
+"codigo": "770",
+"sigla": "GTQ",
+"nome": "GTQ"
+},
+{
+"codigo": "775",
+"sigla": "MMK",
+"nome": "MMK"
+},
+{
+"codigo": "778",
+"sigla": "PGK",
+"nome": "PGK"
+},
+{
+"codigo": "780",
+"sigla": "LAK",
+"nome": "LAK"
+},
+{
+"codigo": "785",
+"sigla": "ZAR",
+"nome": "Rand sul-africano"
+},
+{
+"codigo": "795",
+"sigla": "CNY",
+"nome": "Iuan chinês"
+},
+{
+"codigo": "796",
+"sigla": "CNH",
+"nome": "CNH"
+},
+{
+"codigo": "800",
+"sigla": "QAR",
+"nome": "QAR"
+},
+{
+"codigo": "805",
+"sigla": "OMR",
+"nome": "OMR"
+},
+{
+"codigo": "810",
+"sigla": "YER",
+"nome": "YER"
+},
+{
+"codigo": "815",
+"sigla": "IRR",
+"nome": "IRR"
+},
+{
+"codigo": "820",
+"sigla": "SAR",
+"nome": "SAR"
+},
+{
+"codigo": "825",
+"sigla": "KHR",
+"nome": "KHR"
+},
+{
+"codigo": "828",
+"sigla": "MYR",
+"nome": "MYR"
+},
+{
+"codigo": "830",
+"sigla": "RUB",
+"nome": "Rublo russo"
+},
+{
+"codigo": "831",
+"sigla": "BYN",
+"nome": "BYN"
+},
+{
+"codigo": "835",
+"sigla": "TJS",
+"nome": "TJS"
+},
+{
+"codigo": "840",
+"sigla": "MUR",
+"nome": "MUR"
+},
+{
+"codigo": "845",
+"sigla": "NPR",
+"nome": "NPR"
+},
+{
+"codigo": "850",
+"sigla": "SCR",
+"nome": "SCR"
+},
+{
+"codigo": "855",
+"sigla": "LKR",
+"nome": "LKR"
+},
+{
+"codigo": "860",
+"sigla": "INR",
+"nome": "Rupia indiana"
+},
+{
+"codigo": "865",
+"sigla": "IDR",
+"nome": "IDR"
+},
+{
+"codigo": "870",
+"sigla": "MVR",
+"nome": "MVR"
+},
+{
+"codigo": "875",
+"sigla": "PKR",
+"nome": "PKR"
+},
+{
+"codigo": "880",
+"sigla": "ILS",
+"nome": "Novo shekel israelense"
+},
+{
+"codigo": "892",
+"sigla": "KGS",
+"nome": "KGS"
+},
+{
+"codigo": "893",
+"sigla": "UZS",
+"nome": "UZS"
+},
+{
+"codigo": "905",
+"sigla": "BDT",
+"nome": "BDT"
+},
+{
+"codigo": "912",
+"sigla": "WST",
+"nome": "WST"
+},
+{
+"codigo": "913",
+"sigla": "KZT",
+"nome": "KZT"
+},
+{
+"codigo": "915",
+"sigla": "MNT",
+"nome": "MNT"
+},
+{
+"codigo": "920",
+"sigla": "VUV",
+"nome": "VUV"
+},
+{
+"codigo": "930",
+"sigla": "KRW",
+"nome": "Won sul-coreano"
+},
+{
+"codigo": "946",
+"sigla": "TZS",
+"nome": "TZS"
+},
+{
+"codigo": "950",
+"sigla": "KES",
+"nome": "KES"
+},
+{
+"codigo": "955",
+"sigla": "UGX",
+"nome": "UGX"
+},
+{
+"codigo": "960",
+"sigla": "SOS",
+"nome": "SOS"
+},
+{
+"codigo": "975",
+"sigla": "PLN",
+"nome": "Zloty polonês"
+},
+{
+"codigo": "978",
+"sigla": "EUR",
+"nome": "Euro"
+},
+{
+"codigo": "998",
+"sigla": "XAU",
+"nome": "XAU"
+}
+]
+}

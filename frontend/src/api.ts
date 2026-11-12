@@ -249,16 +249,54 @@ export interface Fiscal {
   ibscbs_ind_final: string | null;
   /** Tipo de operação (tpOper): só nos serviços 10.05, 15.09, 17.12 e 25.05. */
   ibscbs_tp_oper: string | null;
+  /** Compra governamental (tpEnteGov): 1 União, 2 Estado, 3 Distrito Federal, 4 Município. */
+  ibscbs_tp_ente_gov: string | null;
+  ibscbs_c_class_trib_reg: string | null;
+  ibscbs_p_dif_uf: string | null;
+  ibscbs_p_dif_mun: string | null;
+  ibscbs_p_dif_cbs: string | null;
+  tp_imunidade: string | null;
+  tp_susp: string | null;
+  n_processo: string | null;
+  n_bm: string | null;
+  p_red_bcbm: string | null;
+  v_red_bcbm: string | null;
+  /** País da prestação (ISO 2 letras) quando o serviço é prestado no exterior; com ele, c_loc_prestacao fica vazio. */
+  c_pais_prestacao: string | null;
+  /** País onde o resultado da exportação acontece (cPaisResult). */
+  c_pais_result: string | null;
+  comex_md_prestacao: string | null;
+  comex_vinc_prest: string | null;
+  comex_tp_moeda: string | null;
+  comex_mec_af_p: string | null;
+  comex_mec_af_t: string | null;
+  comex_mov_temp_bens: string | null;
+  comex_mdic: string | null;
   tp_emit: string;
 }
 
 /** Campos que mudam de uma tributação para outra (o resto vem das configurações). */
 export const CAMPOS_TRIBUTACAO = [
   "c_loc_prestacao",
+  "c_pais_prestacao",
+  "c_pais_result",
+  "comex_md_prestacao",
+  "comex_vinc_prest",
+  "comex_tp_moeda",
+  "comex_mec_af_p",
+  "comex_mec_af_t",
+  "comex_mov_temp_bens",
+  "comex_mdic",
   "c_trib_nac",
   "c_trib_mun",
   "c_nbs",
   "trib_issqn",
+  "tp_imunidade",
+  "tp_susp",
+  "n_processo",
+  "n_bm",
+  "p_red_bcbm",
+  "v_red_bcbm",
   "tp_ret_issqn",
   "cst_pis_cofins",
   "tp_ret_pis_cofins",
@@ -278,6 +316,11 @@ export const CAMPOS_TRIBUTACAO = [
   "ibscbs_c_class_trib",
   "ibscbs_ind_final",
   "ibscbs_tp_oper",
+  "ibscbs_tp_ente_gov",
+  "ibscbs_c_class_trib_reg",
+  "ibscbs_p_dif_uf",
+  "ibscbs_p_dif_mun",
+  "ibscbs_p_dif_cbs",
 ] as const;
 export type DadosTributacao = Pick<Fiscal, (typeof CAMPOS_TRIBUTACAO)[number]>;
 

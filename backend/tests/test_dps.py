@@ -1,4 +1,5 @@
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 from lxml import etree
@@ -188,7 +189,7 @@ def test_ibscbs_exige_nbs_e_recusa_servico_com_tp_oper(dps_input):
         build_dps(_com_ibscbs(dps_input, c_nbs=None))
     with pytest.raises(DpsBuildError, match="tpOper"):
         build_dps(_com_ibscbs(dps_input, c_trib_nac="250501"))
-    with pytest.raises(DpsBuildError, match="tpOper"):
+    with pytest.raises(DpsBuildError, match="E0905"):
         build_dps(_com_ibscbs(dps_input, c_trib_nac="171201", ibscbs_tp_oper="2"))  # 2 exigiria gRefNFSe
     with pytest.raises(DpsBuildError, match="cClassTrib|Classificação"):
         build_dps(_com_ibscbs(dps_input, ibscbs_c_class_trib="12"))
@@ -259,3 +260,231 @@ def test_ibscbs_com_tp_oper_valida_no_xsd(dps_input, certificado, ambiente):
 def test_tp_oper_nao_vai_em_servico_que_nao_exige(dps_input):
     dps = build_dps(_com_ibscbs(dps_input, ibscbs_tp_oper="5"))  # E0904
     assert dps.find(f"{N}infDPS/{N}IBSCBS/{N}tpOper") is None
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_imunidade_suspensao_e_beneficio_validam_no_xsd(dps_input, certificado, ambiente):
+    imune = replace(dps_input.config, trib_issqn="2", tp_imunidade="3", cst_pis_cofins=None)
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=imune), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    mun = root.find(f"{N}infDPS/{N}valores/{N}trib/{N}tribMun")
+    assert [etree.QName(c).localname for c in mun] == ["tribISSQN", "tpImunidade", "tpRetISSQN"]
+    with pytest.raises(DpsBuildError, match="E0592"):
+        build_dps(replace(dps_input, config=replace(imune, tp_imunidade=None)))
+
+    cfg = replace(dps_input.config, tp_susp="1", n_processo="1" * 30, n_bm="12345678901234", p_red_bcbm="10.00")
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=cfg), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    mun = root.find(f"{N}infDPS/{N}valores/{N}trib/{N}tribMun")
+    assert [etree.QName(c).localname for c in mun] == ["tribISSQN", "exigSusp", "BM", "tpRetISSQN"]
+    assert mun.findtext(f"{N}BM/{N}pRedBCBM") == "10.00"
+    cfg = replace(cfg, p_red_bcbm=None, v_red_bcbm="50.00")
+    root = build_dps(replace(dps_input, ambiente=ambiente, config=cfg))
+    assert root.findtext(f"{N}infDPS/{N}valores/{N}trib/{N}tribMun/{N}BM/{N}vRedBCBM") == "50.00"
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_descontos_e_informacoes_complementares(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    nota = DadosNota(
+        x_inf_comp="Contrato 12/2026\nParcela 3 de 12",
+        x_ped="PED-778",
+        itens_pedido=["1", "2"],
+        v_desc_incond=Decimal("50.00"),
+        v_desc_cond=Decimal("10.00"),
+    )
+    cfg = replace(dps_input.config, p_aliq_pis="1.00")
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=cfg, nota=nota), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}serv/{N}infoCompl/{N}xPed") == "PED-778"
+    assert [e.text for e in inf.iterfind(f"{N}serv/{N}infoCompl/{N}gItemPed/{N}xItemPed")] == ["1", "2"]
+    assert "Parcela 3" in inf.findtext(f"{N}serv/{N}infoCompl/{N}xInfComp")
+    assert inf.findtext(f"{N}valores/{N}vDescCondIncond/{N}vDescIncond") == "50.00"
+    assert inf.findtext(f"{N}valores/{N}vDescCondIncond/{N}vDescCond") == "10.00"
+    # PIS sobre o valor menos o desconto incondicionado (450 - 50)
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribFed/{N}piscofins/{N}vBCPisCofins") == "400.00"
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribFed/{N}piscofins/{N}vPis") == "4.00"
+    with pytest.raises(DpsBuildError, match="E0431"):
+        build_dps(replace(dps_input, nota=DadosNota(v_desc_incond=Decimal("450.00"))))
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_ibscbs_com_diferimento_e_tributacao_regular(dps_input, certificado, ambiente):
+    dif = _com_ibscbs(
+        dps_input,
+        ibscbs_c_class_trib="515001",
+        ibscbs_p_dif_uf="10.00",
+        ibscbs_p_dif_mun="10.00",
+        ibscbs_p_dif_cbs="20.00",
+    )
+    _, xml = preparar_dps(replace(dif, ambiente=ambiente), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    assert root.findtext(f".//{N}gDif/{N}pDifCBS") == "20.00"
+    with pytest.raises(DpsBuildError, match="E0972"):
+        build_dps(replace(dif, config=replace(dif.config, ibscbs_p_dif_cbs=None)))
+
+    reg = _com_ibscbs(dps_input, ibscbs_c_class_trib="550016", ibscbs_c_class_trib_reg="000001")
+    _, xml = preparar_dps(replace(reg, ambiente=ambiente), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    assert root.findtext(f".//{N}gTribRegular/{N}CSTReg") == "000"
+    assert root.findtext(f".//{N}gTribRegular/{N}cClassTribReg") == "000001"
+    with pytest.raises(DpsBuildError, match="E0965"):
+        build_dps(replace(reg, config=replace(reg.config, ibscbs_c_class_trib_reg=None)))
+
+
+COMEX = dict(
+    comex_md_prestacao="1",
+    comex_vinc_prest="0",
+    comex_tp_moeda="220",
+    comex_mec_af_p="01",
+    comex_mec_af_t="01",
+    comex_mov_temp_bens="1",
+    comex_mdic="0",
+)
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_exportacao_com_tomador_no_exterior(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    externo = {
+        "nif": "98-7654321",
+        "nome": "EXAMPLE CONSULTING LLC",
+        "c_pais": "US",
+        "c_end_post": "10001",
+        "cidade": "New York",
+        "estado": "NY",
+        "logradouro": "5th Avenue",
+        "numero": "100",
+        "bairro": "Manhattan",
+    }
+    nota = DadosNota(tomador_exterior=externo, v_serv_moeda=Decimal("90.00"), n_re="123456789012")
+    cfg = replace(dps_input.config, trib_issqn="3", c_pais_result="US", cst_pis_cofins=None, **COMEX)
+    inp = replace(dps_input, ambiente=ambiente, config=cfg, nota=nota, tomador=nota.tomador())
+    _, xml = preparar_dps(inp, certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}toma/{N}NIF") == "98-7654321"
+    assert inf.findtext(f"{N}toma/{N}end/{N}endExt/{N}cPais") == "US"
+    assert inf.findtext(f"{N}serv/{N}comExt/{N}vServMoeda") == "90.00"
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribMun/{N}cPaisResult") == "US"
+    # sem NIF, com o motivo
+    sem_nif = DadosNota(tomador_exterior=externo | {"nif": "", "c_nao_nif": "1"}, v_serv_moeda=Decimal("90"))
+    root = build_dps(replace(inp, nota=sem_nif, tomador=sem_nif.tomador()))
+    assert root.findtext(f"{N}infDPS/{N}toma/{N}cNaoNIF") == "1"
+    # prestado no exterior: país no lugar do município, sem país do resultado
+    fora = replace(cfg, c_pais_prestacao="AR", c_pais_result=None)
+    root = build_dps(replace(inp, config=fora))
+    assert root.findtext(f"{N}infDPS/{N}serv/{N}locPrest/{N}cPaisPrestacao") == "AR"
+    assert [e for e in validar_dps(root) if "Signature" not in e.mensagem] == []
+    with pytest.raises(DpsBuildError, match="moeda estrangeira"):
+        build_dps(replace(inp, nota=DadosNota(tomador_exterior=externo)))
+    with pytest.raises(DpsBuildError, match="E0590"):
+        build_dps(replace(inp, config=replace(cfg, c_pais_result=None)))
+
+
+OBRA = {"cep": "88010400", "logradouro": "Rua das Obras", "numero": "10", "bairro": "Centro"}
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_obra_e_deducao_da_base(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    cfg = replace(dps_input.config, c_trib_nac="070201", c_nbs="101011100", op_simp_nac="1", reg_ap_trib_sn=None)
+    nota = DadosNota(obra=OBRA | {"insc_imob_fisc": "123"}, ajuste_bc_p=Decimal("40"))
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=cfg, nota=nota), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}serv/{N}obra/{N}end/{N}CEP") == "88010400"
+    assert inf.findtext(f"{N}serv/{N}obra/{N}inscImobFisc") == "123"
+    tag = "vAjusteBC/{N}pAjusteBCISSQN" if ambiente is Ambiente.HOMOLOGACAO else "vDedRed/{N}pDR"
+    assert inf.findtext(f"{N}valores/{N}" + tag.format(N=N)) == "40.00"
+    # código da obra no lugar do endereço; valor em R$
+    root = build_dps(
+        replace(dps_input, config=cfg, nota=DadosNota(obra={"c_obra": "CNO-1"}, ajuste_bc_v=Decimal("100")))
+    )
+    assert root.findtext(f"{N}infDPS/{N}serv/{N}obra/{N}cObra") == "CNO-1"
+    assert (root.findtext(f".//{N}vDR") or root.findtext(f".//{N}vAjusteBCISSQN")) == "100.00"
+    with pytest.raises(DpsBuildError, match="E0370"):
+        build_dps(replace(dps_input, config=cfg))
+    with pytest.raises(DpsBuildError, match="E0372"):
+        build_dps(replace(dps_input, nota=DadosNota(obra=OBRA)))
+    with pytest.raises(DpsBuildError, match="E0436"):
+        build_dps(replace(dps_input, config=replace(cfg, op_simp_nac="2"), nota=nota))
+    # ME/EPP com ISS pelo Simples: só nos serviços da lista
+    simples = replace(dps_input.config, op_simp_nac="3", reg_ap_trib_sn="1")
+    with pytest.raises(DpsBuildError, match="E0451"):
+        build_dps(replace(dps_input, config=simples, nota=DadosNota(ajuste_bc_p=Decimal("10"))))
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_atividade_de_evento(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    cfg = replace(dps_input.config, c_trib_nac="120101", c_nbs="125022000")
+    evento = {"nome": "Feira de Teste", "dt_ini": "2026-11-20", "dt_fim": "2026-11-22"}
+    nota = DadosNota(evento=evento | OBRA)
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=cfg, nota=nota), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    assert root.findtext(f".//{N}atvEvento/{N}xNome") == "Feira de Teste"
+    root = build_dps(replace(dps_input, config=cfg, nota=DadosNota(evento=evento | {"id_atv_evt": "EV-9"})))
+    assert root.findtext(f".//{N}atvEvento/{N}idAtvEvt") == "EV-9"
+    with pytest.raises(DpsBuildError, match="E0390"):
+        build_dps(replace(dps_input, config=cfg))
+    with pytest.raises(DpsBuildError, match="fim do evento"):
+        build_dps(replace(dps_input, config=cfg, nota=DadosNota(evento=evento | OBRA | {"dt_fim": "2026-11-01"})))
+
+
+CHAVE_REF = "42054072211444777000161000000000000626085712554750"
+INTERM = {
+    "documento": "11444777000161",
+    "nome": "INTERMEDIARIA EXEMPLO LTDA",
+    "c_mun": "4205407",
+    "cep": "88010400",
+    "logradouro": "Rua Exemplo",
+    "numero": "1",
+    "bairro": "Centro",
+}
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_intermediario_destinatario_e_compra_governamental(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    nota = DadosNota(
+        intermediario=INTERM | {"im": "123"},
+        destinatario={"documento": "52998224725", "nome": "MARIA EXEMPLO"},
+        ref_nfse=[CHAVE_REF],
+    )
+    inp = _com_ibscbs(dps_input, tp_ret_issqn="3", ibscbs_tp_ente_gov="4", ibscbs_tp_oper="2")
+    _, xml = preparar_dps(replace(inp, ambiente=ambiente, nota=nota), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}interm/{N}CNPJ") == "11444777000161"
+    assert inf.findtext(f"{N}interm/{N}IM") == "123"
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribMun/{N}tpRetISSQN") == "3"
+    assert inf.findtext(f"{N}IBSCBS/{N}tpEnteGov") == "4"
+    assert inf.findtext(f"{N}IBSCBS/{N}gRefNFSe/{N}refNFSe") == CHAVE_REF
+    assert inf.findtext(f"{N}IBSCBS/{N}indDest") == "1"
+    assert inf.findtext(f"{N}IBSCBS/{N}dest/{N}CPF") == "52998224725"
+    with pytest.raises(DpsBuildError, match="intermediário"):
+        build_dps(replace(inp, nota=replace(nota, intermediario=None)))
+    with pytest.raises(DpsBuildError, match="E1388"):
+        build_dps(replace(inp, nota=replace(nota, intermediario={"documento": "11444777000161", "nome": "X"})))
+    with pytest.raises(DpsBuildError, match="E0905"):
+        build_dps(replace(inp, nota=replace(nota, ref_nfse=[])))
+    with pytest.raises(DpsBuildError, match="E0903"):
+        build_dps(replace(inp, config=replace(inp.config, ibscbs_tp_oper=None), nota=nota))
+    with pytest.raises(DpsBuildError, match="IBS/CBS ligado"):
+        build_dps(replace(dps_input, nota=DadosNota(destinatario={"documento": "52998224725", "nome": "M"})))

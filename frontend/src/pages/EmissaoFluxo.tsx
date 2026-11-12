@@ -15,6 +15,24 @@ export interface CorpoAvulsa {
   descricao: string;
   tributacao_id?: number | null;
   tributacao?: DadosTributacao | null;
+  /** Só desta nota: informações complementares e descontos (R$ no formato do valor). */
+  x_inf_comp?: string | null;
+  x_ped?: string | null;
+  itens_pedido?: string[];
+  v_desc_incond?: string | null;
+  v_desc_cond?: string | null;
+  /** Tomador no exterior (sem CNPJ/CPF) e dados de comércio exterior desta nota. */
+  tomador_exterior?: Record<string, string> | null;
+  v_serv_moeda?: string | null;
+  n_di?: string | null;
+  n_re?: string | null;
+  ajuste_bc_p?: string | null;
+  ajuste_bc_v?: string | null;
+  obra?: Record<string, string> | null;
+  evento?: Record<string, string> | null;
+  intermediario?: Record<string, string> | null;
+  destinatario?: Record<string, string> | null;
+  ref_nfse?: string[];
 }
 
 export function EmissaoFluxo(props: {

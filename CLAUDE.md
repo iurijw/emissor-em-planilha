@@ -373,8 +373,8 @@ a NT 005 previa retirar e a NT 009 o reinseriu), `cIndOp`, `indDest=0` e `valore
 - Bloqueios locais com mensagem: sem `cNBS` (E0322). `cTribNac` 25.05/15.09/17.12/10.05 exige `tpOper` (E0903) e os
   demais não podem tê-lo (E0904): campo `ibscbs_tp_oper` da tributação (desde 2026-11-12), só 1, 4 e 5 (`codes.TP_OPER`;
   2 e 3 exigem `gRefNFSe`, não enviado). A tela troca um `cIndOp` fora de `C_IND_OP` (ex.: 020301 de imóveis) pelo do
-  NBS ou 100301, porque o `<select>` mostrava a 1ª opção com o valor antigo salvo. Fora do escopo: `dest`, `imovel`, `gRefNFSe`, `tpEnteGov`, `gReeRepRes`, `gTribRegular`, `gDif`,
-  `cCredPres` e a NT 009 (`gTribSN`, ainda sem cronograma).
+  NBS ou 100301, porque o `<select>` mostrava a 1ª opção com o valor antigo salvo. Fora do escopo: `imovel`, `gReeRepRes`, `cCredPres` e a NT 009 (`gTribSN`, ainda sem cronograma); `dest`,
+  `gRefNFSe`, `tpEnteGov`, `gTribRegular` e `gDif` entraram em 2026-11-12 (ver "Opções fiscais que faltavam").
 
 **Tributação** = os `CAMPOS_TRIBUTACAO` de `ConfigFiscal` (local da prestação, cTribNac/cTribMun/cNBS, ISSQN,
 PIS/COFINS, pTotTribSN, IBS/CBS). Prestador, regime e tpEmit vêm sempre das configurações. Tabela `tributacao`
@@ -482,6 +482,51 @@ digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 d�
   (substitui o "o tomador retém" de 2026-10-12); IBS/CBS com CST e cClassTrib em listas (sugestões do Anexo VIII
   primeiro); valor aproximado dos tributos; "Prévia dos valores da NFS-e" numa nota de exemplo. Nada mudou nos dados
   (`DadosTributacao`), só a tela. A tabela e o resto da nota avulsa ficaram como estavam (escolha do Iuri).
+
+### Opções fiscais que faltavam (2026-11-12, branch `claude/project-thread-mcnzpm`)
+
+Levantamento comparando os XSD (v1_01 e v1_01_nt009) e o Anexo I da Produção Restrita (2026-10-20) com o que a DPS
+enviava. Primeira parte (as regras estão em `services/tributacao.py`, `_coerencia_issqn` e `_coerencia_grupos_ibscbs`):
+- **Imunidade** (`tp_imunidade`, 1–5; o 0 é recusado, E0593): obrigatória com `tribISSQN 2` (E0592). Até aqui a tela
+  oferecia a imunidade sem o tipo. Imunidade/exportação/não incidência exigem `regEspTrib 0` (E0172).
+- **Exigibilidade suspensa** (`tp_susp` + `n_processo`, 30 dígitos) e **benefício municipal** (`n_bm`, 14 dígitos, com
+  `p_red_bcbm` ou `v_red_bcbm`) na tributação, só em operação tributável (E0585/E0533); BM proibido para MEI (E0534),
+  regime especial (E0535) e ME/EPP com ISS pelo Simples, salvo 07.02/07.05 (E0536).
+- **cClassTrib**: a lista (`servicos_nacionais.json`) traz `trib_regular` e `diferimento` por classificação e não traz
+  mais os CST 800/811 (só valem para NFS-e de crédito/débito, `finNFSe` 1/2, que o XSD ainda não aceita). 515001 pede
+  `gDif` (`ibscbs_p_dif_uf/mun/cbs`, E0972) e 550016/550022 pedem `gTribRegular` (`ibscbs_c_class_trib_reg`, E0965).
+  No v1_01 os grupos ficam em `trib/gIBSCBS` junto do CST; na NT 009 em `trib/gIBSCBS` depois do CST/cClassTrib.
+- **Dados só da nota avulsa** (`DadosNota`, `emissao.nota_json`): desconto incondicionado/condicionado
+  (`vDescCondIncond`; o incondicionado reduz a base do ISSQN e dos percentuais, E1295; o condicionado só o líquido,
+  E1508), número e itens do pedido e informações complementares (`serv/infoCompl`; `xInfComp` é `TSString`: sem
+  quebra de linha). Na tabela ainda não (pedido do Iuri: pensar primeiro como ficaria na planilha).
+- **Exterior** (segunda parte; base: Anexo I e a planilha de cenários de exportação do gov.br): tomador no exterior só
+  na nota avulsa (`DadosNota.tomador_exterior`: NIF ou `cNaoNIF`, nome, `endExt` com país ISO de `data/paises_iso2.csv`;
+  **não** entra no cadastro de clientes, e `emissao.tomador_documento` guarda o NIF). Serviço prestado no exterior
+  (`c_pais_prestacao` no lugar de `c_loc_prestacao`) e exportação (`tribISSQN 3` + `c_pais_result` quando a prestação
+  é no Brasil, E0590) são da tributação. Qualquer um dos três exige `comExt` (E0330): `comex_*` na tributação (moedas
+  do PTAX em `data/moedas_bacen.json`) e `vServMoeda`/`nDI`/`nRE` na nota (`exige_comext`). Como o valor na moeda é
+  por nota, uma aba com tributação de exportação dá erro ("emita pela nota avulsa"). O DANFSe já lia `NIF`/`endExt`.
+- **Construção civil e eventos** (terceira parte, só na nota avulsa): `DadosNota.obra` (`serv/obra`: `inscImobFisc` e
+  `cObra`, `cCIB` ou o endereço com CEP/`endExt`) obrigatória nos subitens de `codes.SERVICOS_OBRA` (E0370) e proibida
+  nos outros salvo 99.01.01 (E0372); `DadosNota.evento` (`serv/atvEvento`: nome, datas e `idAtvEvt` ou endereço) no
+  item 12 (E0390/E0392). Uma aba com esses serviços dá erro ("emita pela nota avulsa"). **Dedução/redução da base do
+  ISSQN** (`ajuste_bc_p` ou `ajuste_bc_v`, sem documentos): `vDedRed{pDR|vDR}` no v1_01 e `vAjusteBC{pAjusteBCISSQN|
+  vAjusteBCISSQN}` na NT 009, depois de `vDescCondIncond`; o percentual vale sobre o valor menos o desconto
+  incondicionado e sai antes do BM. Recusada localmente para MEI (E0436), regime especial (E0445), operação não
+  tributável e ME/EPP com ISS pelo Simples fora de `codes.SERVICOS_AJUSTE_BC_SN` (E0451/E0452); o resto (parametrização
+  do município, alíquota efetiva mínima de 2%, E0444/E0447) fica com a Sefin.
+- **Intermediário, destinatário e compras governamentais** (quarta parte): `DadosNota.intermediario` (`infDPS/interm`,
+  mesma estrutura do tomador; CNPJ exige endereço, E1388) libera o ISS **retido pelo intermediário** (`tp_ret_issqn 3`,
+  antes bloqueado); `DadosNota.destinatario` vai em `IBSCBS/dest` com `indDest 1` (só com IBS/CBS); `ibscbs_tp_ente_gov`
+  (1–4) é da tributação e passa a exigir `tpOper` (E0903, `codes.exige_tp_oper(c_trib_nac, tp_ente_gov)`); `tpOper` 2/3
+  agora são aceitos e pedem `DadosNota.ref_nfse` (`gRefNFSe`, E0905). Intermediário e NFS-e referenciada são de cada
+  nota: aba com `tp_ret_issqn 3` ou `tpOper` 2/3 dá erro ("emita pela nota avulsa"). Ainda fora: tomador/intermediário
+  como emitente (`tpEmit` 2/3), imóvel (`imovel`), `bensMoveis` e `cCredPres`.
+- **Campos obrigatórios na tela** (pedido do Iuri): classe `campo--obrigatorio` (asterisco vermelho no rótulo; no CEP,
+  `campo-cep--obrigatorio`) nos campos sem os quais a Sefin recusa a nota, só quando valem (ex.: tipo de imunidade só com
+  imunidade, endereço do tomador só com ISS retido, E0237); `LegendaObrigatorio` explica o asterisco. Na nota avulsa,
+  `faltando` lista ao lado de "Conferir e emitir" o que ainda falta (é o mesmo teste que libera o botão).
 
 ### Várias empresas e procuração (2026-11-09, branch `claude/project-thread-dvqygz`)
 
@@ -832,4 +877,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-05 | Recusa da Sefin na homologação leva um `aviso` (cadastro da Produção Restrita incompleto; erros de cadastro como E0120/E0084 podem não acontecer em produção), também nas emissões já gravadas (`Emissao.erro()`); dicas para E0120 e E0084 | Pedido do Iuri: um cliente ficou parado na homologação com E0120/E0084 e outro só emitiu depois de passar a produção |
 | 2026-11-06 | Dicas para E0116, E1235 e para os erros do leiaute conferido no sistema (pelo campo); dica de inscrição municipal antes da de município; notas já recusadas mostram a dica atual; endereço com caractere nulo responde 404 | Pedido do Iuri: explicar melhor os erros vistos nos clientes (E0116 em produção, E0120 com dica de município errada); robôs geravam centenas de erros 500 no log |
 | 2026-11-09 | Várias empresas (CNPJs) na mesma instalação, cada uma com o A1 dela ou por procuração (certificado do procurador); isolamento por filtro automático do ORM; clientes por empresa com opção de compartilhar; desligado na hospedagem até o Iuri pedir (lá: 3 CNPJs no preço, R$ 14,90 por CNPJ a mais) | Pedido do Iuri: escritórios emitem por vários clientes; a procuração eletrônica para a NFS-e por API passou a valer em 01/11/2026 |
+| 2026-11-12 | Tipo de imunidade, exigibilidade suspensa, benefício municipal e grupos de diferimento/tributação regular do IBS/CBS na tributação; descontos, pedido e informações complementares só na nota avulsa; exportação, tomador no exterior, obra, evento, dedução da base, intermediário, destinatário e NFS-e referenciada só na nota avulsa; compra governamental na tributação (o tomador estrangeiro não vai para o cadastro) | Pedido do Iuri: opções do leiaute que a tela não oferecia ou mandava incompletas (imunidade sem o tipo) |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

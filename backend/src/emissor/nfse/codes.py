@@ -56,6 +56,102 @@ TP_SUSP = {
     "1": "Exigibilidade Suspensa por Decisão Judicial",
     "2": "Exigibilidade Suspensa por Processo Administrativo",
 }
+# Tipos de imunidade que a DPS aceita (o 0 é só para notas vindas de outros sistemas, E0593).
+TP_IMUNIDADE_DPS = {k: v for k, v in TP_IMUNIDADE.items() if k != "0"}
+# Comércio exterior (serv/comExt). O 0 ("desconhecido") só vale para notas vindas de outros sistemas (E0333...).
+MD_PRESTACAO = {
+    "1": "Transfronteiriço",
+    "2": "Consumo no Brasil",
+    "3": "Movimento temporário de pessoas físicas",
+    "4": "Consumo no exterior",
+}
+VINC_PREST = {
+    "0": "Sem vínculo com o tomador",
+    "1": "Controlada",
+    "2": "Controladora",
+    "3": "Coligada",
+    "4": "Matriz",
+    "5": "Filial ou sucursal",
+    "6": "Outro vínculo",
+}
+MEC_AF_COMEX_P = {
+    "01": "Nenhum",
+    "02": "ACC - Adiantamento sobre Contrato de Câmbio",
+    "03": "ACE - Adiantamento sobre Cambiais Entregues",
+    "04": "BNDES-Exim Pós-Embarque - Serviços",
+    "05": "BNDES-Exim Pré-Embarque - Serviços",
+    "06": "FGE - Fundo de Garantia à Exportação",
+    "07": "PROEX - Equalização",
+    "08": "PROEX - Financiamento",
+}
+MEC_AF_COMEX_T = {
+    "01": "Nenhum",
+    "02": "Adm. Pública e Repr. Internacional",
+    "03": "Aluguéis e arrend. mercantil de máquinas, equip., embarcações e aeronaves",
+    "04": "Arrendamento mercantil de aeronave para empresa de transporte aéreo público",
+    "05": "Comissão a agentes externos na exportação",
+    "06": "Despesas de armazenagem, movimentação e transporte de carga no exterior",
+    "07": "Eventos FIFA (subsidiária)",
+    "08": "Eventos FIFA",
+    "09": "Fretes, arrendamentos de embarcações ou aeronaves e outros",
+    "10": "Material aeronáutico",
+    "11": "Promoção de bens no exterior",
+    "12": "Promoção de destinos turísticos brasileiros",
+    "13": "Promoção do Brasil no exterior",
+    "14": "Promoção de serviços no exterior",
+    "15": "RECINE",
+    "16": "RECOPA",
+    "17": "Registro e manutenção de marcas, patentes e cultivares",
+    "18": "REICOMP",
+    "19": "REIDI",
+    "20": "REPENEC",
+    "21": "REPES",
+    "22": "RETAERO",
+    "23": "RETID",
+    "24": "Royalties, assistência técnica, científica e assemelhados",
+    "25": "Serviços de avaliação da conformidade vinculados aos Acordos da OMC",
+    "26": "ZPE",
+}
+MOV_TEMP_BENS = {
+    "1": "Não",
+    "2": "Vinculada - Declaração de Importação",
+    "3": "Vinculada - Declaração de Exportação",
+}
+# Serviços que exigem o grupo de obra (E0370); os demais não podem tê-lo, salvo 99.01.01 (E0372).
+SERVICOS_OBRA = frozenset(
+    "070201 070202 070401 070501 070502 070601 070602 070701 070801 071701 071901 141403 141404".split()
+)
+# ME/EPP com ISS pelo Simples só deduz/reduz a base nestes serviços (E0451/E0452).
+SERVICOS_AJUSTE_BC_SN = frozenset(
+    (
+        "042201 042301 050901 060101 060201 070201 070202 070501 070502 090201 090202 100101 100102 100103 100104 "
+        "100105 100201 100202 100301 100401 100402 100403 100501 100502 100601 100701 100801 100901 101001 150101 "
+        "150102 150103 150104 150105 151001 151002 151003 151004 151005 160201 170501 170601 171001 171002 171101 "
+        "171102 171201 210101 250301"
+    ).split()
+)
+
+
+def exige_obra(c_trib_nac: str | None) -> bool:
+    return (c_trib_nac or "") in SERVICOS_OBRA
+
+
+def aceita_obra(c_trib_nac: str | None) -> bool:
+    return exige_obra(c_trib_nac) or c_trib_nac == "990101"
+
+
+def exige_evento(c_trib_nac: str | None) -> bool:
+    """Item 12 da lista (espetáculos, shows, feiras...) exige o grupo atvEvento (E0390)."""
+    c = c_trib_nac or ""
+    return len(c) == 6 and c.isdigit() and c.startswith("12")
+
+
+def aceita_evento(c_trib_nac: str | None) -> bool:
+    return exige_evento(c_trib_nac) or c_trib_nac == "990101"
+
+
+MDIC = {"0": "Não enviar para o MDIC", "1": "Enviar para o MDIC"}
+C_NAO_NIF = {"1": "Dispensado do NIF", "2": "Não exigência do NIF"}
 TP_BM = {"1": "Isenção", "2": "Redução da BC em %", "3": "Redução da BC em R$", "4": "Alíquota Diferenciada"}
 TP_RET_PIS_COFINS = {
     "0": "PIS/COFINS/CSLL Não Retidos",
@@ -130,17 +226,23 @@ IND_FINAL = {"0": "Não", "1": "Sim (uso ou consumo pessoal)"}
 # jazigos), 15.09 (arrendamento mercantil), 17.12 (administração de bens e negócios de terceiros) e 10.05
 # (intermediação de bens). Ver ``TP_OPER``.
 SUBITENS_EXIGEM_TP_OPER = ("2505", "1509", "1712", "1005")
-# Tipo de operação (tpOper, TSRTCTpOper). Os códigos 2 e 3 (pagamento e fornecimento em momentos diferentes, com
-# uma das partes já feita) exigem as NFS-e referenciadas (gRefNFSe), que este sistema não envia: ficam de fora.
+# Tipo de operação (tpOper, TSRTCTpOper). 2 e 3 (uma das partes já feita) exigem as NFS-e referenciadas (gRefNFSe,
+# E0905), que vêm de cada nota: só na nota avulsa.
 TP_OPER = {
     "5": "Fornecimento e recebimento do pagamento concomitantes",
     "1": "Fornecimento com pagamento posterior",
     "4": "Recebimento do pagamento com fornecimento posterior",
+    "2": "Recebimento do pagamento com fornecimento já realizado",
+    "3": "Fornecimento com pagamento já realizado",
 }
+TP_OPER_COM_REFERENCIA = ("2", "3")
+# Compras governamentais (tpEnteGov): administração pública direta, autarquias e fundações.
+TP_ENTE_GOV = {"1": "União", "2": "Estado", "3": "Distrito Federal", "4": "Município"}
 
 
-def exige_tp_oper(c_trib_nac: str | None) -> bool:
-    return (c_trib_nac or "")[:4] in SUBITENS_EXIGEM_TP_OPER
+def exige_tp_oper(c_trib_nac: str | None, tp_ente_gov: str | None = None) -> bool:
+    """tpOper: obrigatório nos subitens listados e nas compras governamentais (E0903), proibido no resto (E0904)."""
+    return (c_trib_nac or "")[:4] in SUBITENS_EXIGEM_TP_OPER or bool(tp_ente_gov)
 
 
 def descricao(tabela: dict[str, str], codigo: str | None) -> str | None:
@@ -157,6 +259,23 @@ _MUNICIPIOS_CSV = _DADOS / "municipios_ibge.csv"
 def _municipios() -> dict[str, tuple[str, str]]:
     with _MUNICIPIOS_CSV.open(encoding="utf-8", newline="") as fh:
         return {r["codigo"]: (r["nome"], r["uf"]) for r in csv.DictReader(fh, delimiter=";")}
+
+
+@lru_cache(maxsize=1)
+def paises() -> dict[str, str]:
+    """Países ISO2 do Anexo A (sem o Brasil: endereço e local no exterior não podem ser BR, E0246/E0304)."""
+    with (_DADOS / "paises_iso2.csv").open(encoding="utf-8", newline="") as fh:
+        return {r["codigo"]: r["nome"] for r in csv.DictReader(fh) if r["codigo"] != "BR"}
+
+
+@lru_cache(maxsize=1)
+def moedas() -> dict[str, str]:
+    """Moedas do Banco Central (tpMoeda, 3 dígitos): código → "USD - Dólar dos Estados Unidos"."""
+    dados = json.loads((_DADOS / "moedas_bacen.json").read_text(encoding="utf-8"))
+    return {
+        m["codigo"]: f"{m['sigla']} - {m['nome']}" if m["nome"] != m["sigla"] else m["sigla"]
+        for m in sorted(dados["moedas"], key=lambda m: (m["sigla"] not in ("USD", "EUR"), m["sigla"]))
+    }
 
 
 def municipio(c_mun: str | None) -> tuple[str, str] | None:
@@ -232,9 +351,16 @@ def classes_ibscbs() -> list[dict[str, Any]]:
             "cst": v["cst"],
             "reducao_ibs": v["reducao_ibs"],
             "reducao_cbs": v["reducao_cbs"],
+            "trib_regular": v.get("trib_regular", False),
+            "diferimento": v.get("diferimento", False),
         }
         for c, v in _servicos_nacionais()["classes"].items()
     ]
+
+
+def classe_ibscbs(codigo: str | None) -> dict[str, Any] | None:
+    """Classificação do IBS/CBS (CST, nome, reduções e grupos exigidos), ou None se não está na tabela para NFS-e."""
+    return _servicos_nacionais()["classes"].get(codigo or "")
 
 
 def formatar_c_trib_nac(codigo: str | None) -> str:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from lxml import etree
 
-from emissor.nfse.codes import C_IND_OP, TP_OPER
+from emissor.nfse.codes import C_IND_OP, TP_OPER, TP_OPER_COM_REFERENCIA
 from emissor.nfse.constants import NS_NFSE
 from emissor.nfse.models import ConfigFiscal, Endereco, Tomador
 
@@ -183,7 +183,7 @@ def _padroes_ibscbs(d: NFSeDoc) -> dict:
     padroes = {"ibscbs": True, "ibscbs_ind_final": d.dps("IBSCBS/indFinal")}
     if d.dps("IBSCBS/cIndOp") in C_IND_OP:  # um indicador que o sistema não emite (imóvel, exterior...) fica no padrão
         padroes["ibscbs_c_ind_op"] = d.dps("IBSCBS/cIndOp")
-    if d.dps("IBSCBS/tpOper") in TP_OPER:
+    if d.dps("IBSCBS/tpOper") in TP_OPER and d.dps("IBSCBS/tpOper") not in TP_OPER_COM_REFERENCIA:
         padroes["ibscbs_tp_oper"] = d.dps("IBSCBS/tpOper")
     c_class = d.dps("IBSCBS/valores/trib/gIBSCBS/cClassTrib") or d.dps("IBSCBS/valores/trib/cClassTrib")
     if c_class:

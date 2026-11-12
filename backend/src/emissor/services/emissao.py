@@ -26,11 +26,13 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from lxml import etree
 from sqlmodel import Session, select
 
 from emissor import empresas
 from emissor.db import Emissao, LinhaTabela, Lote, agora, obter_cliente, obter_config, para_local, sessao
 from emissor.logging_setup import bind_context
+from emissor.nfse import codes, dps_builder
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
 from emissor.nfse.constants import Ambiente
@@ -47,8 +49,10 @@ from emissor.nfse.emissao import (
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
 from emissor.nfse.models import (
     ConfigFiscal,
+    DadosNota,
     DpsInput,
     aplicar_tributacao,
+    exige_comext,
     iss_exige_aliquota,
     normalizar_documento,
     tributacao_de,
@@ -93,9 +97,16 @@ def _valor(v: str) -> Decimal | None:
 
 
 def validar_linhas(
-    s: Session, linhas: list[LinhaTabela], ambiente: Ambiente, tributacao_avulsa: dict | None = None
+    s: Session,
+    linhas: list[LinhaTabela],
+    ambiente: Ambiente,
+    tributacao_avulsa: dict | None = None,
+    notas: dict[int | None, DadosNota] | None = None,
 ) -> list[ValidacaoLinha]:
-    """Erros e avisos de cada linha. Linhas sem aba (nota avulsa) usam ``tributacao_avulsa`` (None = padrões)."""
+    """Erros e avisos de cada linha. Linhas sem aba (nota avulsa) usam ``tributacao_avulsa`` (None = padrões).
+
+    ``notas``: dados só da nota (descontos, informações complementares) pelo id da linha (None = nota avulsa).
+    """
     res = []
     inicio_mes = agora().replace(day=1, hour=0, minute=0, second=0)
     hoje = agora().date()
@@ -122,14 +133,33 @@ def validar_linhas(
             v.erros.extend(erros_aba.get(aba.id, []))
         cfg_ef = efetiva(aba)
         iss_retido = cfg_ef is not None and cfg_ef.tp_ret_issqn in ("2", "3")
-        doc = normalizar_documento(ln.documento) or ""
+        nota = (notas or {}).get(ln.id) or DadosNota()
+        exterior = nota.tomador()
+        doc = "" if exterior else normalizar_documento(ln.documento) or ""
         cli = obter_cliente(s, doc) if doc else None
-        if not doc:
+        if exterior is not None:
+            v.erros.extend(_erros_tomador_exterior(exterior))
+        elif not doc:
             v.erros.append("CNPJ/CPF não informado.")
         elif len(doc) not in (11, 14) or not documento_valido(doc):
             v.erros.append(f"CNPJ/CPF inválido: {ln.documento!r} (dígitos verificadores não conferem).")
-        if not (ln.nome or "").strip() and not (cli and cli.nome):
+        if not exterior and not (ln.nome or "").strip() and not (cli and cli.nome):
             v.erros.append("Nome da empresa não informado.")
+        if cfg_ef is not None and exige_comext(cfg_ef, exterior is not None):
+            if ln.aba_id is not None:
+                v.erros.append(
+                    "A tributação desta aba é de exportação ou de serviço prestado no exterior: a nota precisa do "
+                    "valor na moeda estrangeira. Emita pela nota avulsa."
+                )
+            else:
+                faltam = [rotulo for campo, rotulo in trib_service._ROTULOS_COMEX.items() if not getattr(cfg_ef, campo)]
+                if faltam:
+                    v.erros.append(
+                        "Operação com o exterior: a tributação precisa dos dados de comércio exterior (E0330). "
+                        f"Falta: {', '.join(faltam)}. Use “Só para esta nota” ou uma tributação de exportação."
+                    )
+                if not nota.v_serv_moeda or nota.v_serv_moeda <= 0:
+                    v.erros.append("Operação com o exterior: informe o valor do serviço na moeda estrangeira.")
         valor = _valor(ln.valor)
         if valor is None:
             v.erros.append(f"Valor inválido ou zerado: {ln.valor!r}.")
@@ -154,8 +184,20 @@ def validar_linhas(
                 v.avisos.append(
                     f"Este cliente tem aba própria (“{dona.nome}”); aqui a nota sai com a tributação desta aba."
                 )
+        if cfg_ef is not None:
+            v.erros.extend(_erros_obra_evento(cfg_ef, nota, na_tabela=ln.aba_id is not None))
+        ajuste = nota.ajuste_bc(valor) if valor is not None else None
+        if cfg_ef is not None and ajuste is not None and (erro := dps_builder.erro_ajuste_bc(cfg_ef)):
+            v.erros.append(erro)
         if cfg_ef is not None and valor is not None:
-            v.erros.extend(calcular_tributos(cfg_ef, valor)[1])
+            v.erros.extend(calcular_tributos(cfg_ef, valor, nota.v_desc_incond, nota.v_desc_cond, ajuste)[1])
+        if nota.x_inf_comp and len(nota.x_inf_comp) > 2000:
+            v.erros.append(f"Informações complementares com {len(nota.x_inf_comp)} caracteres (máximo 2000).")
+        if len(nota.itens_pedido) > 99:
+            v.erros.append("No máximo 99 itens do pedido.")
+        for campo, rotulo in ((nota.x_ped, "Número do pedido"), *((i, "Item do pedido") for i in nota.itens_pedido)):
+            if campo and len(campo) > 60:
+                v.erros.append(f"{rotulo} com mais de 60 caracteres: {campo[:20]}…")
         if doc and iss_retido and not (cli and cli.endereco_completo):
             v.erros.append(
                 "Com ISS retido a nota precisa do endereço do tomador (E0237): complete o cadastro do cliente."
@@ -189,6 +231,74 @@ def validar_linhas(
             v.erros.append("Esta linha já está em uma emissão em andamento.")
         res.append(v)
     return res
+
+
+def _erros_obra_evento(cfg: ConfigFiscal, nota: DadosNota, *, na_tabela: bool) -> list[str]:
+    """Obra (construção civil, E0370/E0372) e evento (item 12, E0390/E0392): dados de cada nota, só na avulsa."""
+    if na_tabela and (codes.exige_obra(cfg.c_trib_nac) or codes.exige_evento(cfg.c_trib_nac)):
+        grupo = "da obra" if codes.exige_obra(cfg.c_trib_nac) else "do evento"
+        return [
+            f"O serviço {cfg.c_trib_nac} exige os dados {grupo} em cada nota (E0370/E0390): emita pela nota avulsa."
+        ]
+    erros = []
+    retido_interm = cfg.tp_ret_issqn == "3"
+    com_referencia = (
+        cfg.ibscbs
+        and codes.exige_tp_oper(cfg.c_trib_nac, cfg.ibscbs_tp_ente_gov)
+        and cfg.ibscbs_tp_oper in codes.TP_OPER_COM_REFERENCIA
+    )
+    if na_tabela and (retido_interm or com_referencia):
+        falta = "o intermediário" if retido_interm else "a chave da NFS-e anterior"
+        return [f"A tributação desta aba pede {falta} em cada nota: emita pela nota avulsa."]
+    if retido_interm and not nota.intermediario:
+        erros.append("ISS retido pelo intermediário: informe o intermediário.")
+    if com_referencia and not nota.ref_nfse:
+        erros.append("Com esse tipo de operação do IBS/CBS, informe a chave da NFS-e anterior (E0905).")
+    if nota.destinatario and not cfg.ibscbs:
+        erros.append("O destinatário diferente do tomador só vai com o IBS/CBS ligado na tributação.")
+    for papel, p in (("intermediário", nota.intermediario_pessoa()), ("destinatário", nota.destinatario_pessoa())):
+        if p is None:
+            continue
+        if not documento_valido(p.documento) or len(p.documento) not in (11, 14):
+            erros.append(f"CNPJ/CPF do {papel} inválido.")
+        if not p.nome.strip():
+            erros.append(f"Nome do {papel} não informado.")
+        if papel == "intermediário" and len(p.documento) == 14 and p.endereco is None:
+            erros.append("Intermediário com CNPJ: informe o endereço completo dele (E1388).")
+    serv = etree.Element("serv")
+    for montar in (dps_builder.montar_obra, dps_builder.montar_evento):
+        try:
+            montar(serv, cfg, nota)
+        except DpsBuildError as e:
+            erros.append(str(e))
+    return erros
+
+
+def _erros_tomador_exterior(t) -> list[str]:
+    erros = []
+    if not t.documento and t.c_nao_nif not in ("1", "2"):
+        erros.append("Tomador no exterior: informe o NIF ou o motivo de não ter.")
+    if len(t.documento) > 40:
+        erros.append("NIF do tomador com mais de 40 caracteres.")
+    if not t.nome.strip():
+        erros.append("Nome do tomador não informado.")
+    e = t.exterior
+    if e.c_pais not in codes.paises():
+        erros.append("País do tomador no exterior não informado ou inválido.")
+    faltam = [
+        rotulo
+        for valor, rotulo in (
+            (e.c_end_post, "código postal"),
+            (e.cidade, "cidade"),
+            (e.estado, "estado/província"),
+            (e.logradouro, "logradouro"),
+            (e.bairro, "bairro"),
+        )
+        if not (valor or "").strip()
+    ]
+    if faltam:
+        erros.append(f"Endereço do tomador no exterior incompleto: falta {', '.join(faltam)} (E0242).")
+    return erros
 
 
 def _erros_tributacao_abas(s: Session, abas: list) -> dict[int, list[str]]:
@@ -325,22 +435,24 @@ class NotaAvulsa:
     tributacao_nome: str | None = None  # None com dados = tributação só desta nota
     tributacao: dict | None = None  # None = padrões das configurações
     tributacao_id: int | None = None  # tributação predefinida de onde vieram os dados
+    nota: DadosNota = field(default_factory=DadosNota)  # informações complementares e descontos
 
 
 def linha_avulsa(n: NotaAvulsa) -> LinhaTabela:
-    """Linha transitória (fora do banco) para reaproveitar a validação da tabela."""
+    """Linha transitória (fora do banco) para reaproveitar a validação da tabela (tomador no exterior: o NIF)."""
+    ext = n.nota.tomador()
     return LinhaTabela(
         id=None,
         aba_id=None,
-        nome=n.nome,
-        documento=normalizar_documento(n.documento) or "",
+        nome=ext.nome if ext else n.nome,
+        documento=ext.documento if ext else normalizar_documento(n.documento) or "",
         valor=n.valor,
         descricao=n.descricao,
     )
 
 
 def validar_avulsa(s: Session, n: NotaAvulsa, ambiente: Ambiente) -> ValidacaoLinha:
-    return validar_linhas(s, [linha_avulsa(n)], ambiente, n.tributacao)[0]
+    return validar_linhas(s, [linha_avulsa(n)], ambiente, n.tributacao, {None: n.nota})[0]
 
 
 def criar_avulsa(n: NotaAvulsa) -> Lote:
@@ -356,13 +468,16 @@ def criar_avulsa(n: NotaAvulsa) -> Lote:
         ln = linha_avulsa(n)
         _exigir_aliquotas(aliquotas_iss(s, [ln], n.tributacao, n.tributacao_id))
         lote = _gravar_lote(
-            s, cfg.ambiente, [(None, ln.nome, ln.documento, ln.valor, ln.descricao, n.tributacao_nome, n.tributacao)]
+            s,
+            cfg.ambiente,
+            [(None, ln.nome, ln.documento, ln.valor, ln.descricao, n.tributacao_nome, n.tributacao)],
+            nota=n.nota,
         )
     worker().enfileirar(lote.id)
     return lote
 
 
-def _gravar_lote(s: Session, ambiente: str, itens: list[tuple]) -> Lote:
+def _gravar_lote(s: Session, ambiente: str, itens: list[tuple], nota: DadosNota | None = None) -> Lote:
     """Grava o lote e uma emissão por item ``(linha_id, nome, documento, valor, descricao, trib_nome, trib)``.
 
     A tributação é copiada para a emissão: mudar a tributação depois não altera notas já na fila.
@@ -370,7 +485,7 @@ def _gravar_lote(s: Session, ambiente: str, itens: list[tuple]) -> Lote:
     lote = Lote(id=uuid.uuid4().hex[:12], ambiente=ambiente, total=len(itens))
     s.add(lote)
     for linha_id, nome, documento, valor, descricao, trib_nome, trib in itens:
-        doc = normalizar_documento(documento)
+        doc = normalizar_documento(documento) or ""
         cli = obter_cliente(s, doc)
         s.add(
             Emissao(
@@ -383,6 +498,7 @@ def _gravar_lote(s: Session, ambiente: str, itens: list[tuple]) -> Lote:
                 descricao=descricao.strip(),
                 tributacao_nome=trib_nome if trib else None,
                 tributacao_json=trib_service.dumps(trib) if trib else None,
+                nota_json=trib_service.dumps(nota.para_dict()) if nota and not nota.vazia else None,
             )
         )
     s.commit()
@@ -524,15 +640,17 @@ class EmissionWorker:
             serie = cfg.serie
             cli = obter_cliente(s, e.tomador_documento)
         dh = agora_emissao()
+        nota = DadosNota.de_dict(e.nota())
         inp = DpsInput(
             ambiente=amb,
             serie=str(serie),
             n_dps=n,
             dh_emi=dh,
             config=aplicar_tributacao(fiscal, e.tributacao()),
-            tomador=para_tomador(cli, e.tomador_documento, e.tomador_nome),
+            tomador=nota.tomador() or para_tomador(cli, e.tomador_documento, e.tomador_nome),
             valor=Decimal(e.valor),
             descricao=variaveis.substituir(e.descricao, dh.date()),
+            nota=nota,
         )
         try:
             id_dps, xml = preparar_dps(inp, cert)
