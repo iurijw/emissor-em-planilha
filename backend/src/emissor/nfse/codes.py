@@ -126,8 +126,21 @@ C_IND_OP = {
     "100601": "Bens móveis imateriais e direitos, operação não onerosa: domicílio do destinatário (tomador)",
 }
 IND_FINAL = {"0": "Não", "1": "Sim (uso ou consumo pessoal)"}
-# Subitens da LC 116 que exigem tpOper (E0903): locação/cessão de imóvel, factoring, administração de fundos...
+# Subitens da LC 116 que exigem tpOper (E0903) e só eles podem levá-lo sem tpEnteGov (E0904): 25.05 (cessão de
+# jazigos), 15.09 (arrendamento mercantil), 17.12 (administração de bens e negócios de terceiros) e 10.05
+# (intermediação de bens). Ver ``TP_OPER``.
 SUBITENS_EXIGEM_TP_OPER = ("2505", "1509", "1712", "1005")
+# Tipo de operação (tpOper, TSRTCTpOper). Os códigos 2 e 3 (pagamento e fornecimento em momentos diferentes, com
+# uma das partes já feita) exigem as NFS-e referenciadas (gRefNFSe), que este sistema não envia: ficam de fora.
+TP_OPER = {
+    "5": "Fornecimento e recebimento do pagamento concomitantes",
+    "1": "Fornecimento com pagamento posterior",
+    "4": "Recebimento do pagamento com fornecimento posterior",
+}
+
+
+def exige_tp_oper(c_trib_nac: str | None) -> bool:
+    return (c_trib_nac or "")[:4] in SUBITENS_EXIGEM_TP_OPER
 
 
 def descricao(tabela: dict[str, str], codigo: str | None) -> str | None:

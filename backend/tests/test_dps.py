@@ -188,6 +188,8 @@ def test_ibscbs_exige_nbs_e_recusa_servico_com_tp_oper(dps_input):
         build_dps(_com_ibscbs(dps_input, c_nbs=None))
     with pytest.raises(DpsBuildError, match="tpOper"):
         build_dps(_com_ibscbs(dps_input, c_trib_nac="250501"))
+    with pytest.raises(DpsBuildError, match="tpOper"):
+        build_dps(_com_ibscbs(dps_input, c_trib_nac="171201", ibscbs_tp_oper="2"))  # 2 exigiria gRefNFSe
     with pytest.raises(DpsBuildError, match="cClassTrib|Classificação"):
         build_dps(_com_ibscbs(dps_input, ibscbs_c_class_trib="12"))
 
@@ -240,3 +242,20 @@ def test_producao_passa_a_nt009_em_01_12_2026(dps_input):
     # cada DPS valida no XSD da sua data (o leiaute sai do tpAmb + dhEmi do próprio documento)
     assert [e for e in validar_dps(velha) if "Signature" not in e.mensagem] == []
     assert [e for e in validar_dps(nova) if "Signature" not in e.mensagem] == []
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_ibscbs_com_tp_oper_valida_no_xsd(dps_input, certificado, ambiente):
+    inp = _com_ibscbs(dps_input, c_trib_nac="171201", c_nbs="114012100", ibscbs_c_ind_op="100301", ibscbs_tp_oper="5")
+    _, xml = preparar_dps(replace(inp, ambiente=ambiente), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    g = root.find(f"{N}infDPS/{N}IBSCBS")
+    nomes = [etree.QName(c).localname for c in g]
+    assert nomes[nomes.index("cIndOp") + 1] == "tpOper"
+    assert g.findtext(f"{N}tpOper") == "5"
+
+
+def test_tp_oper_nao_vai_em_servico_que_nao_exige(dps_input):
+    dps = build_dps(_com_ibscbs(dps_input, ibscbs_tp_oper="5"))  # E0904
+    assert dps.find(f"{N}infDPS/{N}IBSCBS/{N}tpOper") is None

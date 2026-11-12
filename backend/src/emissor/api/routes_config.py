@@ -337,6 +337,7 @@ def opcoes() -> dict[str, Any]:
         "ibscbs_cst": codes.csts_ibscbs(),
         "ibscbs_classes": codes.classes_ibscbs(),
         "ibscbs_ind_final": lista(codes.IND_FINAL),
+        "ibscbs_tp_oper": lista(codes.TP_OPER),
         "ambiente": [{"valor": a.value, "descricao": a.descricao} for a in Ambiente],
         "variaveis_descricao": variaveis.lista(),
     }

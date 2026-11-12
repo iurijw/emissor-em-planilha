@@ -12,6 +12,7 @@ from pathlib import Path
 
 from lxml import etree
 
+from emissor.nfse.codes import C_IND_OP, TP_OPER
 from emissor.nfse.constants import NS_NFSE
 from emissor.nfse.models import ConfigFiscal, Endereco, Tomador
 
@@ -179,7 +180,11 @@ def _padroes_ibscbs(d: NFSeDoc) -> dict:
     """IBS/CBS da nota mais recente; sem o grupo, mantém os padrões (grupo desligado)."""
     if d.dps("IBSCBS/cIndOp") is None:
         return {}
-    padroes = {"ibscbs": True, "ibscbs_c_ind_op": d.dps("IBSCBS/cIndOp"), "ibscbs_ind_final": d.dps("IBSCBS/indFinal")}
+    padroes = {"ibscbs": True, "ibscbs_ind_final": d.dps("IBSCBS/indFinal")}
+    if d.dps("IBSCBS/cIndOp") in C_IND_OP:  # um indicador que o sistema não emite (imóvel, exterior...) fica no padrão
+        padroes["ibscbs_c_ind_op"] = d.dps("IBSCBS/cIndOp")
+    if d.dps("IBSCBS/tpOper") in TP_OPER:
+        padroes["ibscbs_tp_oper"] = d.dps("IBSCBS/tpOper")
     c_class = d.dps("IBSCBS/valores/trib/gIBSCBS/cClassTrib") or d.dps("IBSCBS/valores/trib/cClassTrib")
     if c_class:
         padroes["ibscbs_c_class_trib"] = c_class

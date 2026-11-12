@@ -247,6 +247,8 @@ export interface Fiscal {
   ibscbs_c_ind_op: string;
   ibscbs_c_class_trib: string;
   ibscbs_ind_final: string | null;
+  /** Tipo de operação (tpOper): só nos serviços 10.05, 15.09, 17.12 e 25.05. */
+  ibscbs_tp_oper: string | null;
   tp_emit: string;
 }
 
@@ -275,6 +277,7 @@ export const CAMPOS_TRIBUTACAO = [
   "ibscbs_c_ind_op",
   "ibscbs_c_class_trib",
   "ibscbs_ind_final",
+  "ibscbs_tp_oper",
 ] as const;
 export type DadosTributacao = Pick<Fiscal, (typeof CAMPOS_TRIBUTACAO)[number]>;
 

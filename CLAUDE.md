@@ -370,8 +370,10 @@ a NT 005 previa retirar e a NT 009 o reinseriu), `cIndOp`, `indDest=0` e `valore
   intelectuais, redução de 30%). A escolha é da contabilidade de cada cliente; o padrão continua `000001`.
 - `cIndOp`: só os 13 códigos de `codes.C_IND_OP` (destinatário = tomador, tomador no Brasil, sem grupos de imóvel,
   evento ou transporte). Padrão `100301` (demais serviços, onerosa: domicílio do adquirente).
-- Bloqueios locais com mensagem: sem `cNBS` (E0322); `cTribNac` 25.05/15.09/17.12/10.05 exige `tpOper` (E0903),
-  que não é enviado. Fora do escopo: `dest`, `imovel`, `gRefNFSe`, `tpEnteGov`, `gReeRepRes`, `gTribRegular`, `gDif`,
+- Bloqueios locais com mensagem: sem `cNBS` (E0322). `cTribNac` 25.05/15.09/17.12/10.05 exige `tpOper` (E0903) e os
+  demais não podem tê-lo (E0904): campo `ibscbs_tp_oper` da tributação (desde 2026-11-12), só 1, 4 e 5 (`codes.TP_OPER`;
+  2 e 3 exigem `gRefNFSe`, não enviado). A tela troca um `cIndOp` fora de `C_IND_OP` (ex.: 020301 de imóveis) pelo do
+  NBS ou 100301, porque o `<select>` mostrava a 1ª opção com o valor antigo salvo. Fora do escopo: `dest`, `imovel`, `gRefNFSe`, `tpEnteGov`, `gReeRepRes`, `gTribRegular`, `gDif`,
   `cCredPres` e a NT 009 (`gTribSN`, ainda sem cronograma).
 
 **Tributação** = os `CAMPOS_TRIBUTACAO` de `ConfigFiscal` (local da prestação, cTribNac/cTribMun/cNBS, ISSQN,
