@@ -231,11 +231,15 @@ class Emissao(SQLModel, table=True):
     # Tributação usada (cópia feita ao criar o lote; None = padrões das configurações no momento do envio)
     tributacao_nome: str | None = None
     tributacao_json: str | None = None
+    nota_json: str | None = None  # DadosNota da nota avulsa (informações complementares, descontos)
     criado_em: NaiveDatetime = Field(default_factory=agora)
     atualizado_em: NaiveDatetime = Field(default_factory=agora)
 
     def tributacao(self) -> dict[str, Any] | None:
         return json.loads(self.tributacao_json) if self.tributacao_json else None
+
+    def nota(self) -> dict[str, Any] | None:
+        return json.loads(self.nota_json) if self.nota_json else None
 
     def erro(self) -> dict[str, Any] | None:
         from .nfse.errors import com_aviso_homologacao, com_dicas_atuais

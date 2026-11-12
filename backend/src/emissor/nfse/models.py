@@ -45,6 +45,14 @@ class ConfigFiscal:
     c_nbs: str | None = "113022100"
     # Tributação
     trib_issqn: str = "1"
+    tp_imunidade: str | None = None  # obrigatório com tribISSQN 2 (E0592); 0 não é aceito (E0593)
+    # Exigibilidade do ISSQN suspensa (exigSusp): 1 decisão judicial, 2 processo administrativo; nº com 30 dígitos
+    tp_susp: str | None = None
+    n_processo: str | None = None
+    # Benefício municipal (BM): nº de 14 dígitos parametrizado pela prefeitura, com a redução da base em % ou R$
+    n_bm: str | None = None
+    p_red_bcbm: str | None = None
+    v_red_bcbm: str | None = None
     tp_ret_issqn: str = "1"
     cst_pis_cofins: str | None = "00"  # None → não envia grupo tribFed
     tp_ret_pis_cofins: str | None = None
@@ -68,6 +76,11 @@ class ConfigFiscal:
     ibscbs_ind_final: str | None = None  # opcional; será descontinuado pela NT 005
     # tpOper: obrigatório nos subitens de codes.SUBITENS_EXIGEM_TP_OPER (E0903) e proibido nos demais (E0904)
     ibscbs_tp_oper: str | None = None
+    # Grupos que a classificação exige: tributação regular (gTribRegular, E0965) e diferimento (gDif, E0972)
+    ibscbs_c_class_trib_reg: str | None = None  # o CSTReg vai como os 3 primeiros dígitos
+    ibscbs_p_dif_uf: str | None = None
+    ibscbs_p_dif_mun: str | None = None
+    ibscbs_p_dif_cbs: str | None = None
     # Emissão
     tp_emit: str = "1"
 
@@ -83,6 +96,10 @@ CAMPOS_PERCENTUAIS = (
     "p_tot_trib_fed",
     "p_tot_trib_est",
     "p_tot_trib_mun",
+    "p_red_bcbm",
+    "ibscbs_p_dif_uf",
+    "ibscbs_p_dif_mun",
+    "ibscbs_p_dif_cbs",
 )
 
 # tpRetPisCofins → (PIS retido, COFINS retido, CSLL retida); None = o código não diz (CSLL opcional).
@@ -118,6 +135,12 @@ CAMPOS_TRIBUTACAO = (
     "c_trib_mun",
     "c_nbs",
     "trib_issqn",
+    "tp_imunidade",
+    "tp_susp",
+    "n_processo",
+    "n_bm",
+    "p_red_bcbm",
+    "v_red_bcbm",
     "tp_ret_issqn",
     "cst_pis_cofins",
     "tp_ret_pis_cofins",
@@ -137,6 +160,10 @@ CAMPOS_TRIBUTACAO = (
     "ibscbs_c_class_trib",
     "ibscbs_ind_final",
     "ibscbs_tp_oper",
+    "ibscbs_c_class_trib_reg",
+    "ibscbs_p_dif_uf",
+    "ibscbs_p_dif_mun",
+    "ibscbs_p_dif_cbs",
 )
 
 
@@ -182,7 +209,47 @@ class DpsInput:
     tomador: Tomador | None
     valor: Decimal
     descricao: str
-    extras: dict = field(default_factory=dict)
+    nota: DadosNota = field(default_factory=lambda: DadosNota())
+
+
+@dataclass
+class DadosNota:
+    """O que vale só para uma nota (nota avulsa): informações complementares e descontos."""
+
+    x_inf_comp: str | None = None  # infoCompl/xInfComp, até 2000 caracteres
+    x_ped: str | None = None  # infoCompl/xPed: número do pedido/ordem de compra
+    itens_pedido: list[str] = field(default_factory=list)  # infoCompl/gItemPed/xItemPed (até 99)
+    v_desc_incond: Decimal | None = None  # desconto incondicionado: reduz a base do ISSQN (vBC)
+    v_desc_cond: Decimal | None = None  # desconto condicionado: só sai do valor líquido
+
+    @classmethod
+    def de_dict(cls, d: dict | None) -> DadosNota:
+        d = d or {}
+
+        def dec(v):
+            return Decimal(str(v)) if v not in (None, "") else None
+
+        return cls(
+            x_inf_comp=d.get("x_inf_comp") or None,
+            x_ped=d.get("x_ped") or None,
+            itens_pedido=[str(i) for i in d.get("itens_pedido") or [] if str(i).strip()],
+            v_desc_incond=dec(d.get("v_desc_incond")),
+            v_desc_cond=dec(d.get("v_desc_cond")),
+        )
+
+    def para_dict(self) -> dict:
+        d = {
+            "x_inf_comp": self.x_inf_comp,
+            "x_ped": self.x_ped,
+            "itens_pedido": self.itens_pedido or None,
+            "v_desc_incond": f"{self.v_desc_incond:.2f}" if self.v_desc_incond is not None else None,
+            "v_desc_cond": f"{self.v_desc_cond:.2f}" if self.v_desc_cond is not None else None,
+        }
+        return {k: v for k, v in d.items() if v is not None}
+
+    @property
+    def vazia(self) -> bool:
+        return not self.para_dict()
 
 
 # --- normalização de dados ------------------------------------------------------

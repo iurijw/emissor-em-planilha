@@ -47,6 +47,7 @@ from emissor.nfse.emissao import (
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
 from emissor.nfse.models import (
     ConfigFiscal,
+    DadosNota,
     DpsInput,
     aplicar_tributacao,
     iss_exige_aliquota,
@@ -93,9 +94,16 @@ def _valor(v: str) -> Decimal | None:
 
 
 def validar_linhas(
-    s: Session, linhas: list[LinhaTabela], ambiente: Ambiente, tributacao_avulsa: dict | None = None
+    s: Session,
+    linhas: list[LinhaTabela],
+    ambiente: Ambiente,
+    tributacao_avulsa: dict | None = None,
+    notas: dict[int | None, DadosNota] | None = None,
 ) -> list[ValidacaoLinha]:
-    """Erros e avisos de cada linha. Linhas sem aba (nota avulsa) usam ``tributacao_avulsa`` (None = padrões)."""
+    """Erros e avisos de cada linha. Linhas sem aba (nota avulsa) usam ``tributacao_avulsa`` (None = padrões).
+
+    ``notas``: dados só da nota (descontos, informações complementares) pelo id da linha (None = nota avulsa).
+    """
     res = []
     inicio_mes = agora().replace(day=1, hour=0, minute=0, second=0)
     hoje = agora().date()
@@ -154,8 +162,16 @@ def validar_linhas(
                 v.avisos.append(
                     f"Este cliente tem aba própria (“{dona.nome}”); aqui a nota sai com a tributação desta aba."
                 )
+        nota = (notas or {}).get(ln.id) or DadosNota()
         if cfg_ef is not None and valor is not None:
-            v.erros.extend(calcular_tributos(cfg_ef, valor)[1])
+            v.erros.extend(calcular_tributos(cfg_ef, valor, nota.v_desc_incond, nota.v_desc_cond)[1])
+        if nota.x_inf_comp and len(nota.x_inf_comp) > 2000:
+            v.erros.append(f"Informações complementares com {len(nota.x_inf_comp)} caracteres (máximo 2000).")
+        if len(nota.itens_pedido) > 99:
+            v.erros.append("No máximo 99 itens do pedido.")
+        for campo, rotulo in ((nota.x_ped, "Número do pedido"), *((i, "Item do pedido") for i in nota.itens_pedido)):
+            if campo and len(campo) > 60:
+                v.erros.append(f"{rotulo} com mais de 60 caracteres: {campo[:20]}…")
         if doc and iss_retido and not (cli and cli.endereco_completo):
             v.erros.append(
                 "Com ISS retido a nota precisa do endereço do tomador (E0237): complete o cadastro do cliente."
@@ -325,6 +341,7 @@ class NotaAvulsa:
     tributacao_nome: str | None = None  # None com dados = tributação só desta nota
     tributacao: dict | None = None  # None = padrões das configurações
     tributacao_id: int | None = None  # tributação predefinida de onde vieram os dados
+    nota: DadosNota = field(default_factory=DadosNota)  # informações complementares e descontos
 
 
 def linha_avulsa(n: NotaAvulsa) -> LinhaTabela:
@@ -340,7 +357,7 @@ def linha_avulsa(n: NotaAvulsa) -> LinhaTabela:
 
 
 def validar_avulsa(s: Session, n: NotaAvulsa, ambiente: Ambiente) -> ValidacaoLinha:
-    return validar_linhas(s, [linha_avulsa(n)], ambiente, n.tributacao)[0]
+    return validar_linhas(s, [linha_avulsa(n)], ambiente, n.tributacao, {None: n.nota})[0]
 
 
 def criar_avulsa(n: NotaAvulsa) -> Lote:
@@ -356,13 +373,16 @@ def criar_avulsa(n: NotaAvulsa) -> Lote:
         ln = linha_avulsa(n)
         _exigir_aliquotas(aliquotas_iss(s, [ln], n.tributacao, n.tributacao_id))
         lote = _gravar_lote(
-            s, cfg.ambiente, [(None, ln.nome, ln.documento, ln.valor, ln.descricao, n.tributacao_nome, n.tributacao)]
+            s,
+            cfg.ambiente,
+            [(None, ln.nome, ln.documento, ln.valor, ln.descricao, n.tributacao_nome, n.tributacao)],
+            nota=n.nota,
         )
     worker().enfileirar(lote.id)
     return lote
 
 
-def _gravar_lote(s: Session, ambiente: str, itens: list[tuple]) -> Lote:
+def _gravar_lote(s: Session, ambiente: str, itens: list[tuple], nota: DadosNota | None = None) -> Lote:
     """Grava o lote e uma emissão por item ``(linha_id, nome, documento, valor, descricao, trib_nome, trib)``.
 
     A tributação é copiada para a emissão: mudar a tributação depois não altera notas já na fila.
@@ -383,6 +403,7 @@ def _gravar_lote(s: Session, ambiente: str, itens: list[tuple]) -> Lote:
                 descricao=descricao.strip(),
                 tributacao_nome=trib_nome if trib else None,
                 tributacao_json=trib_service.dumps(trib) if trib else None,
+                nota_json=trib_service.dumps(nota.para_dict()) if nota and not nota.vazia else None,
             )
         )
     s.commit()
@@ -533,6 +554,7 @@ class EmissionWorker:
             tomador=para_tomador(cli, e.tomador_documento, e.tomador_nome),
             valor=Decimal(e.valor),
             descricao=variaveis.substituir(e.descricao, dh.date()),
+            nota=DadosNota.de_dict(e.nota()),
         )
         try:
             id_dps, xml = preparar_dps(inp, cert)

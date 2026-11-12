@@ -12,7 +12,7 @@ from datetime import datetime
 from lxml import etree
 
 from emissor.config import VER_APLIC
-from emissor.nfse.codes import TP_OPER, exige_tp_oper
+from emissor.nfse.codes import TP_OPER, classe_ibscbs, exige_tp_oper
 from emissor.nfse.constants import (
     LEIAUTE_NT009,
     NS_NFSE,
@@ -23,6 +23,7 @@ from emissor.nfse.constants import (
 )
 from emissor.nfse.models import (
     ConfigFiscal,
+    DadosNota,
     DpsInput,
     Tomador,
     formatar_decimal,
@@ -153,12 +154,20 @@ def build_dps(inp: DpsInput) -> etree._Element:
     else:
         _sub(c_serv, "xDescServ", descricao)
         _opt(c_serv, "cNBS", cfg.c_nbs)
+    _info_compl(serv, inp.nota)
 
     # Valores
     valores = _sub(inf, "valores")
     v_serv_prest = _sub(valores, "vServPrest")
     _sub(v_serv_prest, "vServ", formatar_decimal(inp.valor))
-    tributos, erros = calcular_tributos(cfg, inp.valor)
+    nota = inp.nota
+    if nota.v_desc_incond or nota.v_desc_cond:
+        desc = _sub(valores, "vDescCondIncond")
+        if nota.v_desc_incond:
+            _sub(desc, "vDescIncond", formatar_decimal(nota.v_desc_incond))
+        if nota.v_desc_cond:
+            _sub(desc, "vDescCond", formatar_decimal(nota.v_desc_cond))
+    tributos, erros = calcular_tributos(cfg, inp.valor, nota.v_desc_incond, nota.v_desc_cond)
     if iss_exige_aliquota(cfg) and tributos.p_aliq_iss is None:
         erros.insert(0, "Informe a alíquota do ISS retido na tributação (obrigatória para ISS retido no Simples).")
     if erros:
@@ -166,6 +175,21 @@ def build_dps(inp: DpsInput) -> etree._Element:
     trib = _sub(valores, "trib")
     trib_mun = _sub(trib, "tribMun")
     _sub(trib_mun, "tribISSQN", cfg.trib_issqn)
+    if cfg.trib_issqn == "2":
+        if cfg.tp_imunidade not in ("1", "2", "3", "4", "5"):
+            raise DpsBuildError("Com imunidade do ISSQN, escolha o tipo de imunidade na tributação (regra E0592).")
+        _sub(trib_mun, "tpImunidade", cfg.tp_imunidade)
+    if cfg.trib_issqn == "1" and cfg.tp_susp:
+        susp = _sub(trib_mun, "exigSusp")
+        _sub(susp, "tpSusp", cfg.tp_susp)
+        _sub(susp, "nProcesso", somente_digitos(cfg.n_processo) or "")
+    if cfg.trib_issqn == "1" and cfg.n_bm:
+        bm = _sub(trib_mun, "BM")
+        _sub(bm, "nBM", somente_digitos(cfg.n_bm) or "")
+        if pct(cfg.v_red_bcbm):
+            _sub(bm, "vRedBCBM", formatar_decimal(pct(cfg.v_red_bcbm)))
+        elif pct(cfg.p_red_bcbm):
+            _sub(bm, "pRedBCBM", formatar_decimal(pct(cfg.p_red_bcbm)))
     _sub(trib_mun, "tpRetISSQN", cfg.tp_ret_issqn)
     if tributos.p_aliq_iss is not None:
         _sub(trib_mun, "pAliq", formatar_decimal(tributos.p_aliq_iss))
@@ -242,6 +266,43 @@ def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool) -> None:
     sit = trib if nt009 else _sub(trib, "gIBSCBS")
     _sub(sit, "CST", cfg.ibscbs_c_class_trib[:3])
     _sub(sit, "cClassTrib", cfg.ibscbs_c_class_trib)
+    classe = classe_ibscbs(cfg.ibscbs_c_class_trib) or {}
+    regular = classe.get("trib_regular")
+    dif = [pct(v) for v in (cfg.ibscbs_p_dif_uf, cfg.ibscbs_p_dif_mun, cfg.ibscbs_p_dif_cbs)]
+    if regular and not re.fullmatch(r"\d{6}", cfg.ibscbs_c_class_trib_reg or ""):
+        raise DpsBuildError(
+            f"A classificação {cfg.ibscbs_c_class_trib} exige a classificação da tributação regular (regra E0965)."
+        )
+    if classe.get("diferimento") and any(p is None for p in dif):
+        raise DpsBuildError(
+            f"A classificação {cfg.ibscbs_c_class_trib} exige os percentuais de diferimento (regra E0972)."
+        )
+    if regular or classe.get("diferimento"):
+        grupo = _sub(trib, "gIBSCBS") if nt009 else sit
+        if regular:
+            reg = _sub(grupo, "gTribRegular")
+            _sub(reg, "CSTReg", cfg.ibscbs_c_class_trib_reg[:3])
+            _sub(reg, "cClassTribReg", cfg.ibscbs_c_class_trib_reg)
+        if classe.get("diferimento"):
+            g_dif = _sub(grupo, "gDif")
+            for tag, p in zip(("pDifUF", "pDifMun", "pDifCBS"), dif, strict=True):
+                _sub(g_dif, tag, formatar_decimal(p))
+
+
+def _info_compl(serv: etree._Element, nota: DadosNota) -> None:
+    """Informações complementares (``serv/infoCompl``): pedido, itens do pedido e texto livre."""
+    x_ped = limpar_texto(nota.x_ped, max_len=60)
+    itens = [i for i in (limpar_texto(x, max_len=60) for x in nota.itens_pedido[:99]) if i]
+    x_inf = limpar_texto(nota.x_inf_comp, max_len=2000)  # TSString: sem quebra de linha (vira espaço)
+    if not (x_ped or itens or x_inf):
+        return
+    info = _sub(serv, "infoCompl")
+    _opt(info, "xPed", x_ped)
+    if itens:
+        g = _sub(info, "gItemPed")
+        for i in itens:
+            _sub(g, "xItemPed", i)
+    _opt(info, "xInfComp", x_inf)
 
 
 def to_bytes(el: etree._Element) -> bytes:

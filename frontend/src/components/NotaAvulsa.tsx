@@ -8,6 +8,7 @@ import { ErroCaixa, Gaveta, Spinner } from "../ui";
 import { useTributacoes } from "./Abas";
 import { buscarClientes, normalizarBusca } from "./EditorNomeCliente";
 import { CamposTributacao, ValoresDaNota } from "./FiscalForm";
+import { corpoDadosNota, DadosDaNota, dadosNotaVazios, type DadosNota } from "./DadosDaNota";
 import { EnderecoTomador, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
 
 type Escolha = "padrao" | "propria" | number;
@@ -39,6 +40,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const setDocumento = (d: string) => setDocTexto(formatarDocumento(d));
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
+  const [dadosNota, setDadosNota] = useState<DadosNota>(dadosNotaVazios);
   const [escolha, setEscolha] = useState<Escolha>("padrao");
   const [propria, setPropria] = useState<DadosTributacao | null>(null);
   const [focoNome, setFocoNome] = useState(false);
@@ -159,6 +161,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
       descricao,
       tributacao_id: typeof escolha === "number" ? escolha : null,
       tributacao: escolha === "propria" ? propria : null,
+      ...corpoDadosNota(dadosNota),
     });
   }
 
@@ -304,6 +307,9 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                   <BotaoVariaveis className="btn-texto" />
                 </small>
               </label>
+              <div className="largo">
+                <DadosDaNota valor={dadosNota} onChange={setDadosNota} />
+              </div>
             </div>
           </section>
 
@@ -336,7 +342,15 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
             )}
           </section>
 
-          {tributacaoDaNota && <ValoresDaNota tributacao={tributacaoDaNota} valor={Number(valorNum) || 0} regime={trib.data?.regime} />}
+          {tributacaoDaNota && (
+            <ValoresDaNota
+              tributacao={tributacaoDaNota}
+              valor={Number(valorNum) || 0}
+              regime={trib.data?.regime}
+              descIncond={Number(parseValor(dadosNota.v_desc_incond)) || 0}
+              descCond={Number(parseValor(dadosNota.v_desc_cond)) || 0}
+            />
+          )}
         </div>
       </Gaveta>
       {conferir && (

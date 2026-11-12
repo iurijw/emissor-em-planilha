@@ -106,15 +106,22 @@ def main() -> None:
     faltam = sorted(c for c in usados if c not in vigentes)
     if faltam:
         raise SystemExit(f"cClassTrib do Anexo VIII fora da tabela vigente: {faltam}")
+    # CST de transferência de crédito (800) e de ajuste (811) só valem para NFS-e de crédito/débito (finNFSe 1 e 2),
+    # que o leiaute ainda não aceita (TSRTCFinNFSe = 0): ficam fora da lista.
+    so_ajuste = {t["Cst"] for t in tabela if t.get("IndTransferenciaCred") or t.get("IndAjusteCompet")}
+    diferimento = {t["Cst"] for t in tabela if t.get("IndDiferimento")}
     classes = {
         c: {
             "cst": v["Cst"],
             "nome": texto(v["NomeReduzido"]).rstrip("."),
             "reducao_ibs": v.get("PercRedIbs") or 0,
             "reducao_cbs": v.get("PercRedCbs") or 0,
+            # grupos que a classificação exige na DPS: gTribRegular (E0965) e gDif (E0972)
+            "trib_regular": bool(v.get("IndTribRegular")),
+            "diferimento": v["Cst"] in diferimento,
         }
         for c, v in sorted(vigentes.items())
-        if v.get("IndNfse") or c in usados
+        if (v.get("IndNfse") and v["Cst"] not in so_ajuste) or c in usados
     }
     csts = {t["Cst"]: texto(t["NomeCst"]) for t in tabela if any(c["cst"] == t["Cst"] for c in classes.values())}
 

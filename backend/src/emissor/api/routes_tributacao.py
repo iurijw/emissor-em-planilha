@@ -15,7 +15,7 @@ from emissor import auth
 from emissor.api.deps import AdminEmpresa, UsuarioAtual
 from emissor.api.routes_emissoes import obter_lote
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, Tributacao, agora, obter_config, sessao
-from emissor.nfse.models import aplicar_tributacao, normalizar_documento, tributacao_de
+from emissor.nfse.models import DadosNota, aplicar_tributacao, normalizar_documento, tributacao_de
 from emissor.services import parametros
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
@@ -318,6 +318,12 @@ class AvulsaEntrada(BaseModel):
     descricao: str = ""
     tributacao_id: int | None = None  # tributação predefinida
     tributacao: dict[str, Any] | None = None  # tributação só desta nota (completa, partindo dos padrões)
+    # Só desta nota: informações complementares e descontos (valores em R$, como o valor)
+    x_inf_comp: str | None = None
+    x_ped: str | None = None
+    itens_pedido: list[str] | None = None
+    v_desc_incond: str | float | None = None
+    v_desc_cond: str | float | None = None
 
 
 def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
@@ -335,6 +341,23 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
         nome_trib, dados_trib = t.nome, t.dados()
     elif entrada.tributacao is not None:
         dados_trib = trib_service.validar_completa(entrada.tributacao, trib_service.config_base(s))
+    descontos = {}
+    for campo, rotulo in (("v_desc_incond", "Desconto incondicionado"), ("v_desc_cond", "Desconto condicionado")):
+        bruto = getattr(entrada, campo)
+        if bruto in (None, ""):
+            continue
+        try:
+            descontos[campo] = tabela_service.parse_valor(bruto)
+        except ValueError as exc:
+            raise HTTPException(400, f"{rotulo} inválido: {bruto!r}.") from exc
+    nota = DadosNota.de_dict(
+        {
+            "x_inf_comp": (entrada.x_inf_comp or "").strip(),
+            "x_ped": (entrada.x_ped or "").strip(),
+            "itens_pedido": [i.strip() for i in entrada.itens_pedido or [] if i and i.strip()],
+            **{k: v for k, v in descontos.items() if v and Decimal(v) != 0},
+        }
+    )
     return NotaAvulsa(
         nome=entrada.nome.strip(),
         documento=entrada.documento,
@@ -343,6 +366,7 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
         tributacao_nome=nome_trib,
         tributacao=dados_trib,
         tributacao_id=entrada.tributacao_id,
+        nota=nota,
     )
 
 

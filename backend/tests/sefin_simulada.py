@@ -223,6 +223,10 @@ class SefinSimulada:
                 return self._rejeitar("E0959", "CST do IBS/CBS incompatível com a classificação tributária.")
             if not t("serv/cServ/cNBS"):
                 return self._rejeitar("E0322", "Código NBS obrigatório quando o grupo IBS/CBS é informado.")
+        if (t("valores/trib/tribMun/tribISSQN") == "2") != bool(t("valores/trib/tribMun/tpImunidade")):
+            return self._rejeitar(
+                "E0592", "O tipo de imunidade é obrigatório e deve ser informado somente com imunidade."
+            )
         rejeicao = _regras_tributos(t)
         if rejeicao:
             return self._rejeitar(*rejeicao)
@@ -304,7 +308,15 @@ class SefinSimulada:
         v_serv = Decimal(t("valores/vServPrest/vServ"))
         tributavel = t("valores/trib/tribMun/tribISSQN") == "1"
         aliq = Decimal(t("valores/trib/tribMun/pAliq") or ALIQ_ISS)
-        v_iss = (v_serv * aliq / 100).quantize(DOIS, ROUND_HALF_UP) if tributavel else Decimal(0)
+        desc_incond = Decimal(t("valores/vDescCondIncond/vDescIncond") or 0)
+        desc_cond = Decimal(t("valores/vDescCondIncond/vDescCond") or 0)
+        # E1295: vBC = vServ - vDescIncond - redução do benefício municipal
+        v_bc = v_serv - desc_incond
+        if t("valores/trib/tribMun/BM/vRedBCBM"):
+            v_bc -= Decimal(t("valores/trib/tribMun/BM/vRedBCBM"))
+        elif t("valores/trib/tribMun/BM/pRedBCBM"):
+            v_bc -= (v_bc * Decimal(t("valores/trib/tribMun/BM/pRedBCBM")) / 100).quantize(DOIS, ROUND_HALF_UP)
+        v_iss = (v_bc * aliq / 100).quantize(DOIS, ROUND_HALF_UP) if tributavel else Decimal(0)
         retido = t("valores/trib/tribMun/tpRetISSQN") in ("2", "3")
         fed = sum(Decimal(t(f"valores/trib/tribFed/{c}") or 0) for c in ("vRetCP", "vRetIRRF", "vRetCSLL"))
         pis_ret, cofins_ret, _ = RETENCOES_PIS_COFINS.get(
@@ -314,7 +326,7 @@ class SefinSimulada:
             Decimal(t("valores/trib/tribFed/piscofins/vCofins") or 0) if cofins_ret else 0
         )
         v_total_ret = fed + (v_iss if retido else 0)
-        v_liq = v_serv - v_total_ret - v_pis_cofins
+        v_liq = v_serv - desc_incond - desc_cond - v_total_ret - v_pis_cofins  # E1508
         c_loc = t("serv/locPrest/cLocPrestacao") or c_mun
         nome_mun = (codes.municipio(c_loc) or ("MUNICIPIO",))[0]
 
@@ -356,7 +368,7 @@ class SefinSimulada:
                 sub(emit, tag, t(f"prest/{tag}"))
         val = sub(inf, "valores")
         if tributavel:
-            sub(val, "vBC", _q(v_serv))
+            sub(val, "vBC", _q(v_bc))
             sub(val, "pAliqAplic", _q(aliq))
             sub(val, "vISSQN", _q(v_iss))
         if v_total_ret:

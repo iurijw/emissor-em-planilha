@@ -483,6 +483,25 @@ digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 d�
   primeiro); valor aproximado dos tributos; "Prévia dos valores da NFS-e" numa nota de exemplo. Nada mudou nos dados
   (`DadosTributacao`), só a tela. A tabela e o resto da nota avulsa ficaram como estavam (escolha do Iuri).
 
+### Opções fiscais que faltavam (2026-11-12, branch `claude/project-thread-mcnzpm`)
+
+Levantamento comparando os XSD (v1_01 e v1_01_nt009) e o Anexo I da Produção Restrita (2026-10-20) com o que a DPS
+enviava. Primeira parte (as regras estão em `services/tributacao.py`, `_coerencia_issqn` e `_coerencia_grupos_ibscbs`):
+- **Imunidade** (`tp_imunidade`, 1–5; o 0 é recusado, E0593): obrigatória com `tribISSQN 2` (E0592). Até aqui a tela
+  oferecia a imunidade sem o tipo. Imunidade/exportação/não incidência exigem `regEspTrib 0` (E0172).
+- **Exigibilidade suspensa** (`tp_susp` + `n_processo`, 30 dígitos) e **benefício municipal** (`n_bm`, 14 dígitos, com
+  `p_red_bcbm` ou `v_red_bcbm`) na tributação, só em operação tributável (E0585/E0533); BM proibido para MEI (E0534),
+  regime especial (E0535) e ME/EPP com ISS pelo Simples, salvo 07.02/07.05 (E0536).
+- **cClassTrib**: a lista (`servicos_nacionais.json`) traz `trib_regular` e `diferimento` por classificação e não traz
+  mais os CST 800/811 (só valem para NFS-e de crédito/débito, `finNFSe` 1/2, que o XSD ainda não aceita). 515001 pede
+  `gDif` (`ibscbs_p_dif_uf/mun/cbs`, E0972) e 550016/550022 pedem `gTribRegular` (`ibscbs_c_class_trib_reg`, E0965).
+  No v1_01 os grupos ficam em `trib/gIBSCBS` junto do CST; na NT 009 em `trib/gIBSCBS` depois do CST/cClassTrib.
+- **Dados só da nota avulsa** (`DadosNota`, `emissao.nota_json`): desconto incondicionado/condicionado
+  (`vDescCondIncond`; o incondicionado reduz a base do ISSQN e dos percentuais, E1295; o condicionado só o líquido,
+  E1508), número e itens do pedido e informações complementares (`serv/infoCompl`; `xInfComp` é `TSString`: sem
+  quebra de linha). Na tabela ainda não (pedido do Iuri: pensar primeiro como ficaria na planilha).
+- Exportação de serviço (`tribISSQN 3`) continua bloqueada com mensagem até haver tomador no exterior.
+
 ### Várias empresas e procuração (2026-11-09, branch `claude/project-thread-dvqygz`)
 
 Plano: https://claude.ai/artifact/3YFs7Jy7NUZcdQZRGfRYr8. Pronto para a instalação própria; **desligado na hospedagem**
@@ -832,4 +851,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-05 | Recusa da Sefin na homologação leva um `aviso` (cadastro da Produção Restrita incompleto; erros de cadastro como E0120/E0084 podem não acontecer em produção), também nas emissões já gravadas (`Emissao.erro()`); dicas para E0120 e E0084 | Pedido do Iuri: um cliente ficou parado na homologação com E0120/E0084 e outro só emitiu depois de passar a produção |
 | 2026-11-06 | Dicas para E0116, E1235 e para os erros do leiaute conferido no sistema (pelo campo); dica de inscrição municipal antes da de município; notas já recusadas mostram a dica atual; endereço com caractere nulo responde 404 | Pedido do Iuri: explicar melhor os erros vistos nos clientes (E0116 em produção, E0120 com dica de município errada); robôs geravam centenas de erros 500 no log |
 | 2026-11-09 | Várias empresas (CNPJs) na mesma instalação, cada uma com o A1 dela ou por procuração (certificado do procurador); isolamento por filtro automático do ORM; clientes por empresa com opção de compartilhar; desligado na hospedagem até o Iuri pedir (lá: 3 CNPJs no preço, R$ 14,90 por CNPJ a mais) | Pedido do Iuri: escritórios emitem por vários clientes; a procuração eletrônica para a NFS-e por API passou a valer em 01/11/2026 |
+| 2026-11-12 | Tipo de imunidade, exigibilidade suspensa, benefício municipal e grupos de diferimento/tributação regular do IBS/CBS na tributação; descontos, pedido e informações complementares só na nota avulsa | Pedido do Iuri: opções do leiaute que a tela não oferecia ou mandava incompletas (imunidade sem o tipo) |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

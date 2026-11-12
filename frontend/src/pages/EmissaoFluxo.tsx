@@ -15,6 +15,12 @@ export interface CorpoAvulsa {
   descricao: string;
   tributacao_id?: number | null;
   tributacao?: DadosTributacao | null;
+  /** Só desta nota: informações complementares e descontos (R$ no formato do valor). */
+  x_inf_comp?: string | null;
+  x_ped?: string | null;
+  itens_pedido?: string[];
+  v_desc_incond?: string | null;
+  v_desc_cond?: string | null;
 }
 
 export function EmissaoFluxo(props: {

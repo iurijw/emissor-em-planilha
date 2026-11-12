@@ -1,4 +1,5 @@
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 from lxml import etree
@@ -259,3 +260,80 @@ def test_ibscbs_com_tp_oper_valida_no_xsd(dps_input, certificado, ambiente):
 def test_tp_oper_nao_vai_em_servico_que_nao_exige(dps_input):
     dps = build_dps(_com_ibscbs(dps_input, ibscbs_tp_oper="5"))  # E0904
     assert dps.find(f"{N}infDPS/{N}IBSCBS/{N}tpOper") is None
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_imunidade_suspensao_e_beneficio_validam_no_xsd(dps_input, certificado, ambiente):
+    imune = replace(dps_input.config, trib_issqn="2", tp_imunidade="3", cst_pis_cofins=None)
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=imune), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    mun = root.find(f"{N}infDPS/{N}valores/{N}trib/{N}tribMun")
+    assert [etree.QName(c).localname for c in mun] == ["tribISSQN", "tpImunidade", "tpRetISSQN"]
+    with pytest.raises(DpsBuildError, match="E0592"):
+        build_dps(replace(dps_input, config=replace(imune, tp_imunidade=None)))
+
+    cfg = replace(dps_input.config, tp_susp="1", n_processo="1" * 30, n_bm="12345678901234", p_red_bcbm="10.00")
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=cfg), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    mun = root.find(f"{N}infDPS/{N}valores/{N}trib/{N}tribMun")
+    assert [etree.QName(c).localname for c in mun] == ["tribISSQN", "exigSusp", "BM", "tpRetISSQN"]
+    assert mun.findtext(f"{N}BM/{N}pRedBCBM") == "10.00"
+    cfg = replace(cfg, p_red_bcbm=None, v_red_bcbm="50.00")
+    root = build_dps(replace(dps_input, ambiente=ambiente, config=cfg))
+    assert root.findtext(f"{N}infDPS/{N}valores/{N}trib/{N}tribMun/{N}BM/{N}vRedBCBM") == "50.00"
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_descontos_e_informacoes_complementares(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    nota = DadosNota(
+        x_inf_comp="Contrato 12/2026\nParcela 3 de 12",
+        x_ped="PED-778",
+        itens_pedido=["1", "2"],
+        v_desc_incond=Decimal("50.00"),
+        v_desc_cond=Decimal("10.00"),
+    )
+    cfg = replace(dps_input.config, p_aliq_pis="1.00")
+    _, xml = preparar_dps(replace(dps_input, ambiente=ambiente, config=cfg, nota=nota), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}serv/{N}infoCompl/{N}xPed") == "PED-778"
+    assert [e.text for e in inf.iterfind(f"{N}serv/{N}infoCompl/{N}gItemPed/{N}xItemPed")] == ["1", "2"]
+    assert "Parcela 3" in inf.findtext(f"{N}serv/{N}infoCompl/{N}xInfComp")
+    assert inf.findtext(f"{N}valores/{N}vDescCondIncond/{N}vDescIncond") == "50.00"
+    assert inf.findtext(f"{N}valores/{N}vDescCondIncond/{N}vDescCond") == "10.00"
+    # PIS sobre o valor menos o desconto incondicionado (450 - 50)
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribFed/{N}piscofins/{N}vBCPisCofins") == "400.00"
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribFed/{N}piscofins/{N}vPis") == "4.00"
+    with pytest.raises(DpsBuildError, match="E0431"):
+        build_dps(replace(dps_input, nota=DadosNota(v_desc_incond=Decimal("450.00"))))
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_ibscbs_com_diferimento_e_tributacao_regular(dps_input, certificado, ambiente):
+    dif = _com_ibscbs(
+        dps_input,
+        ibscbs_c_class_trib="515001",
+        ibscbs_p_dif_uf="10.00",
+        ibscbs_p_dif_mun="10.00",
+        ibscbs_p_dif_cbs="20.00",
+    )
+    _, xml = preparar_dps(replace(dif, ambiente=ambiente), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    assert root.findtext(f".//{N}gDif/{N}pDifCBS") == "20.00"
+    with pytest.raises(DpsBuildError, match="E0972"):
+        build_dps(replace(dif, config=replace(dif.config, ibscbs_p_dif_cbs=None)))
+
+    reg = _com_ibscbs(dps_input, ibscbs_c_class_trib="550016", ibscbs_c_class_trib_reg="000001")
+    _, xml = preparar_dps(replace(reg, ambiente=ambiente), certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    assert root.findtext(f".//{N}gTribRegular/{N}CSTReg") == "000"
+    assert root.findtext(f".//{N}gTribRegular/{N}cClassTribReg") == "000001"
+    with pytest.raises(DpsBuildError, match="E0965"):
+        build_dps(replace(reg, config=replace(reg.config, ibscbs_c_class_trib_reg=None)))

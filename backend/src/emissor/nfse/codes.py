@@ -56,6 +56,8 @@ TP_SUSP = {
     "1": "Exigibilidade Suspensa por Decisão Judicial",
     "2": "Exigibilidade Suspensa por Processo Administrativo",
 }
+# Tipos de imunidade que a DPS aceita (o 0 é só para notas vindas de outros sistemas, E0593).
+TP_IMUNIDADE_DPS = {k: v for k, v in TP_IMUNIDADE.items() if k != "0"}
 TP_BM = {"1": "Isenção", "2": "Redução da BC em %", "3": "Redução da BC em R$", "4": "Alíquota Diferenciada"}
 TP_RET_PIS_COFINS = {
     "0": "PIS/COFINS/CSLL Não Retidos",
@@ -232,9 +234,16 @@ def classes_ibscbs() -> list[dict[str, Any]]:
             "cst": v["cst"],
             "reducao_ibs": v["reducao_ibs"],
             "reducao_cbs": v["reducao_cbs"],
+            "trib_regular": v.get("trib_regular", False),
+            "diferimento": v.get("diferimento", False),
         }
         for c, v in _servicos_nacionais()["classes"].items()
     ]
+
+
+def classe_ibscbs(codigo: str | None) -> dict[str, Any] | None:
+    """Classificação do IBS/CBS (CST, nome, reduções e grupos exigidos), ou None se não está na tabela para NFS-e."""
+    return _servicos_nacionais()["classes"].get(codigo or "")
 
 
 def formatar_c_trib_nac(codigo: str | None) -> str:

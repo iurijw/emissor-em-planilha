@@ -329,6 +329,8 @@ def opcoes() -> dict[str, Any]:
         "reg_ap_trib_sn": lista(codes.REG_AP_TRIB_SN),
         "reg_esp_trib": lista(codes.REG_ESP_TRIB),
         "trib_issqn": lista(codes.TRIB_ISSQN),
+        "tp_imunidade": lista(codes.TP_IMUNIDADE_DPS),
+        "tp_susp": lista(codes.TP_SUSP),
         "tp_ret_issqn": lista(codes.TP_RET_ISSQN),
         "cst_pis_cofins": lista(codes.CST_PIS_COFINS),
         "tp_ret_pis_cofins": lista(codes.TP_RET_PIS_COFINS),

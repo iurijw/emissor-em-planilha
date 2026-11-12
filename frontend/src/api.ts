@@ -249,6 +249,16 @@ export interface Fiscal {
   ibscbs_ind_final: string | null;
   /** Tipo de operação (tpOper): só nos serviços 10.05, 15.09, 17.12 e 25.05. */
   ibscbs_tp_oper: string | null;
+  ibscbs_c_class_trib_reg: string | null;
+  ibscbs_p_dif_uf: string | null;
+  ibscbs_p_dif_mun: string | null;
+  ibscbs_p_dif_cbs: string | null;
+  tp_imunidade: string | null;
+  tp_susp: string | null;
+  n_processo: string | null;
+  n_bm: string | null;
+  p_red_bcbm: string | null;
+  v_red_bcbm: string | null;
   tp_emit: string;
 }
 
@@ -259,6 +269,12 @@ export const CAMPOS_TRIBUTACAO = [
   "c_trib_mun",
   "c_nbs",
   "trib_issqn",
+  "tp_imunidade",
+  "tp_susp",
+  "n_processo",
+  "n_bm",
+  "p_red_bcbm",
+  "v_red_bcbm",
   "tp_ret_issqn",
   "cst_pis_cofins",
   "tp_ret_pis_cofins",
@@ -278,6 +294,10 @@ export const CAMPOS_TRIBUTACAO = [
   "ibscbs_c_class_trib",
   "ibscbs_ind_final",
   "ibscbs_tp_oper",
+  "ibscbs_c_class_trib_reg",
+  "ibscbs_p_dif_uf",
+  "ibscbs_p_dif_mun",
+  "ibscbs_p_dif_cbs",
 ] as const;
 export type DadosTributacao = Pick<Fiscal, (typeof CAMPOS_TRIBUTACAO)[number]>;
 

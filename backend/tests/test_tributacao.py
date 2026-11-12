@@ -2,6 +2,7 @@
 # ruff: noqa: F811  (fixtures api/sefin importadas de test_api)
 
 import sqlite3
+from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
@@ -306,3 +307,56 @@ def test_listas_de_codigos_iguais_ao_xsd():
         assert m, f"{tipo} não está no XSD"
         oficiais = re.findall(r'<xs:enumeration value="([^"]*)"', m.group(1))
         assert list(getattr(codes, lista)) == oficiais, lista
+
+
+def test_coerencia_de_imunidade_suspensao_beneficio_e_grupos_do_ibscbs(config_fiscal):
+    from emissor.nfse.models import tributacao_de
+    from emissor.services.tributacao import coerencia
+
+    base = tributacao_de(config_fiscal)
+
+    def erros(**kw):
+        return coerencia(base | kw, config_fiscal)
+
+    assert any("E0592" in e for e in erros(trib_issqn="2"))
+    assert erros(trib_issqn="2", tp_imunidade="3") == []
+    assert any("Exportação" in e for e in erros(trib_issqn="3"))
+    assert any("E0585" in e for e in erros(trib_issqn="4", tp_susp="1", n_processo="1" * 30))
+    assert any("30 dígitos" in e for e in erros(tp_susp="1", n_processo="123"))
+    assert erros(tp_susp="2", n_processo="1" * 30) == []
+    # ME/EPP com ISS pelo Simples não tem benefício municipal (E0536), salvo 07.02/07.05
+    simples = coerencia(base | {"n_bm": "1" * 14}, replace(config_fiscal, reg_ap_trib_sn="1"))
+    assert any("E0536" in e for e in simples)
+    assert erros(n_bm="1" * 14, p_red_bcbm="10.00") == []
+    assert any("% ou em R$" in e for e in erros(n_bm="1" * 14, p_red_bcbm="10.00", v_red_bcbm="5.00"))
+    ibs = {"ibscbs": True, "c_nbs": "113022100"}
+    assert any("E0972" in e for e in erros(**ibs, ibscbs_c_class_trib="515001"))
+    assert any("E0971" in e for e in erros(**ibs, ibscbs_p_dif_uf="1.00"))
+    assert any("E0965" in e for e in erros(**ibs, ibscbs_c_class_trib="550016"))
+    assert erros(**ibs, ibscbs_c_class_trib="550016", ibscbs_c_class_trib_reg="000001") == []
+
+
+def test_nota_avulsa_com_desconto_e_informacoes_complementares(api, sefin, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    nota = {
+        "documento": "11.222.333/0001-81",
+        "valor": "1.000,00",
+        "descricao": "parecer",
+        "x_inf_comp": "Contrato 12/2026",
+        "x_ped": "PED-1",
+        "itens_pedido": ["10", " "],
+        "v_desc_incond": "100,00",
+        "v_desc_cond": "",
+    }
+    val = api.post("/api/avulsa/validar", json=nota).json()
+    assert val["linhas"][0]["erros"] == [], val
+    ruim = api.post("/api/avulsa/validar", json=nota | {"v_desc_incond": "1.000,00"}).json()
+    assert any("E0431" in e for e in ruim["linhas"][0]["erros"])
+    r = api.post("/api/avulsa", json=nota)
+    assert r.status_code == 200, r.text
+    api.worker.processar_lote(r.json()["id"])
+    assert api.get(f"/api/lotes/{r.json()['id']}").json()["contagem"] == {"autorizada": 1}
+    dps = sefin.enviadas[-1]
+    assert b"<vDescIncond>100.00</vDescIncond>" in dps and b"<vDescCond>" not in dps
+    assert b"<xPed>PED-1</xPed>" in dps and b"<xItemPed>10</xItemPed>" in dps
+    assert b"<xInfComp>Contrato 12/2026</xInfComp>" in dps

@@ -568,7 +568,7 @@ export function CamposEmpresa({
   );
 }
 
-type ClasseIbsCbs = Opcao & { cst: string; reducao_ibs: number; reducao_cbs: number };
+type ClasseIbsCbs = Opcao & { cst: string; reducao_ibs: number; reducao_cbs: number; trib_regular?: boolean; diferimento?: boolean };
 
 /**
  * Serviço, tributos e IBS/CBS: o que muda de uma tributação para outra, na ordem e com os nomes do Emissor Nacional
@@ -596,6 +596,17 @@ export function CamposTributacao({
   const prefeitura = useConferencia(valor.c_trib_nac, valor.c_loc_prestacao, municipioPrestador);
   const conferencia = prefeitura.data;
   const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
+  // Imunidade, exportação e não incidência não têm suspensão nem benefício (E0585/E0533); o tipo de imunidade só
+  // existe com imunidade (E0592).
+  const mudarTribIssqn = (trib: string) =>
+    onChange({
+      ...valor,
+      trib_issqn: trib,
+      tp_imunidade: trib === "2" ? valor.tp_imunidade : null,
+      ...(trib === "1" ? {} : { tp_susp: null, n_processo: null, n_bm: null, p_red_bcbm: null, v_red_bcbm: null }),
+      ...(trib === "1" ? {} : { tp_ret_issqn: "1" }),
+    });
+  const [beneficioEmReais, setBeneficioEmReais] = useState(!!valor.v_red_bcbm);
   // Ao trocar o serviço, um NBS que não é dele dá lugar ao único NBS do serviço novo (ou fica para escolher).
   const servicoTrocado = useRef<string | null>(null);
   useEffect(() => {
@@ -688,14 +699,30 @@ export function CamposTributacao({
           <Pergunta
             texto="O serviço prestado é um caso de imunidade, exportação de serviço ou não incidência do ISSQN?"
             sim={!incide}
-            onChange={(sim) => set("trib_issqn", sim ? "2" : "1")}
+            onChange={(sim) => mudarTribIssqn(sim ? "2" : "1")}
           />
           {!incide && (
             <Selecao
               rotulo="Tributação do ISSQN sobre o serviço prestado"
               valor={valor.trib_issqn}
-              opcoes={op?.trib_issqn?.filter((o) => o.valor !== "1")}
-              onChange={(v) => set("trib_issqn", v ?? "2")}
+              opcoes={op?.trib_issqn?.filter((o) => o.valor !== "1" && (o.valor !== "3" || valor.trib_issqn === "3"))}
+              onChange={(v) => mudarTribIssqn(v ?? "2")}
+              ajuda={
+                valor.trib_issqn === "3"
+                  ? "Exportação de serviço ainda não é emitida por este sistema: a nota precisa do tomador no exterior."
+                  : undefined
+              }
+            />
+          )}
+          {valor.trib_issqn === "2" && (
+            <Selecao
+              rotulo="Tipo de imunidade"
+              largo
+              valor={valor.tp_imunidade}
+              opcoes={op?.tp_imunidade}
+              vazio="Escolha"
+              onChange={(v) => set("tp_imunidade", v)}
+              ajuda="Obrigatório com imunidade (art. 150, VI, da Constituição)."
             />
           )}
           <CampoNbs valor={valor.c_nbs} onChange={(v) => set("c_nbs", v)} servico={servico} obrigatorio={valor.ibscbs} />
@@ -763,6 +790,87 @@ export function CamposTributacao({
                     : "A nota não informa alíquota: a Sefin aplica a que a prefeitura cadastrou."
               }
             />
+          )}
+          {incide && (
+            <>
+              <Pergunta
+                texto="A exigibilidade do ISSQN está suspensa?"
+                sim={!!valor.tp_susp}
+                onChange={(sim) => onChange({ ...valor, tp_susp: sim ? "1" : null, n_processo: sim ? valor.n_processo : null })}
+                ajuda="Por decisão judicial ou processo administrativo que suspende a cobrança do ISSQN."
+              />
+              {valor.tp_susp && (
+                <>
+                  <Selecao
+                    rotulo="Motivo da suspensão"
+                    valor={valor.tp_susp}
+                    opcoes={op?.tp_susp}
+                    onChange={(v) => set("tp_susp", v ?? "1")}
+                  />
+                  <Texto
+                    rotulo="Número do processo"
+                    valor={valor.n_processo}
+                    onChange={(v) => set("n_processo", v.replace(/\D/g, "").slice(0, 30) || null)}
+                    ajuda="30 dígitos, sem pontos. Se o número tiver menos, complete com zeros à esquerda."
+                    erro={valor.n_processo && valor.n_processo.length !== 30 ? `Tem ${valor.n_processo.length} de 30 dígitos.` : undefined}
+                    num
+                  />
+                </>
+              )}
+              {regime?.op_simp_nac !== "2" && (
+                <Pergunta
+                  texto="Há benefício municipal?"
+                  sim={valor.n_bm !== null && valor.n_bm !== undefined}
+                  onChange={(sim) =>
+                    onChange({ ...valor, n_bm: sim ? valor.n_bm ?? "" : null, p_red_bcbm: null, v_red_bcbm: null })
+                  }
+                  ajuda="Isenção, redução da base ou alíquota diferenciada que a prefeitura cadastrou no Sistema Nacional, com número próprio."
+                />
+              )}
+              {valor.n_bm !== null && valor.n_bm !== undefined && (
+                <>
+                  <Texto
+                    rotulo="Número do benefício municipal"
+                    valor={valor.n_bm}
+                    onChange={(v) => set("n_bm", v.replace(/\D/g, "").slice(0, 14))}
+                    ajuda="14 dígitos, como a prefeitura divulga."
+                    erro={valor.n_bm && valor.n_bm.length !== 14 ? `Tem ${valor.n_bm.length} de 14 dígitos.` : undefined}
+                    num
+                  />
+                  <label className="campo">
+                    <span>Redução da base de cálculo</span>
+                    <select
+                      value={beneficioEmReais ? "reais" : "pct"}
+                      onChange={(e) => {
+                        setBeneficioEmReais(e.target.value === "reais");
+                        onChange({ ...valor, p_red_bcbm: null, v_red_bcbm: null });
+                      }}
+                    >
+                      <option value="pct">Em percentual</option>
+                      <option value="reais">Em reais</option>
+                    </select>
+                    <small>Só se o benefício for de redução da base. Isenção e alíquota diferenciada não pedem valor.</small>
+                  </label>
+                  {beneficioEmReais ? (
+                    <Texto
+                      rotulo="Redução (R$)"
+                      valor={(valor.v_red_bcbm ?? "").replace(".", ",")}
+                      onChange={(v) => set("v_red_bcbm", pctDado(v))}
+                      ajuda="O mesmo valor em todas as notas com esta tributação. Vazio = sem redução."
+                      num
+                    />
+                  ) : (
+                    <Texto
+                      rotulo="Redução (%)"
+                      valor={pctTela(valor.p_red_bcbm)}
+                      onChange={(v) => set("p_red_bcbm", pctDado(v))}
+                      ajuda="Vazio = sem redução."
+                      num
+                    />
+                  )}
+                </>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -929,6 +1037,17 @@ function CamposIbsCbs({
   const sugeridas = new Set(servico?.c_class_trib.map((c) => c.codigo));
   const doCst = classes.filter((c) => c.cst === cst);
   const atual = classes.find((c) => c.valor === valor.ibscbs_c_class_trib);
+  // Classificação nova: os grupos que ela não pede saem (E0964/E0971); os que pede ficam para preencher.
+  const trocarClasse = (codigo: string) => {
+    const c = classes.find((x) => x.valor === codigo);
+    onChange({
+      ...valor,
+      ibscbs_c_class_trib: codigo,
+      ibscbs_c_class_trib_reg: c?.trib_regular ? valor.ibscbs_c_class_trib_reg : null,
+      ...(c?.diferimento ? {} : { ibscbs_p_dif_uf: null, ibscbs_p_dif_mun: null, ibscbs_p_dif_cbs: null }),
+    });
+  };
+  const regulares = classes.filter((c) => !c.trib_regular && !c.diferimento);
   const opcao = (c: ClasseIbsCbs) => (
     <option key={c.valor} value={c.valor}>
       {c.valor} - {c.descricao}
@@ -939,7 +1058,7 @@ function CamposIbsCbs({
     // Ao trocar o CST, fica a classificação indicada para o serviço (se houver nesse CST) ou a primeira dele.
     const lista = classes.filter((c) => c.cst === novo);
     const escolhida = lista.find((c) => sugeridas.has(c.valor)) ?? lista[0];
-    if (escolhida) set("ibscbs_c_class_trib", escolhida.valor);
+    if (escolhida) trocarClasse(escolhida.valor);
   };
   return (
     <>
@@ -955,7 +1074,7 @@ function CamposIbsCbs({
           <Texto
             rotulo="Código de Classificação Tributária"
             valor={valor.ibscbs_c_class_trib}
-            onChange={(v) => set("ibscbs_c_class_trib", v.replace(/\D/g, "").slice(0, 6))}
+            onChange={(v) => trocarClasse(v.replace(/\D/g, "").slice(0, 6))}
             ajuda="6 dígitos, da tabela oficial de classificação tributária."
             num
           />
@@ -964,7 +1083,7 @@ function CamposIbsCbs({
             <span>Código de Classificação Tributária</span>
             <select
               value={valor.ibscbs_c_class_trib}
-              onChange={(e) => (e.target.value === "__outro" ? setLivre(true) : set("ibscbs_c_class_trib", e.target.value))}
+              onChange={(e) => (e.target.value === "__outro" ? setLivre(true) : trocarClasse(e.target.value))}
             >
               {!atual && valor.ibscbs_c_class_trib && (
                 <option value={valor.ibscbs_c_class_trib}>{valor.ibscbs_c_class_trib} - fora da tabela para NFS-e</option>
@@ -979,6 +1098,39 @@ function CamposIbsCbs({
             </select>
             <small>Algumas classificações reduzem ou isentam o IBS/CBS: confirme a do seu serviço com a contabilidade.</small>
           </label>
+        )}
+        {atual?.trib_regular && (
+          <label className="campo largo">
+            <span>Classificação na tributação regular</span>
+            <select value={valor.ibscbs_c_class_trib_reg ?? ""} onChange={(e) => set("ibscbs_c_class_trib_reg", e.target.value || null)}>
+              <option value="">Escolha</option>
+              {regulares.map(opcao)}
+            </select>
+            <small>Esta classificação é de um regime especial: a Sefin pede também a que valeria sem ele (em geral 000001).</small>
+          </label>
+        )}
+        {atual?.diferimento && (
+          <>
+            <Texto
+              rotulo="Diferimento do IBS estadual (%)"
+              valor={pctTela(valor.ibscbs_p_dif_uf)}
+              onChange={(v) => set("ibscbs_p_dif_uf", pctDado(v))}
+              num
+            />
+            <Texto
+              rotulo="Diferimento do IBS municipal (%)"
+              valor={pctTela(valor.ibscbs_p_dif_mun)}
+              onChange={(v) => set("ibscbs_p_dif_mun", pctDado(v))}
+              num
+            />
+            <Texto
+              rotulo="Diferimento da CBS (%)"
+              valor={pctTela(valor.ibscbs_p_dif_cbs)}
+              onChange={(v) => set("ibscbs_p_dif_cbs", pctDado(v))}
+              ajuda="Classificação de diferimento: a Sefin exige os três percentuais (0 vale)."
+              num
+            />
+          </>
         )}
         <Selecao
           rotulo="Uso ou consumo pessoal"
@@ -996,7 +1148,7 @@ function CamposIbsCbs({
             .map((c, i) => (
               <span key={c.codigo}>
                 {i > 0 && "; "}
-                <button type="button" className="btn-texto num" onClick={() => set("ibscbs_c_class_trib", c.codigo)}>
+                <button type="button" className="btn-texto num" onClick={() => trocarClasse(c.codigo)}>
                   {c.codigo}
                 </button>{" "}
                 {c.nome}
@@ -1053,12 +1205,26 @@ const reais = (v: number) => moeda(v.toFixed(2));
  * líquido, como na prévia da tela de tributação. A alíquota do ISS vem da mesma regra (a do Simples quando a Sefin
  * exige, senão a cadastrada na prefeitura).
  */
-export function ValoresDaNota({ tributacao, valor, regime }: { tributacao: DadosTributacao; valor: number; regime: Regime | null | undefined }) {
+export function ValoresDaNota({
+  tributacao,
+  valor,
+  regime,
+  descIncond = 0,
+  descCond = 0,
+}: {
+  tributacao: DadosTributacao;
+  valor: number;
+  regime: Regime | null | undefined;
+  descIncond?: number;
+  descCond?: number;
+}) {
   const conferencia = useConferencia(tributacao.c_trib_nac, tributacao.c_loc_prestacao).data;
   const incide = tributacao.trib_issqn === "1";
   const aliquotaPrefeitura = conferencia?.situacao === "encontrado" ? conferencia.aliquota : null;
   const aliquotaIss = !incide ? null : issExigeAliquota(regime, tributacao) ? tributacao.p_aliq_iss : aliquotaPrefeitura;
-  return <PreviaValores valor={tributacao} aliquotaIss={aliquotaIss} incide={incide} valorNota={valor} />;
+  return (
+    <PreviaValores valor={tributacao} aliquotaIss={aliquotaIss} incide={incide} valorNota={valor} descIncond={descIncond} descCond={descCond} />
+  );
 }
 
 function PreviaValores({
@@ -1066,18 +1232,26 @@ function PreviaValores({
   aliquotaIss,
   incide,
   valorNota,
+  descIncond = 0,
+  descCond = 0,
 }: {
   valor: DadosTributacao;
   aliquotaIss: string | null;
   incide: boolean;
   /** Valor de uma nota de verdade (nota avulsa): troca a nota de exemplo por ele. */
   valorNota?: number;
+  descIncond?: number;
+  descCond?: number;
 }) {
   const [exemplo, setExemplo] = useState("1.000,00");
-  const base = valorNota ?? (Number(exemplo.replace(/\./g, "").replace(",", ".")) || 0);
+  const servico = valorNota ?? (Number(exemplo.replace(/\./g, "").replace(",", ".")) || 0);
+  // Desconto incondicionado e benefício municipal reduzem a base (E1295); o condicionado só sai do líquido (E1508).
+  const base = Math.max(servico - descIncond, 0);
+  const beneficio = incide && valor.n_bm ? (valor.v_red_bcbm ? Number(valor.v_red_bcbm) : de(base, valor.p_red_bcbm)) : 0;
+  const baseIss = Math.max(base - beneficio, 0);
   const [pisRet, cofinsRet, csllRet] = (valor.cst_pis_cofins && RETENCOES[valor.tp_ret_pis_cofins ?? ""]) || [false, false, false];
   const issRetido = incide && ["2", "3"].includes(valor.tp_ret_issqn);
-  const iss = aliquotaIss ? de(base, aliquotaIss) : null;
+  const iss = aliquotaIss ? de(baseIss, aliquotaIss) : null;
   const pis = valor.cst_pis_cofins ? de(base, valor.p_aliq_pis) : 0;
   const cofins = valor.cst_pis_cofins ? de(base, valor.p_aliq_cofins) : 0;
   const irrf = de(base, valor.p_ret_irrf);
@@ -1103,8 +1277,10 @@ function PreviaValores({
       </div>
       <h4>ISSQN calculado</h4>
       <dl>
-        {linha("Serviço prestado", reais(base))}
-        {linha("Base de cálculo", incide ? reais(base) : "—")}
+        {linha("Serviço prestado", reais(servico))}
+        {descIncond > 0 && linha("Desconto incondicionado", reais(descIncond))}
+        {beneficio > 0 && linha("Redução do benefício municipal", reais(beneficio))}
+        {linha("Base de cálculo", incide ? reais(baseIss) : "—")}
         {linha("Alíquota aplicada", !incide ? "—" : aliquotaIss ? `${pctTela(aliquotaIss)}%` : "a da prefeitura")}
         {linha(issRetido ? "ISSQN retido" : "ISSQN", !incide ? reais(0) : iss !== null ? reais(iss) : "calculado pela Sefin")}
       </dl>
@@ -1118,9 +1294,10 @@ function PreviaValores({
       </dl>
       <h4>Valor líquido da NFS-e</h4>
       <dl>
-        {linha("Serviço prestado", reais(base))}
+        {linha("Serviço prestado", reais(servico))}
+        {descIncond + descCond > 0 && linha("Descontos", reais(descIncond + descCond))}
         {linha("Valor total de tributos retidos", reais(retidos))}
-        {linha("Valor líquido da NFS-e", reais(base - retidos), true)}
+        {linha("Valor líquido da NFS-e", reais(servico - descIncond - descCond - retidos), true)}
       </dl>
       {issRetido && iss === null && (
         <p className="dica-grade">O ISSQN retido também sai do líquido; a Sefin calcula com a alíquota da prefeitura.</p>
