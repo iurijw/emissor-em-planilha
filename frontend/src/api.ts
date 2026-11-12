@@ -259,12 +259,32 @@ export interface Fiscal {
   n_bm: string | null;
   p_red_bcbm: string | null;
   v_red_bcbm: string | null;
+  /** País da prestação (ISO 2 letras) quando o serviço é prestado no exterior; com ele, c_loc_prestacao fica vazio. */
+  c_pais_prestacao: string | null;
+  /** País onde o resultado da exportação acontece (cPaisResult). */
+  c_pais_result: string | null;
+  comex_md_prestacao: string | null;
+  comex_vinc_prest: string | null;
+  comex_tp_moeda: string | null;
+  comex_mec_af_p: string | null;
+  comex_mec_af_t: string | null;
+  comex_mov_temp_bens: string | null;
+  comex_mdic: string | null;
   tp_emit: string;
 }
 
 /** Campos que mudam de uma tributação para outra (o resto vem das configurações). */
 export const CAMPOS_TRIBUTACAO = [
   "c_loc_prestacao",
+  "c_pais_prestacao",
+  "c_pais_result",
+  "comex_md_prestacao",
+  "comex_vinc_prest",
+  "comex_tp_moeda",
+  "comex_mec_af_p",
+  "comex_mec_af_t",
+  "comex_mov_temp_bens",
+  "comex_mdic",
   "c_trib_nac",
   "c_trib_mun",
   "c_nbs",

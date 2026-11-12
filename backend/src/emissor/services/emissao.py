@@ -31,6 +31,7 @@ from sqlmodel import Session, select
 from emissor import empresas
 from emissor.db import Emissao, LinhaTabela, Lote, agora, obter_cliente, obter_config, para_local, sessao
 from emissor.logging_setup import bind_context
+from emissor.nfse import codes
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
 from emissor.nfse.constants import Ambiente
@@ -50,6 +51,7 @@ from emissor.nfse.models import (
     DadosNota,
     DpsInput,
     aplicar_tributacao,
+    exige_comext,
     iss_exige_aliquota,
     normalizar_documento,
     tributacao_de,
@@ -130,14 +132,33 @@ def validar_linhas(
             v.erros.extend(erros_aba.get(aba.id, []))
         cfg_ef = efetiva(aba)
         iss_retido = cfg_ef is not None and cfg_ef.tp_ret_issqn in ("2", "3")
-        doc = normalizar_documento(ln.documento) or ""
+        nota = (notas or {}).get(ln.id) or DadosNota()
+        exterior = nota.tomador()
+        doc = "" if exterior else normalizar_documento(ln.documento) or ""
         cli = obter_cliente(s, doc) if doc else None
-        if not doc:
+        if exterior is not None:
+            v.erros.extend(_erros_tomador_exterior(exterior))
+        elif not doc:
             v.erros.append("CNPJ/CPF não informado.")
         elif len(doc) not in (11, 14) or not documento_valido(doc):
             v.erros.append(f"CNPJ/CPF inválido: {ln.documento!r} (dígitos verificadores não conferem).")
-        if not (ln.nome or "").strip() and not (cli and cli.nome):
+        if not exterior and not (ln.nome or "").strip() and not (cli and cli.nome):
             v.erros.append("Nome da empresa não informado.")
+        if cfg_ef is not None and exige_comext(cfg_ef, exterior is not None):
+            if ln.aba_id is not None:
+                v.erros.append(
+                    "A tributação desta aba é de exportação ou de serviço prestado no exterior: a nota precisa do "
+                    "valor na moeda estrangeira. Emita pela nota avulsa."
+                )
+            else:
+                faltam = [rotulo for campo, rotulo in trib_service._ROTULOS_COMEX.items() if not getattr(cfg_ef, campo)]
+                if faltam:
+                    v.erros.append(
+                        "Operação com o exterior: a tributação precisa dos dados de comércio exterior (E0330). "
+                        f"Falta: {', '.join(faltam)}. Use “Só para esta nota” ou uma tributação de exportação."
+                    )
+                if not nota.v_serv_moeda or nota.v_serv_moeda <= 0:
+                    v.erros.append("Operação com o exterior: informe o valor do serviço na moeda estrangeira.")
         valor = _valor(ln.valor)
         if valor is None:
             v.erros.append(f"Valor inválido ou zerado: {ln.valor!r}.")
@@ -162,7 +183,6 @@ def validar_linhas(
                 v.avisos.append(
                     f"Este cliente tem aba própria (“{dona.nome}”); aqui a nota sai com a tributação desta aba."
                 )
-        nota = (notas or {}).get(ln.id) or DadosNota()
         if cfg_ef is not None and valor is not None:
             v.erros.extend(calcular_tributos(cfg_ef, valor, nota.v_desc_incond, nota.v_desc_cond)[1])
         if nota.x_inf_comp and len(nota.x_inf_comp) > 2000:
@@ -205,6 +225,33 @@ def validar_linhas(
             v.erros.append("Esta linha já está em uma emissão em andamento.")
         res.append(v)
     return res
+
+
+def _erros_tomador_exterior(t) -> list[str]:
+    erros = []
+    if not t.documento and t.c_nao_nif not in ("1", "2"):
+        erros.append("Tomador no exterior: informe o NIF ou o motivo de não ter.")
+    if len(t.documento) > 40:
+        erros.append("NIF do tomador com mais de 40 caracteres.")
+    if not t.nome.strip():
+        erros.append("Nome do tomador não informado.")
+    e = t.exterior
+    if e.c_pais not in codes.paises():
+        erros.append("País do tomador no exterior não informado ou inválido.")
+    faltam = [
+        rotulo
+        for valor, rotulo in (
+            (e.c_end_post, "código postal"),
+            (e.cidade, "cidade"),
+            (e.estado, "estado/província"),
+            (e.logradouro, "logradouro"),
+            (e.bairro, "bairro"),
+        )
+        if not (valor or "").strip()
+    ]
+    if faltam:
+        erros.append(f"Endereço do tomador no exterior incompleto: falta {', '.join(faltam)} (E0242).")
+    return erros
 
 
 def _erros_tributacao_abas(s: Session, abas: list) -> dict[int, list[str]]:
@@ -345,12 +392,13 @@ class NotaAvulsa:
 
 
 def linha_avulsa(n: NotaAvulsa) -> LinhaTabela:
-    """Linha transitória (fora do banco) para reaproveitar a validação da tabela."""
+    """Linha transitória (fora do banco) para reaproveitar a validação da tabela (tomador no exterior: o NIF)."""
+    ext = n.nota.tomador()
     return LinhaTabela(
         id=None,
         aba_id=None,
-        nome=n.nome,
-        documento=normalizar_documento(n.documento) or "",
+        nome=ext.nome if ext else n.nome,
+        documento=ext.documento if ext else normalizar_documento(n.documento) or "",
         valor=n.valor,
         descricao=n.descricao,
     )
@@ -390,7 +438,7 @@ def _gravar_lote(s: Session, ambiente: str, itens: list[tuple], nota: DadosNota 
     lote = Lote(id=uuid.uuid4().hex[:12], ambiente=ambiente, total=len(itens))
     s.add(lote)
     for linha_id, nome, documento, valor, descricao, trib_nome, trib in itens:
-        doc = normalizar_documento(documento)
+        doc = normalizar_documento(documento) or ""
         cli = obter_cliente(s, doc)
         s.add(
             Emissao(
@@ -545,16 +593,17 @@ class EmissionWorker:
             serie = cfg.serie
             cli = obter_cliente(s, e.tomador_documento)
         dh = agora_emissao()
+        nota = DadosNota.de_dict(e.nota())
         inp = DpsInput(
             ambiente=amb,
             serie=str(serie),
             n_dps=n,
             dh_emi=dh,
             config=aplicar_tributacao(fiscal, e.tributacao()),
-            tomador=para_tomador(cli, e.tomador_documento, e.tomador_nome),
+            tomador=nota.tomador() or para_tomador(cli, e.tomador_documento, e.tomador_nome),
             valor=Decimal(e.valor),
             descricao=variaveis.substituir(e.descricao, dh.date()),
-            nota=DadosNota.de_dict(e.nota()),
+            nota=nota,
         )
         try:
             id_dps, xml = preparar_dps(inp, cert)

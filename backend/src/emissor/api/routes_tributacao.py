@@ -324,6 +324,12 @@ class AvulsaEntrada(BaseModel):
     itens_pedido: list[str] | None = None
     v_desc_incond: str | float | None = None
     v_desc_cond: str | float | None = None
+    # Tomador no exterior (no lugar de documento/nome): nif ou c_nao_nif, nome, c_pais, c_end_post, cidade, estado,
+    # logradouro, numero, complemento, bairro, email, fone
+    tomador_exterior: dict[str, str | None] | None = None
+    v_serv_moeda: str | float | None = None  # comércio exterior: valor na moeda estrangeira
+    n_di: str | None = None
+    n_re: str | None = None
 
 
 def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
@@ -342,7 +348,11 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
     elif entrada.tributacao is not None:
         dados_trib = trib_service.validar_completa(entrada.tributacao, trib_service.config_base(s))
     descontos = {}
-    for campo, rotulo in (("v_desc_incond", "Desconto incondicionado"), ("v_desc_cond", "Desconto condicionado")):
+    for campo, rotulo in (
+        ("v_desc_incond", "Desconto incondicionado"),
+        ("v_desc_cond", "Desconto condicionado"),
+        ("v_serv_moeda", "Valor na moeda estrangeira"),
+    ):
         bruto = getattr(entrada, campo)
         if bruto in (None, ""):
             continue
@@ -355,6 +365,9 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
             "x_inf_comp": (entrada.x_inf_comp or "").strip(),
             "x_ped": (entrada.x_ped or "").strip(),
             "itens_pedido": [i.strip() for i in entrada.itens_pedido or [] if i and i.strip()],
+            "tomador_exterior": _tomador_exterior(entrada.tomador_exterior),
+            "n_di": (entrada.n_di or "").strip(),
+            "n_re": (entrada.n_re or "").strip(),
             **{k: v for k, v in descontos.items() if v and Decimal(v) != 0},
         }
     )
@@ -368,6 +381,33 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
         tributacao_id=entrada.tributacao_id,
         nota=nota,
     )
+
+
+_CAMPOS_EXTERIOR = (
+    "nif",
+    "c_nao_nif",
+    "nome",
+    "c_pais",
+    "c_end_post",
+    "cidade",
+    "estado",
+    "logradouro",
+    "numero",
+    "complemento",
+    "bairro",
+    "email",
+    "fone",
+)
+
+
+def _tomador_exterior(d: dict[str, str | None] | None) -> dict[str, str] | None:
+    if not d:
+        return None
+    limpo = {k: str(d.get(k) or "").strip() for k in _CAMPOS_EXTERIOR}
+    limpo["c_pais"] = limpo["c_pais"].upper()
+    if limpo["nif"]:
+        limpo["c_nao_nif"] = ""
+    return {k: v for k, v in limpo.items() if v} or None
 
 
 def _total(valor: str) -> str:

@@ -337,3 +337,55 @@ def test_ibscbs_com_diferimento_e_tributacao_regular(dps_input, certificado, amb
     assert root.findtext(f".//{N}gTribRegular/{N}cClassTribReg") == "000001"
     with pytest.raises(DpsBuildError, match="E0965"):
         build_dps(replace(reg, config=replace(reg.config, ibscbs_c_class_trib_reg=None)))
+
+
+COMEX = dict(
+    comex_md_prestacao="1",
+    comex_vinc_prest="0",
+    comex_tp_moeda="220",
+    comex_mec_af_p="01",
+    comex_mec_af_t="01",
+    comex_mov_temp_bens="1",
+    comex_mdic="0",
+)
+
+
+@pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
+def test_exportacao_com_tomador_no_exterior(dps_input, certificado, ambiente):
+    from emissor.nfse.models import DadosNota
+
+    externo = {
+        "nif": "98-7654321",
+        "nome": "EXAMPLE CONSULTING LLC",
+        "c_pais": "US",
+        "c_end_post": "10001",
+        "cidade": "New York",
+        "estado": "NY",
+        "logradouro": "5th Avenue",
+        "numero": "100",
+        "bairro": "Manhattan",
+    }
+    nota = DadosNota(tomador_exterior=externo, v_serv_moeda=Decimal("90.00"), n_re="123456789012")
+    cfg = replace(dps_input.config, trib_issqn="3", c_pais_result="US", cst_pis_cofins=None, **COMEX)
+    inp = replace(dps_input, ambiente=ambiente, config=cfg, nota=nota, tomador=nota.tomador())
+    _, xml = preparar_dps(inp, certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}toma/{N}NIF") == "98-7654321"
+    assert inf.findtext(f"{N}toma/{N}end/{N}endExt/{N}cPais") == "US"
+    assert inf.findtext(f"{N}serv/{N}comExt/{N}vServMoeda") == "90.00"
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribMun/{N}cPaisResult") == "US"
+    # sem NIF, com o motivo
+    sem_nif = DadosNota(tomador_exterior=externo | {"nif": "", "c_nao_nif": "1"}, v_serv_moeda=Decimal("90"))
+    root = build_dps(replace(inp, nota=sem_nif, tomador=sem_nif.tomador()))
+    assert root.findtext(f"{N}infDPS/{N}toma/{N}cNaoNIF") == "1"
+    # prestado no exterior: país no lugar do município, sem país do resultado
+    fora = replace(cfg, c_pais_prestacao="AR", c_pais_result=None)
+    root = build_dps(replace(inp, config=fora))
+    assert root.findtext(f"{N}infDPS/{N}serv/{N}locPrest/{N}cPaisPrestacao") == "AR"
+    assert [e for e in validar_dps(root) if "Signature" not in e.mensagem] == []
+    with pytest.raises(DpsBuildError, match="moeda estrangeira"):
+        build_dps(replace(inp, nota=DadosNota(tomador_exterior=externo)))
+    with pytest.raises(DpsBuildError, match="E0590"):
+        build_dps(replace(inp, config=replace(cfg, c_pais_result=None)))

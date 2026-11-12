@@ -168,6 +168,31 @@ export function CampoMunicipio(props: {
   );
 }
 
+/** Exportação ou serviço no exterior pedem o grupo de comércio exterior (E0330): entra com os valores mais comuns e
+ * sai inteiro quando deixa de valer. */
+function comComex(t: DadosTributacao): DadosTributacao {
+  if (t.trib_issqn !== "3" && t.c_pais_prestacao == null)
+    return {
+      ...t,
+      comex_md_prestacao: null,
+      comex_vinc_prest: null,
+      comex_tp_moeda: null,
+      comex_mec_af_p: null,
+      comex_mec_af_t: null,
+      comex_mov_temp_bens: null,
+      comex_mdic: null,
+    };
+  return {
+    ...t,
+    comex_vinc_prest: t.comex_vinc_prest ?? "0",
+    comex_tp_moeda: t.comex_tp_moeda ?? "220",
+    comex_mec_af_p: t.comex_mec_af_p ?? "01",
+    comex_mec_af_t: t.comex_mec_af_t ?? "01",
+    comex_mov_temp_bens: t.comex_mov_temp_bens ?? "1",
+    comex_mdic: t.comex_mdic ?? "0",
+  };
+}
+
 function Selecao(props: {
   rotulo: string;
   valor: string | null;
@@ -457,7 +482,7 @@ function useConferencia(codigo: string, local: string | null, municipioPrestador
 }
 
 /** Pergunta de Sim/Não como no Emissor Nacional (Não primeiro). */
-function Pergunta(props: { texto: string; sim: boolean; onChange: (sim: boolean) => void; ajuda?: string }) {
+export function Pergunta(props: { texto: string; sim: boolean; onChange: (sim: boolean) => void; ajuda?: string }) {
   const nome = useId();
   return (
     <fieldset className="pergunta largo">
@@ -599,13 +624,18 @@ export function CamposTributacao({
   // Imunidade, exportação e não incidência não têm suspensão nem benefício (E0585/E0533); o tipo de imunidade só
   // existe com imunidade (E0592).
   const mudarTribIssqn = (trib: string) =>
-    onChange({
-      ...valor,
-      trib_issqn: trib,
-      tp_imunidade: trib === "2" ? valor.tp_imunidade : null,
-      ...(trib === "1" ? {} : { tp_susp: null, n_processo: null, n_bm: null, p_red_bcbm: null, v_red_bcbm: null }),
-      ...(trib === "1" ? {} : { tp_ret_issqn: "1" }),
-    });
+    onChange(
+      comComex({
+        ...valor,
+        trib_issqn: trib,
+        tp_imunidade: trib === "2" ? valor.tp_imunidade : null,
+        c_pais_result: trib === "3" ? valor.c_pais_result : null,
+        ...(trib === "1" ? {} : { tp_susp: null, n_processo: null, n_bm: null, p_red_bcbm: null, v_red_bcbm: null }),
+        ...(trib === "1" ? {} : { tp_ret_issqn: "1" }),
+      }),
+    );
+  const noExterior = valor.c_pais_prestacao != null;
+  const exportacao = valor.trib_issqn === "3" || noExterior;
   const [beneficioEmReais, setBeneficioEmReais] = useState(!!valor.v_red_bcbm);
   // Ao trocar o serviço, um NBS que não é dele dá lugar ao único NBS do serviço novo (ou fica para escolher).
   const servicoTrocado = useRef<string | null>(null);
@@ -662,12 +692,30 @@ export function CamposTributacao({
       <section>
         <h3 className="secao-titulo">Serviço prestado</h3>
         <div className="grade-form">
-          <CampoMunicipio
-            rotulo="Local da prestação do serviço"
-            codigo={valor.c_loc_prestacao}
-            onChange={(c) => set("c_loc_prestacao", c)}
-            ajuda="Vazio = município do prestador."
+          <Pergunta
+            texto="O serviço foi prestado no exterior?"
+            sim={noExterior}
+            onChange={(sim) =>
+              onChange(comComex({ ...valor, c_pais_prestacao: sim ? "" : null, c_loc_prestacao: null, c_pais_result: null }))
+            }
+            ajuda={noExterior ? "A nota sai com o país no lugar do município e com os dados de comércio exterior." : undefined}
           />
+          {noExterior ? (
+            <Selecao
+              rotulo="País da prestação do serviço"
+              valor={valor.c_pais_prestacao || null}
+              opcoes={op?.paises}
+              vazio="Escolha"
+              onChange={(v) => set("c_pais_prestacao", v ?? "")}
+            />
+          ) : (
+            <CampoMunicipio
+              rotulo="Local da prestação do serviço"
+              codigo={valor.c_loc_prestacao}
+              onChange={(c) => set("c_loc_prestacao", c)}
+              ajuda="Vazio = município do prestador."
+            />
+          )}
           <CampoServico
             codigo={valor.c_trib_nac}
             onChange={(c) => {
@@ -705,13 +753,23 @@ export function CamposTributacao({
             <Selecao
               rotulo="Tributação do ISSQN sobre o serviço prestado"
               valor={valor.trib_issqn}
-              opcoes={op?.trib_issqn?.filter((o) => o.valor !== "1" && (o.valor !== "3" || valor.trib_issqn === "3"))}
+              opcoes={op?.trib_issqn?.filter((o) => o.valor !== "1")}
               onChange={(v) => mudarTribIssqn(v ?? "2")}
               ajuda={
                 valor.trib_issqn === "3"
-                  ? "Exportação de serviço ainda não é emitida por este sistema: a nota precisa do tomador no exterior."
+                  ? "A exportação sai só pela nota avulsa, que pede o valor na moeda estrangeira."
                   : undefined
               }
+            />
+          )}
+          {valor.trib_issqn === "3" && !noExterior && (
+            <Selecao
+              rotulo="País onde se deu o resultado do serviço"
+              valor={valor.c_pais_result}
+              opcoes={op?.paises}
+              vazio="Escolha"
+              onChange={(v) => set("c_pais_result", v)}
+              ajuda="Onde o serviço produz efeito (normalmente o país do tomador)."
             />
           )}
           {valor.trib_issqn === "2" && (
@@ -755,6 +813,67 @@ export function CamposTributacao({
         </div>
         <SituacaoPrefeitura consulta={prefeitura} />
       </section>
+
+      {exportacao && (
+        <section>
+          <h3 className="secao-titulo">Comércio exterior</h3>
+          <div className="grade-form">
+            <Selecao
+              rotulo="Modo de prestação"
+              largo
+              valor={valor.comex_md_prestacao}
+              opcoes={op?.comex_md_prestacao}
+              vazio="Escolha"
+              onChange={(v) => set("comex_md_prestacao", v)}
+              ajuda="Transfronteiriço: o serviço é feito daqui para o exterior (ex.: consultoria a distância)."
+            />
+            <Selecao
+              rotulo="Vínculo entre as partes"
+              largo
+              valor={valor.comex_vinc_prest}
+              opcoes={op?.comex_vinc_prest}
+              onChange={(v) => set("comex_vinc_prest", v)}
+            />
+            <Selecao
+              rotulo="Moeda"
+              largo
+              valor={valor.comex_tp_moeda}
+              opcoes={op?.comex_tp_moeda}
+              onChange={(v) => set("comex_tp_moeda", v)}
+              ajuda="Moeda do contrato. O valor nela é informado em cada nota avulsa."
+            />
+            <Selecao
+              rotulo="Mecanismo de apoio ao prestador"
+              largo
+              valor={valor.comex_mec_af_p}
+              opcoes={op?.comex_mec_af_p}
+              onChange={(v) => set("comex_mec_af_p", v)}
+            />
+            <Selecao
+              rotulo="Mecanismo de apoio ao tomador"
+              largo
+              valor={valor.comex_mec_af_t}
+              opcoes={op?.comex_mec_af_t}
+              onChange={(v) => set("comex_mec_af_t", v)}
+            />
+            <Selecao
+              rotulo="Movimentação temporária de bens"
+              largo
+              valor={valor.comex_mov_temp_bens}
+              opcoes={op?.comex_mov_temp_bens}
+              onChange={(v) => set("comex_mov_temp_bens", v)}
+              ajuda="Vinculada a uma declaração: o número da DI ou do RE vai na nota avulsa."
+            />
+            <Selecao
+              rotulo="Compartilhar com o MDIC"
+              largo
+              valor={valor.comex_mdic}
+              opcoes={op?.comex_mdic}
+              onChange={(v) => set("comex_mdic", v)}
+            />
+          </div>
+        </section>
+      )}
 
       <section>
         <h3 className="secao-titulo">Tributação municipal</h3>

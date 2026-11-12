@@ -58,6 +58,67 @@ TP_SUSP = {
 }
 # Tipos de imunidade que a DPS aceita (o 0 é só para notas vindas de outros sistemas, E0593).
 TP_IMUNIDADE_DPS = {k: v for k, v in TP_IMUNIDADE.items() if k != "0"}
+# Comércio exterior (serv/comExt). O 0 ("desconhecido") só vale para notas vindas de outros sistemas (E0333...).
+MD_PRESTACAO = {
+    "1": "Transfronteiriço",
+    "2": "Consumo no Brasil",
+    "3": "Movimento temporário de pessoas físicas",
+    "4": "Consumo no exterior",
+}
+VINC_PREST = {
+    "0": "Sem vínculo com o tomador",
+    "1": "Controlada",
+    "2": "Controladora",
+    "3": "Coligada",
+    "4": "Matriz",
+    "5": "Filial ou sucursal",
+    "6": "Outro vínculo",
+}
+MEC_AF_COMEX_P = {
+    "01": "Nenhum",
+    "02": "ACC - Adiantamento sobre Contrato de Câmbio",
+    "03": "ACE - Adiantamento sobre Cambiais Entregues",
+    "04": "BNDES-Exim Pós-Embarque - Serviços",
+    "05": "BNDES-Exim Pré-Embarque - Serviços",
+    "06": "FGE - Fundo de Garantia à Exportação",
+    "07": "PROEX - Equalização",
+    "08": "PROEX - Financiamento",
+}
+MEC_AF_COMEX_T = {
+    "01": "Nenhum",
+    "02": "Adm. Pública e Repr. Internacional",
+    "03": "Aluguéis e arrend. mercantil de máquinas, equip., embarcações e aeronaves",
+    "04": "Arrendamento mercantil de aeronave para empresa de transporte aéreo público",
+    "05": "Comissão a agentes externos na exportação",
+    "06": "Despesas de armazenagem, movimentação e transporte de carga no exterior",
+    "07": "Eventos FIFA (subsidiária)",
+    "08": "Eventos FIFA",
+    "09": "Fretes, arrendamentos de embarcações ou aeronaves e outros",
+    "10": "Material aeronáutico",
+    "11": "Promoção de bens no exterior",
+    "12": "Promoção de destinos turísticos brasileiros",
+    "13": "Promoção do Brasil no exterior",
+    "14": "Promoção de serviços no exterior",
+    "15": "RECINE",
+    "16": "RECOPA",
+    "17": "Registro e manutenção de marcas, patentes e cultivares",
+    "18": "REICOMP",
+    "19": "REIDI",
+    "20": "REPENEC",
+    "21": "REPES",
+    "22": "RETAERO",
+    "23": "RETID",
+    "24": "Royalties, assistência técnica, científica e assemelhados",
+    "25": "Serviços de avaliação da conformidade vinculados aos Acordos da OMC",
+    "26": "ZPE",
+}
+MOV_TEMP_BENS = {
+    "1": "Não",
+    "2": "Vinculada - Declaração de Importação",
+    "3": "Vinculada - Declaração de Exportação",
+}
+MDIC = {"0": "Não enviar para o MDIC", "1": "Enviar para o MDIC"}
+C_NAO_NIF = {"1": "Dispensado do NIF", "2": "Não exigência do NIF"}
 TP_BM = {"1": "Isenção", "2": "Redução da BC em %", "3": "Redução da BC em R$", "4": "Alíquota Diferenciada"}
 TP_RET_PIS_COFINS = {
     "0": "PIS/COFINS/CSLL Não Retidos",
@@ -159,6 +220,23 @@ _MUNICIPIOS_CSV = _DADOS / "municipios_ibge.csv"
 def _municipios() -> dict[str, tuple[str, str]]:
     with _MUNICIPIOS_CSV.open(encoding="utf-8", newline="") as fh:
         return {r["codigo"]: (r["nome"], r["uf"]) for r in csv.DictReader(fh, delimiter=";")}
+
+
+@lru_cache(maxsize=1)
+def paises() -> dict[str, str]:
+    """Países ISO2 do Anexo A (sem o Brasil: endereço e local no exterior não podem ser BR, E0246/E0304)."""
+    with (_DADOS / "paises_iso2.csv").open(encoding="utf-8", newline="") as fh:
+        return {r["codigo"]: r["nome"] for r in csv.DictReader(fh) if r["codigo"] != "BR"}
+
+
+@lru_cache(maxsize=1)
+def moedas() -> dict[str, str]:
+    """Moedas do Banco Central (tpMoeda, 3 dígitos): código → "USD - Dólar dos Estados Unidos"."""
+    dados = json.loads((_DADOS / "moedas_bacen.json").read_text(encoding="utf-8"))
+    return {
+        m["codigo"]: f"{m['sigla']} - {m['nome']}" if m["nome"] != m["sigla"] else m["sigla"]
+        for m in sorted(dados["moedas"], key=lambda m: (m["sigla"] not in ("USD", "EUR"), m["sigla"]))
+    }
 
 
 def municipio(c_mun: str | None) -> tuple[str, str] | None:

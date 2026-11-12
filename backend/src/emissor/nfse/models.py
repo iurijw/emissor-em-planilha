@@ -27,6 +27,18 @@ class Endereco:
 
 
 @dataclass
+class EnderecoExterior:
+    c_pais: str  # ISO2, diferente de BR (E0246)
+    c_end_post: str  # código postal (até 11)
+    cidade: str
+    estado: str  # estado, província ou região
+    logradouro: str
+    numero: str
+    bairro: str
+    complemento: str | None = None
+
+
+@dataclass
 class ConfigFiscal:
     # Prestador
     cnpj: str
@@ -40,11 +52,13 @@ class ConfigFiscal:
     reg_esp_trib: str = "0"
     # Serviço
     c_loc_prestacao: str | None = None  # padrão = c_mun_emissor
+    c_pais_prestacao: str | None = None  # serviço prestado no exterior (ISO2): vai no lugar do município
     c_trib_nac: str = "171901"
     c_trib_mun: str | None = None
     c_nbs: str | None = "113022100"
     # Tributação
     trib_issqn: str = "1"
+    c_pais_result: str | None = None  # exportação (tribISSQN 3): país onde se deu o resultado (E0590)
     tp_imunidade: str | None = None  # obrigatório com tribISSQN 2 (E0592); 0 não é aceito (E0593)
     # Exigibilidade do ISSQN suspensa (exigSusp): 1 decisão judicial, 2 processo administrativo; nº com 30 dígitos
     tp_susp: str | None = None
@@ -81,6 +95,15 @@ class ConfigFiscal:
     ibscbs_p_dif_uf: str | None = None
     ibscbs_p_dif_mun: str | None = None
     ibscbs_p_dif_cbs: str | None = None
+    # Comércio exterior (serv/comExt): obrigatório com exportação, tomador ou local no exterior (E0330). O valor na
+    # moeda estrangeira e os nº de DI/RE são de cada nota (DadosNota).
+    comex_md_prestacao: str | None = None
+    comex_vinc_prest: str | None = None
+    comex_tp_moeda: str | None = None  # código do Banco Central (3 dígitos)
+    comex_mec_af_p: str | None = None
+    comex_mec_af_t: str | None = None
+    comex_mov_temp_bens: str | None = None
+    comex_mdic: str | None = None
     # Emissão
     tp_emit: str = "1"
 
@@ -118,6 +141,11 @@ RETENCOES_PIS_COFINS: dict[str, tuple[bool, bool, bool | None]] = {
 }
 
 
+def exige_comext(cfg: ConfigFiscal, tomador_no_exterior: bool) -> bool:
+    """Grupo de comércio exterior obrigatório (E0330): exportação, prestação ou tomador no exterior."""
+    return cfg.trib_issqn == "3" or bool(cfg.c_pais_prestacao) or tomador_no_exterior
+
+
 def iss_exige_aliquota(cfg: ConfigFiscal) -> bool:
     """A Sefin exige ``pAliq`` (E0621/E0628): ME/EPP com ISS pelo Simples e ISS retido.
 
@@ -131,6 +159,15 @@ def iss_exige_aliquota(cfg: ConfigFiscal) -> bool:
 # tpEmit) valem sempre os das configurações.
 CAMPOS_TRIBUTACAO = (
     "c_loc_prestacao",
+    "c_pais_prestacao",
+    "c_pais_result",
+    "comex_md_prestacao",
+    "comex_vinc_prest",
+    "comex_tp_moeda",
+    "comex_mec_af_p",
+    "comex_mec_af_t",
+    "comex_mov_temp_bens",
+    "comex_mdic",
     "c_trib_nac",
     "c_trib_mun",
     "c_nbs",
@@ -187,12 +224,14 @@ def aplicar_tributacao(cfg: ConfigFiscal, tributacao: dict | None) -> ConfigFisc
 
 @dataclass
 class Tomador:
-    documento: str  # CNPJ (14) ou CPF (11), só dígitos/letras
+    documento: str  # CNPJ (14) ou CPF (11), só dígitos/letras; no exterior, o NIF (ou vazio com c_nao_nif)
     nome: str
     endereco: Endereco | None = None
     fone: str | None = None
     email: str | None = None
     inscricao_municipal: str | None = None
+    exterior: EnderecoExterior | None = None  # tomador no exterior: identificado pelo NIF ou pelo motivo de não ter
+    c_nao_nif: str | None = None  # 1 dispensado, 2 não exigência (sem NIF)
 
     @property
     def tipo_documento(self) -> str:
@@ -221,6 +260,11 @@ class DadosNota:
     itens_pedido: list[str] = field(default_factory=list)  # infoCompl/gItemPed/xItemPed (até 99)
     v_desc_incond: Decimal | None = None  # desconto incondicionado: reduz a base do ISSQN (vBC)
     v_desc_cond: Decimal | None = None  # desconto condicionado: só sai do valor líquido
+    # Tomador no exterior (só na nota avulsa): nif ou c_nao_nif, nome, email, fone e os campos de EnderecoExterior
+    tomador_exterior: dict | None = None
+    v_serv_moeda: Decimal | None = None  # comExt/vServMoeda: valor na moeda da tributação
+    n_di: str | None = None  # comExt/nDI
+    n_re: str | None = None  # comExt/nRE
 
     @classmethod
     def de_dict(cls, d: dict | None) -> DadosNota:
@@ -235,6 +279,10 @@ class DadosNota:
             itens_pedido=[str(i) for i in d.get("itens_pedido") or [] if str(i).strip()],
             v_desc_incond=dec(d.get("v_desc_incond")),
             v_desc_cond=dec(d.get("v_desc_cond")),
+            tomador_exterior=d.get("tomador_exterior") or None,
+            v_serv_moeda=dec(d.get("v_serv_moeda")),
+            n_di=d.get("n_di") or None,
+            n_re=d.get("n_re") or None,
         )
 
     def para_dict(self) -> dict:
@@ -244,12 +292,39 @@ class DadosNota:
             "itens_pedido": self.itens_pedido or None,
             "v_desc_incond": f"{self.v_desc_incond:.2f}" if self.v_desc_incond is not None else None,
             "v_desc_cond": f"{self.v_desc_cond:.2f}" if self.v_desc_cond is not None else None,
+            "tomador_exterior": self.tomador_exterior or None,
+            "v_serv_moeda": f"{self.v_serv_moeda:.2f}" if self.v_serv_moeda is not None else None,
+            "n_di": self.n_di,
+            "n_re": self.n_re,
         }
         return {k: v for k, v in d.items() if v is not None}
 
     @property
     def vazia(self) -> bool:
         return not self.para_dict()
+
+    def tomador(self) -> Tomador | None:
+        """Tomador no exterior da nota, ou None."""
+        t = self.tomador_exterior
+        if not t:
+            return None
+        return Tomador(
+            documento=(t.get("nif") or "").strip(),
+            nome=t.get("nome") or "",
+            email=t.get("email") or None,
+            fone=t.get("fone") or None,
+            c_nao_nif=None if (t.get("nif") or "").strip() else t.get("c_nao_nif") or None,
+            exterior=EnderecoExterior(
+                c_pais=(t.get("c_pais") or "").upper(),
+                c_end_post=t.get("c_end_post") or "",
+                cidade=t.get("cidade") or "",
+                estado=t.get("estado") or "",
+                logradouro=t.get("logradouro") or "",
+                numero=t.get("numero") or "",
+                bairro=t.get("bairro") or "",
+                complemento=t.get("complemento") or None,
+            ),
+        )
 
 
 # --- normalização de dados ------------------------------------------------------

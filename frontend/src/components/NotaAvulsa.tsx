@@ -7,7 +7,8 @@ import { EmissaoFluxo, type CorpoAvulsa } from "../pages/EmissaoFluxo";
 import { ErroCaixa, Gaveta, Spinner } from "../ui";
 import { useTributacoes } from "./Abas";
 import { buscarClientes, normalizarBusca } from "./EditorNomeCliente";
-import { CamposTributacao, ValoresDaNota } from "./FiscalForm";
+import { CamposTributacao, Pergunta, ValoresDaNota } from "./FiscalForm";
+import { exteriorVazio, faltaNoExterior, TomadorExterior, type DadosExterior } from "./TomadorExterior";
 import { corpoDadosNota, DadosDaNota, dadosNotaVazios, type DadosNota } from "./DadosDaNota";
 import { EnderecoTomador, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
 
@@ -41,6 +42,9 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
   const [dadosNota, setDadosNota] = useState<DadosNota>(dadosNotaVazios);
+  const [noExterior, setNoExterior] = useState(false);
+  const [exterior, setExterior] = useState<DadosExterior>(exteriorVazio);
+  const [comex, setComex] = useState({ v_serv_moeda: "", n_di: "", n_re: "" });
   const [escolha, setEscolha] = useState<Escolha>("padrao");
   const [propria, setPropria] = useState<DadosTributacao | null>(null);
   const [focoNome, setFocoNome] = useState(false);
@@ -120,7 +124,18 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
 
   const consultaAtual = consulta?.documento === documento ? consulta : null;
   const enderecoAlterado = !enderecosIguais(endereco, enderecoDe(cadastro)) && !(enderecoVazio(endereco) && !cadastro);
-  const pronto = consultaAtual?.estado !== "buscando" && !!documento && !docInvalido && valorNum !== null && Number(valorNum) > 0 && descricao.trim() !== "";
+  // Exportação, serviço no exterior ou tomador no exterior: a nota leva o valor na moeda estrangeira (comExt).
+  const comExterior = noExterior || tributacaoDaNota?.trib_issqn === "3" || (tributacaoDaNota?.c_pais_prestacao ?? null) != null;
+  const moedaNum = parseValor(comex.v_serv_moeda);
+  const tomadorPronto = noExterior
+    ? faltaNoExterior(exterior).length === 0
+    : !!documento && !docInvalido && consultaAtual?.estado !== "buscando";
+  const pronto =
+    tomadorPronto &&
+    valorNum !== null &&
+    Number(valorNum) > 0 &&
+    descricao.trim() !== "" &&
+    (!comExterior || (moedaNum !== null && Number(moedaNum) > 0));
 
   function escolherTributacao(e: Escolha) {
     setEscolha(e);
@@ -130,7 +145,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
   async function abrirConferencia() {
     // Endereço mexido aqui: grava no cadastro antes, porque a nota usa o endereço do cadastro. Tomador novo com nome
     // (o CPF, que a Receita não traz) também entra no cadastro, para aparecer nas próximas notas.
-    if (enderecoAlterado || (!cadastro && nome.trim())) {
+    if (!noExterior && (enderecoAlterado || (!cadastro && nome.trim()))) {
       setErroEndereco(null);
       setSalvando(true);
       try {
@@ -155,13 +170,17 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
       }
     }
     setConferir({
-      nome: nome.trim(),
-      documento,
+      nome: noExterior ? exterior.nome.trim() : nome.trim(),
+      documento: noExterior ? "" : documento,
       valor: valorNum ?? valor,
       descricao,
       tributacao_id: typeof escolha === "number" ? escolha : null,
       tributacao: escolha === "propria" ? propria : null,
       ...corpoDadosNota(dadosNota),
+      tomador_exterior: noExterior ? { ...exterior } : null,
+      ...(comExterior
+        ? { v_serv_moeda: moedaNum ?? comex.v_serv_moeda, n_di: comex.n_di.trim() || null, n_re: comex.n_re.trim() || null }
+        : {}),
     });
   }
 
@@ -199,105 +218,150 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
           <section>
             <h3 className="secao-titulo">Tomador</h3>
             <div className="grade-form">
-              <div className="largo tomador-ou">
-                <label className={`campo ${mostrarInvalido ? "campo--erro" : ""}`} style={{ position: "relative" }}>
-                  <span>CNPJ / CPF</span>
-                  <input
-                    className={docEhNome || !docTexto ? undefined : "num"}
-                    autoFocus
-                    value={docEhNome ? docTexto : formatarDocumento(documento)}
-                    onChange={(e) => setDocTexto(e.target.value)}
-                    onFocus={() => setFocoDoc(true)}
-                    onBlur={() =>
-                      window.setTimeout(() => {
-                        setFocoDoc(false);
-                        // Nome digitado aqui sem escolher da lista: passa para o campo do nome.
-                        setDocTexto((t) => {
-                          if (!pareceNome(t)) return t;
-                          setNome((n) => (n.trim() ? n : t.trim()));
-                          return "";
-                        });
-                      }, 150)
-                    }
-                    placeholder="Número ou nome do cliente"
-                  />
-                  {sugestoesDoc.length > 0 && (
-                    <Sugestoes
-                      clientes={sugestoesDoc}
-                      escolher={(c) => {
-                        setNome(c.nome);
-                        setDocumento(c.documento);
-                        setFocoDoc(false);
-                      }}
-                    />
+              <Pergunta
+                texto="O tomador está no exterior?"
+                sim={noExterior}
+                onChange={setNoExterior}
+                ajuda={
+                  noExterior
+                    ? "Sem CNPJ/CPF: a nota leva o NIF e o endereço no país do tomador. Ele não entra no cadastro de clientes."
+                    : undefined
+                }
+              />
+              {noExterior ? (
+                <TomadorExterior valor={exterior} onChange={setExterior} />
+              ) : (
+                <>
+                  <div className="largo tomador-ou">
+                    <label className={`campo ${mostrarInvalido ? "campo--erro" : ""}`} style={{ position: "relative" }}>
+                      <span>CNPJ / CPF</span>
+                      <input
+                        className={docEhNome || !docTexto ? undefined : "num"}
+                        autoFocus
+                        value={docEhNome ? docTexto : formatarDocumento(documento)}
+                        onChange={(e) => setDocTexto(e.target.value)}
+                        onFocus={() => setFocoDoc(true)}
+                        onBlur={() =>
+                          window.setTimeout(() => {
+                            setFocoDoc(false);
+                            // Nome digitado aqui sem escolher da lista: passa para o campo do nome.
+                            setDocTexto((t) => {
+                              if (!pareceNome(t)) return t;
+                              setNome((n) => (n.trim() ? n : t.trim()));
+                              return "";
+                            });
+                          }, 150)
+                        }
+                        placeholder="Número ou nome do cliente"
+                      />
+                      {sugestoesDoc.length > 0 && (
+                        <Sugestoes
+                          clientes={sugestoesDoc}
+                          escolher={(c) => {
+                            setNome(c.nome);
+                            setDocumento(c.documento);
+                            setFocoDoc(false);
+                          }}
+                        />
+                      )}
+                      {mostrarInvalido ? (
+                        <small className="campo__erro">CNPJ/CPF inválido.</small>
+                      ) : (
+                        <small>
+                          {cadastro
+                            ? "Cliente cadastrado."
+                            : consultaAtual?.estado === "buscando"
+                              ? "Buscando a empresa na Receita…"
+                              : consultaAtual?.estado === "falhou"
+                                ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."}`
+                                : documento.length === 11
+                                  ? "CPF sem cadastro: com o nome, entra nos clientes ao conferir a nota."
+                                  : " "}
+                        </small>
+                      )}
+                    </label>
+                    <span className="tomador-ou__ou" aria-hidden="true">
+                      e
+                    </span>
+                    <label className="campo" style={{ position: "relative" }}>
+                      <span>Nome da empresa/pessoa</span>
+                      <input
+                        value={nome}
+                        onChange={(e) => setNome(e.target.value)}
+                        onFocus={() => setFocoNome(true)}
+                        onBlur={() => window.setTimeout(() => setFocoNome(false), 150)}
+                        placeholder="Digite para buscar no cadastro"
+                      />
+                      {sugestoes.length > 0 && (
+                        <Sugestoes
+                          clientes={sugestoes}
+                          escolher={(c) => {
+                            setNome(c.nome);
+                            setDocumento(c.documento);
+                            setFocoNome(false);
+                          }}
+                        />
+                      )}
+                      {faltaDocumento ? (
+                        <small className="campo__erro">
+                          {porNome.length > 1
+                            ? "Há mais de um cliente com esse nome. Escolha na lista ou informe o CNPJ/CPF."
+                            : "Nenhum cliente cadastrado com esse nome. Informe o CNPJ/CPF para emitir."}
+                        </small>
+                      ) : (
+                        <small>Em branco, vem do cadastro ou da Receita.</small>
+                      )}
+                    </label>
+                  </div>
+                  {documento && !docInvalido && (
+                    <div className="largo">
+                      <EnderecoTomador
+                        key={documento}
+                        valor={endereco}
+                        onChange={setEndereco}
+                        cpf={documento.length === 11}
+                        buscando={consultaAtual?.estado === "buscando"}
+                        municipio={endereco.c_mun && endereco.c_mun === cadastro?.c_mun ? cadastro.municipio : null}
+                      />
+                      {erroEndereco != null && <ErroCaixa erro={erroEndereco} titulo="Não foi possível salvar o endereço" />}
+                    </div>
                   )}
-                  {mostrarInvalido ? (
-                    <small className="campo__erro">CNPJ/CPF inválido.</small>
-                  ) : (
-                    <small>
-                      {cadastro
-                        ? "Cliente cadastrado."
-                        : consultaAtual?.estado === "buscando"
-                          ? "Buscando a empresa na Receita…"
-                          : consultaAtual?.estado === "falhou"
-                            ? `Não achei na Receita${consultaAtual.erro ? ` (${consultaAtual.erro.replace(/\.$/, "")})` : ""}.${nome.trim() ? "" : " Digite o nome da empresa."}`
-                            : documento.length === 11
-                              ? "CPF sem cadastro: com o nome, entra nos clientes ao conferir a nota."
-                              : " "}
-                    </small>
-                  )}
-                </label>
-                <span className="tomador-ou__ou" aria-hidden="true">
-                  e
-                </span>
-                <label className="campo" style={{ position: "relative" }}>
-                  <span>Nome da empresa/pessoa</span>
-                  <input
-                    value={nome}
-                    onChange={(e) => setNome(e.target.value)}
-                    onFocus={() => setFocoNome(true)}
-                    onBlur={() => window.setTimeout(() => setFocoNome(false), 150)}
-                    placeholder="Digite para buscar no cadastro"
-                  />
-                  {sugestoes.length > 0 && (
-                    <Sugestoes
-                      clientes={sugestoes}
-                      escolher={(c) => {
-                        setNome(c.nome);
-                        setDocumento(c.documento);
-                        setFocoNome(false);
-                      }}
-                    />
-                  )}
-                  {faltaDocumento ? (
-                    <small className="campo__erro">
-                      {porNome.length > 1
-                        ? "Há mais de um cliente com esse nome. Escolha na lista ou informe o CNPJ/CPF."
-                        : "Nenhum cliente cadastrado com esse nome. Informe o CNPJ/CPF para emitir."}
-                    </small>
-                  ) : (
-                    <small>Em branco, vem do cadastro ou da Receita.</small>
-                  )}
-                </label>
-              </div>
-              {documento && !docInvalido && (
-                <div className="largo">
-                  <EnderecoTomador
-                    key={documento}
-                    valor={endereco}
-                    onChange={setEndereco}
-                    cpf={documento.length === 11}
-                    buscando={consultaAtual?.estado === "buscando"}
-                    municipio={endereco.c_mun && endereco.c_mun === cadastro?.c_mun ? cadastro.municipio : null}
-                  />
-                  {erroEndereco != null && <ErroCaixa erro={erroEndereco} titulo="Não foi possível salvar o endereço" />}
-                </div>
+                </>
               )}
               <label className="campo">
                 <span>Valor</span>
                 <input className="num" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" inputMode="decimal" />
                 <small>{valorNum ? moeda(valorNum) : " "}</small>
               </label>
+              {comExterior && (
+                <>
+                  <label className="campo">
+                    <span>Valor na moeda estrangeira</span>
+                    <input
+                      className="num"
+                      value={comex.v_serv_moeda}
+                      onChange={(e) => setComex({ ...comex, v_serv_moeda: e.target.value })}
+                      placeholder="0,00"
+                      inputMode="decimal"
+                    />
+                    <small>Na moeda escolhida na tributação. O valor ao lado continua em reais.</small>
+                  </label>
+                  {tributacaoDaNota?.comex_mov_temp_bens === "2" && (
+                    <label className="campo">
+                      <span>Número da DI</span>
+                      <input className="num" maxLength={12} value={comex.n_di} onChange={(e) => setComex({ ...comex, n_di: e.target.value })} />
+                      <small>Declaração de importação ligada à movimentação temporária de bens.</small>
+                    </label>
+                  )}
+                  {tributacaoDaNota?.comex_mov_temp_bens === "3" && (
+                    <label className="campo">
+                      <span>Número do RE</span>
+                      <input className="num" maxLength={12} value={comex.n_re} onChange={(e) => setComex({ ...comex, n_re: e.target.value })} />
+                      <small>Registro de exportação ligado à movimentação temporária de bens.</small>
+                    </label>
+                  )}
+                </>
+              )}
               <label className="campo largo">
                 <span>Descrição do serviço</span>
                 <textarea rows={4} value={descricao} maxLength={2000} onChange={(e) => setDescricao(e.target.value)} />

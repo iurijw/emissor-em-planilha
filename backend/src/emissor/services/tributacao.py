@@ -39,6 +39,12 @@ _ENUMS = {
     "ibscbs_tp_oper": codes.TP_OPER,
     "tp_imunidade": codes.TP_IMUNIDADE_DPS,
     "tp_susp": codes.TP_SUSP,
+    "comex_md_prestacao": codes.MD_PRESTACAO,
+    "comex_vinc_prest": codes.VINC_PREST,
+    "comex_mec_af_p": codes.MEC_AF_COMEX_P,
+    "comex_mec_af_t": codes.MEC_AF_COMEX_T,
+    "comex_mov_temp_bens": codes.MOV_TEMP_BENS,
+    "comex_mdic": codes.MDIC,
 }
 
 
@@ -87,6 +93,19 @@ def normalizar(d: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     if mun and nac and len(mun) == 9 and mun.startswith(nac):
         # "080101003" = código nacional (080101) + municipal (003): o campo municipal leva só os 3 últimos.
         dados["c_trib_mun"] = mun[6:]
+    for campo in ("c_pais_prestacao", "c_pais_result"):
+        if dados.get(campo) is not None and not str(dados[campo]).strip():
+            dados[campo] = None
+        if dados.get(campo) is not None:
+            dados[campo] = str(dados[campo]).upper()
+            if dados[campo] not in codes.paises():
+                erros.append(f"País inválido: {dados[campo]} (código ISO de 2 letras, diferente de BR).")
+    if dados.get("comex_tp_moeda") is not None:
+        dados["comex_tp_moeda"] = str(dados["comex_tp_moeda"]).zfill(3)
+        if dados["comex_tp_moeda"] not in codes.moedas():
+            erros.append(f"Moeda inválida: {dados['comex_tp_moeda']} (código do Banco Central).")
+    if dados.get("c_pais_prestacao"):
+        dados["c_loc_prestacao"] = None  # prestado no exterior: vai o país no lugar do município
     if dados.get("c_loc_prestacao") and not codes.municipio(dados["c_loc_prestacao"]):
         erros.append(f"Código IBGE de município inválido em c_loc_prestacao: {dados['c_loc_prestacao']}.")
     for campo, tabela in _ENUMS.items():
@@ -134,6 +153,16 @@ def _reais(v: Any) -> Decimal | None:
     except InvalidOperation:
         return None
 
+
+_ROTULOS_COMEX = {
+    "comex_md_prestacao": "modo de prestação",
+    "comex_vinc_prest": "vínculo entre as partes",
+    "comex_tp_moeda": "moeda",
+    "comex_mec_af_p": "mecanismo de apoio do prestador",
+    "comex_mec_af_t": "mecanismo de apoio do tomador",
+    "comex_mov_temp_bens": "movimentação temporária de bens",
+    "comex_mdic": "envio ao MDIC",
+}
 
 _ROTULOS = {
     "p_aliq_iss": "Alíquota do ISS retido",
@@ -207,11 +236,15 @@ def _coerencia_issqn(t: dict[str, Any]) -> list[str]:
     trib = t.get("trib_issqn") or "1"
     if trib == "2" and not t.get("tp_imunidade"):
         erros.append("Com imunidade do ISSQN, escolha o tipo de imunidade (E0592).")
-    if trib == "3":
-        erros.append(
-            "Exportação de serviço ainda não é emitida por este sistema (a nota precisa do tomador no exterior e dos "
-            "dados de comércio exterior)."
-        )
+    if trib == "3" and not t.get("c_pais_prestacao") and not t.get("c_pais_result"):
+        erros.append("Exportação de serviço: informe o país onde se deu o resultado do serviço (E0590).")
+    if trib == "3" or t.get("c_pais_prestacao"):
+        faltam = [rotulo for campo, rotulo in _ROTULOS_COMEX.items() if not t.get(campo)]
+        if faltam:
+            erros.append(
+                "Exportação ou serviço prestado no exterior: preencha os dados de comércio exterior (E0330). "
+                f"Falta: {', '.join(faltam)}."
+            )
     if trib != "1" and (t.get("tp_susp") or t.get("n_processo")):
         erros.append("Só há exigibilidade suspensa em operação tributável (E0585): tire a suspensão ou mude o ISSQN.")
     if trib != "1" and t.get("n_bm"):

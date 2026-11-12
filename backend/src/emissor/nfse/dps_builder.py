@@ -26,6 +26,7 @@ from emissor.nfse.models import (
     DadosNota,
     DpsInput,
     Tomador,
+    exige_comext,
     formatar_decimal,
     iss_exige_aliquota,
     limpar_texto,
@@ -65,7 +66,83 @@ def _opt(parent: etree._Element, tag: str, text: str | None) -> None:
         _sub(parent, tag, text)
 
 
+def _pessoa_exterior(parent: etree._Element, tag: str, t: Tomador) -> None:
+    """Tomador no exterior: NIF (ou o motivo de não ter, E0226) e endereço no exterior (E0242)."""
+    e = t.exterior
+    el = _sub(parent, tag)
+    nif = limpar_texto(t.documento, max_len=40)
+    if nif:
+        _sub(el, "NIF", nif)
+    elif t.c_nao_nif in ("1", "2"):
+        _sub(el, "cNaoNIF", t.c_nao_nif)
+    else:
+        raise DpsBuildError("Tomador no exterior: informe o NIF ou o motivo de não ter (dispensado ou não exigido).")
+    nome = limpar_texto(t.nome, max_len=300)
+    if not nome:
+        raise DpsBuildError("Nome do tomador é obrigatório.")
+    _sub(el, "xNome", nome)
+    campos = {
+        "país": e.c_pais,
+        "código postal": e.c_end_post,
+        "cidade": e.cidade,
+        "estado/província": e.estado,
+        "logradouro": e.logradouro,
+        "bairro": e.bairro,
+    }
+    faltam = [k for k, v in campos.items() if not limpar_texto(v)]
+    if faltam:
+        raise DpsBuildError(f"Endereço do tomador no exterior incompleto: falta {', '.join(faltam)}.")
+    if not re.fullmatch(r"[A-Z]{2}", e.c_pais) or e.c_pais == "BR":
+        raise DpsBuildError(f"País do tomador inválido: {e.c_pais!r} (código ISO de 2 letras, diferente de BR).")
+    end = _sub(el, "end")
+    ext = _sub(end, "endExt")
+    _sub(ext, "cPais", e.c_pais)
+    _sub(ext, "cEndPost", limpar_texto(e.c_end_post, max_len=11))
+    _sub(ext, "xCidade", limpar_texto(e.cidade, max_len=60))
+    _sub(ext, "xEstProvReg", limpar_texto(e.estado, max_len=60))
+    _sub(end, "xLgr", limpar_texto(e.logradouro, max_len=255))
+    _sub(end, "nro", limpar_texto(e.numero, max_len=60) or "S/N")
+    _opt(end, "xCpl", limpar_texto(e.complemento, max_len=156))
+    _sub(end, "xBairro", limpar_texto(e.bairro, max_len=60))
+    _opt(el, "fone", somente_digitos(t.fone))
+    _opt(el, "email", limpar_texto(t.email, max_len=80))
+
+
+def _comext(serv: etree._Element, cfg: ConfigFiscal, nota: DadosNota) -> None:
+    campos = {
+        "modo de prestação": cfg.comex_md_prestacao,
+        "vínculo entre as partes": cfg.comex_vinc_prest,
+        "moeda": cfg.comex_tp_moeda,
+        "mecanismo de apoio do prestador": cfg.comex_mec_af_p,
+        "mecanismo de apoio do tomador": cfg.comex_mec_af_t,
+        "movimentação temporária de bens": cfg.comex_mov_temp_bens,
+        "envio ao MDIC": cfg.comex_mdic,
+    }
+    faltam = [k for k, v in campos.items() if not v]
+    if faltam:
+        raise DpsBuildError(
+            "Operação com o exterior: a nota precisa dos dados de comércio exterior (regra E0330). Falta na "
+            f"tributação: {', '.join(faltam)}."
+        )
+    if nota.v_serv_moeda is None or nota.v_serv_moeda <= 0:
+        raise DpsBuildError("Operação com o exterior: informe o valor do serviço na moeda estrangeira.")
+    c = _sub(serv, "comExt")
+    _sub(c, "mdPrestacao", cfg.comex_md_prestacao)
+    _sub(c, "vincPrest", cfg.comex_vinc_prest)
+    _sub(c, "tpMoeda", cfg.comex_tp_moeda)
+    _sub(c, "vServMoeda", formatar_decimal(nota.v_serv_moeda))
+    _sub(c, "mecAFComexP", cfg.comex_mec_af_p)
+    _sub(c, "mecAFComexT", cfg.comex_mec_af_t)
+    _sub(c, "movTempBens", cfg.comex_mov_temp_bens)
+    _opt(c, "nDI", limpar_texto(nota.n_di, max_len=12))
+    _opt(c, "nRE", limpar_texto(nota.n_re, max_len=12))
+    _sub(c, "mdic", cfg.comex_mdic)
+
+
 def _pessoa(parent: etree._Element, tag: str, t: Tomador) -> None:
+    if t.exterior is not None:
+        _pessoa_exterior(parent, tag, t)
+        return
     el = _sub(parent, tag)
     doc = normalizar_documento(t.documento)
     if not doc or len(doc) not in (11, 14):
@@ -144,7 +221,10 @@ def build_dps(inp: DpsInput) -> etree._Element:
     # Serviço
     serv = _sub(inf, "serv")
     loc = _sub(serv, "locPrest")
-    _sub(loc, "cLocPrestacao", cfg.c_loc_prestacao or cfg.c_mun_emissor)
+    if cfg.c_pais_prestacao:
+        _sub(loc, "cPaisPrestacao", cfg.c_pais_prestacao)
+    else:
+        _sub(loc, "cLocPrestacao", cfg.c_loc_prestacao or cfg.c_mun_emissor)
     c_serv = _sub(serv, "cServ")
     _sub(c_serv, "cTribNac", cfg.c_trib_nac)
     _opt(c_serv, "cTribMun", cfg.c_trib_mun)
@@ -154,6 +234,9 @@ def build_dps(inp: DpsInput) -> etree._Element:
     else:
         _sub(c_serv, "xDescServ", descricao)
         _opt(c_serv, "cNBS", cfg.c_nbs)
+    exterior = inp.tomador is not None and inp.tomador.exterior is not None
+    if exige_comext(cfg, exterior):
+        _comext(serv, cfg, inp.nota)
     _info_compl(serv, inp.nota)
 
     # Valores
@@ -175,6 +258,10 @@ def build_dps(inp: DpsInput) -> etree._Element:
     trib = _sub(valores, "trib")
     trib_mun = _sub(trib, "tribMun")
     _sub(trib_mun, "tribISSQN", cfg.trib_issqn)
+    if cfg.trib_issqn == "3" and not cfg.c_pais_prestacao:
+        if not cfg.c_pais_result:
+            raise DpsBuildError("Exportação de serviço: informe o país onde se deu o resultado do serviço (E0590).")
+        _sub(trib_mun, "cPaisResult", cfg.c_pais_result)
     if cfg.trib_issqn == "2":
         if cfg.tp_imunidade not in ("1", "2", "3", "4", "5"):
             raise DpsBuildError("Com imunidade do ISSQN, escolha o tipo de imunidade na tributação (regra E0592).")

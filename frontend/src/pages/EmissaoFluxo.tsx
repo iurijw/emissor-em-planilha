@@ -21,6 +21,11 @@ export interface CorpoAvulsa {
   itens_pedido?: string[];
   v_desc_incond?: string | null;
   v_desc_cond?: string | null;
+  /** Tomador no exterior (sem CNPJ/CPF) e dados de comércio exterior desta nota. */
+  tomador_exterior?: Record<string, string> | null;
+  v_serv_moeda?: string | null;
+  n_di?: string | null;
+  n_re?: string | null;
 }
 
 export function EmissaoFluxo(props: {

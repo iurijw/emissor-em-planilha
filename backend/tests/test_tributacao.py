@@ -360,3 +360,55 @@ def test_nota_avulsa_com_desconto_e_informacoes_complementares(api, sefin, pfx_b
     assert b"<vDescIncond>100.00</vDescIncond>" in dps and b"<vDescCond>" not in dps
     assert b"<xPed>PED-1</xPed>" in dps and b"<xItemPed>10</xItemPed>" in dps
     assert b"<xInfComp>Contrato 12/2026</xInfComp>" in dps
+
+
+def test_nota_avulsa_de_exportacao(api, sefin, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    comex = {
+        "comex_md_prestacao": "1",
+        "comex_vinc_prest": "0",
+        "comex_tp_moeda": "220",
+        "comex_mec_af_p": "01",
+        "comex_mec_af_t": "01",
+        "comex_mov_temp_bens": "1",
+        "comex_mdic": "0",
+    }
+    externo = {
+        "nif": "98-7654321",
+        "nome": "EXAMPLE CONSULTING LLC",
+        "c_pais": "us",
+        "c_end_post": "10001",
+        "cidade": "New York",
+        "estado": "NY",
+        "logradouro": "5th Avenue",
+        "numero": "100",
+        "bairro": "Manhattan",
+    }
+    nota = {
+        "valor": "500,00",
+        "descricao": "consultoria",
+        "tomador_exterior": externo,
+        "v_serv_moeda": "90,00",
+        "tributacao": {"trib_issqn": "3", "c_pais_result": "US", "cst_pis_cofins": None, **comex},
+    }
+    val = api.post("/api/avulsa/validar", json=nota).json()
+    assert val["problemas"] == [] and val["linhas"][0]["erros"] == [], val
+    sem_moeda = api.post("/api/avulsa/validar", json=nota | {"v_serv_moeda": ""}).json()
+    assert any("moeda estrangeira" in e for e in sem_moeda["linhas"][0]["erros"])
+    incompleto = api.post("/api/avulsa/validar", json=nota | {"tomador_exterior": externo | {"cidade": ""}}).json()
+    assert any("cidade" in e for e in incompleto["linhas"][0]["erros"])
+    r = api.post("/api/avulsa", json=nota)
+    assert r.status_code == 200, r.text
+    api.worker.processar_lote(r.json()["id"])
+    lote = api.get(f"/api/lotes/{r.json()['id']}").json()
+    assert lote["contagem"] == {"autorizada": 1}, lote
+    assert lote["emissoes"][0]["tomador_nome"] == "EXAMPLE CONSULTING LLC"
+    dps = sefin.enviadas[-1]
+    assert b"<NIF>98-7654321</NIF>" in dps and b"<cPais>US</cPais>" in dps and b"<comExt>" in dps
+    # uma aba com tributação de exportação não emite pela tabela (falta o valor na moeda de cada nota)
+    t = _tributacao(api, "Exportação", tp_ret_issqn="1", trib_issqn="3", c_pais_result="US", **comex)
+    aba = api.post("/api/abas", json={"nome": "Exterior", "tributacao_id": t["id"]}).json()
+    api.put(f"/api/tabela?aba_id={aba['id']}", json={"linhas": [LINHA_PADRAO]})
+    linha = api.get(f"/api/tabela?aba_id={aba['id']}").json()["linhas"][0]
+    val = api.post("/api/tabela/validar", json={"linha_ids": [linha["id"]]}).json()
+    assert any("nota avulsa" in e for e in val["linhas"][0]["erros"])
