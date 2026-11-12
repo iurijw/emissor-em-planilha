@@ -7,6 +7,10 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.13.2 (12/11/2026)
+
+- Com várias empresas, o seletor do topo e Configurações → Empresas têm busca por nome ou CNPJ.
+
 ## 0.13.1 (11/11/2026)
 
 - A recusa E0116 explica quando a prefeitura ainda não liberou a empresa no sistema nacional (alguns municípios só liberam o MEI e o Simples Nacional).
