@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.13.3 (12/11/2026)
+
+- A tributação com IBS/CBS salva nos serviços que pedem o tipo de operação (como 17.12): escolha o tipo na tela.
+- Um indicador da operação antigo, que o sistema não emite, é trocado sozinho e não impede mais salvar.
+
 ## 0.13.2 (12/11/2026)
 
 - Com várias empresas, o seletor do topo e Configurações → Empresas têm busca por nome ou CNPJ.
