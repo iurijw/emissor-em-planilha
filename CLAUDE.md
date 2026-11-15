@@ -679,6 +679,9 @@ Plano: https://claude.ai/artifact/XUXxFhdRMq8K9LGgRzVejU. Camada fina e versiona
   nota: outros eventos, estornos (não cancela sozinho), cobrança excluída. Erro (refazível pela tela): cliente sem
   CPF/CNPJ ou estrangeiro, empresa em outro ambiente, nota com erro, assinatura suspensa. Chave do sandbox só com NFS-e
   em homologação. Avisos guardados por 90 dias. Na rede local o Asaas não alcança o sistema (a tela avisa).
+- **Catálogo na tela** (`components/CatalogoIntegracoes.tsx`): cartões com o logo de cada empresa (Asaas, Shopee, seu
+  sistema, n8n, Zapier, Make, Stripe e Mercado Pago "em breve") e a situação (conectado, disponível, pela API, em breve).
+  Logos do Simple Icons 13.21.0 (CC0) em `components/marcas.ts`; o Asaas não está lá e aparece pelo nome.
 - **Ainda não:** Stripe e Mercado Pago, servidor MCP, evento `certificado.vencendo`, tokens com validade/IPs
   permitidos.
 

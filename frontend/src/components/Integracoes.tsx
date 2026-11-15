@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { copiar, Dialogo, ErroCaixa, Spinner, useToast } from "../ui";
 import { useTributacoes } from "./Abas";
+import { CatalogoIntegracoes } from "./CatalogoIntegracoes";
 
 type Opcao = { id: string; descricao: string };
 type TokenApi = {
@@ -115,6 +116,8 @@ export function SecaoIntegracoes() {
   const [entregas, setEntregas] = useState<WebhookApi | null>(null);
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [pedidoAsaas, setPedidoAsaas] = useState(0);
+  const tokensRef = useRef<HTMLHeadingElement>(null);
   const d = dados.data;
 
   async function executar(fn: () => Promise<void>) {
@@ -134,7 +137,7 @@ export function SecaoIntegracoes() {
 
   return (
     <section className="folha" id="integracoes">
-      <h2 className="secao-titulo">Integrações (API)</h2>
+      <h2 className="secao-titulo">Integrações</h2>
       <p style={{ marginTop: 0, color: "var(--grafite)" }}>
         Outros sistemas (cobrança, ERP, loja) podem emitir, consultar e cancelar notas desta empresa com um token, e receber um
         aviso (webhook) quando a nota sai. A documentação para quem vai integrar fica em{" "}
@@ -148,7 +151,12 @@ export function SecaoIntegracoes() {
       <ErroCaixa erro={dados.error} titulo="Não foi possível carregar as integrações" />
       {d && (
         <>
-          <h3 className="integracoes__titulo">Tokens</h3>
+          <CatalogoIntegracoes
+            conectoresAsaas={d.conectores.length}
+            abrirAsaas={() => setPedidoAsaas((n) => n + 1)}
+            irParaApi={() => tokensRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          />
+          <h3 className="integracoes__titulo" ref={tokensRef}>Tokens</h3>
           {d.tokens.length > 0 && (
             <div className="tabela-caixa" style={{ marginBottom: 12 }}>
               <table className="tabela">
@@ -245,7 +253,7 @@ export function SecaoIntegracoes() {
           >
             Novo webhook
           </button>
-          <ReceberCobrancas d={d} />
+          <ReceberCobrancas d={d} pedido={pedidoAsaas} />
           {!novoToken && !novoWebhook && !revogar && <div style={{ marginTop: 12 }}><ErroCaixa erro={erro} /></div>}
         </>
       )}
@@ -480,10 +488,20 @@ function enderecoLocal() {
   );
 }
 
+const formNovo = (d: Integracoes): FormConector => ({
+  nome: "Asaas",
+  chave: "",
+  ambiente: d.ambiente_atual,
+  ambiente_origem: "producao",
+  gatilho: "recebido",
+  tributacao_id: null,
+  descricao: "{cobranca}",
+});
+
 const QUANDO_EMITIR = { recebido: "Pagamento recebido", confirmado: "Pagamento confirmado" } as const;
 
 /** Conector do Asaas: cada cobrança paga vira uma nota, sem programar nada. */
-function ReceberCobrancas({ d }: { d: Integracoes }) {
+function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
   const qc = useQueryClient();
   const toast = useToast();
   const tributacoes = useTributacoes();
@@ -493,6 +511,14 @@ function ReceberCobrancas({ d }: { d: Integracoes }) {
   const [remover, setRemover] = useState<Conector | null>(null);
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
+  const tituloRef = useRef<HTMLHeadingElement>(null);
+  // Clique no cartão do Asaas no catálogo: sem conector, abre o cadastro; com conector, mostra a lista.
+  useEffect(() => {
+    if (!pedido) return;
+    if (d.conectores.length === 0) setForm(formNovo(d));
+    else tituloRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedido]);
   const chaveConhecida = form ? /^\$aact_(prod|hmlg)_/.test(form.chave.trim()) : true;
 
   async function executar(fn: () => Promise<void>) {
@@ -534,7 +560,7 @@ function ReceberCobrancas({ d }: { d: Integracoes }) {
 
   return (
     <>
-      <h3 className="integracoes__titulo">Receber cobranças (Asaas)</h3>
+      <h3 className="integracoes__titulo" ref={tituloRef}>Receber cobranças (Asaas)</h3>
       <p style={{ marginTop: 0, color: "var(--grafite)" }}>
         Cada cobrança paga no Asaas vira uma nota desta empresa, com o cliente da cobrança como tomador. Aviso repetido
         não emite outra nota, e estornos não cancelam nada sozinhos.
@@ -612,17 +638,7 @@ function ReceberCobrancas({ d }: { d: Integracoes }) {
       )}
       <button
         className="btn"
-        onClick={() =>
-          setForm({
-            nome: "Asaas",
-            chave: "",
-            ambiente: d.ambiente_atual,
-            ambiente_origem: "producao",
-            gatilho: "recebido",
-            tributacao_id: null,
-            descricao: "{cobranca}",
-          })
-        }
+        onClick={() => setForm(formNovo(d))}
       >
         Conectar o Asaas
       </button>
