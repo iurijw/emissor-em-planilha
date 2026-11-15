@@ -120,6 +120,55 @@ def test_importar_sem_colunas_obrigatorias():
         tabela.importar("t.csv", "Nome;Valor;Descrição;Outro\nA;1;b;c\n".encode())
 
 
+# Relatório NF/RPA da Shopee (cabeçalho como o descrito nos guias: título antes, uma linha por venda, total no fim).
+RELATORIO_SHOPEE = (
+    "Relatório mensal NF/RPA - Comissão Extra;;;;;;;;\n"
+    "Período: 01/10/2026 a 31/10/2026;;;;;;;;\n"
+    "Nome da loja;CNPJ do vendedor;E-mail;CEP;Logradouro;Número;Bairro;Cidade;UF;Valor da venda;Comissão extra (R$)\n"
+    "LOJA A;11.222.333/0001-81;contato@lojaa.com.br;88015-100;Rua das Flores;10;Centro;Florianópolis;SC;"
+    "1.000,00;100,50\n"
+    "LOJA B;03.017.190/0001-48;financeiro@lojab.com.br;;;;;;;500,00;20,00\n"
+    "LOJA A;11.222.333/0001-81;;;;;;;;300,00;30,00\n"
+    "Total;;;;;;;;;1.800,00;150,50\n"
+)
+
+
+def test_importar_relatorio_da_shopee_soma_por_marca():
+    res = tabela.importar("relatorio.csv", RELATORIO_SHOPEE.encode("cp1252"))
+    assert res.reconhecido == "shopee"
+    assert [(ln.nome, ln.documento, ln.valor) for ln in res.linhas] == [
+        ("LOJA A", "11222333000181", "130.50"),
+        ("LOJA B", "03017190000148", "20.00"),
+    ]
+    assert res.linhas[0].descricao == tabela.DESCRICAO_SHOPEE
+    assert res.linhas[0].cadastro == {
+        "email": "contato@lojaa.com.br",
+        "cep": "88015-100",
+        "logradouro": "Rua das Flores",
+        "numero": "10",
+        "bairro": "Centro",
+        "cidade": "Florianópolis",
+        "uf": "SC",
+    }
+    assert "2 marca(s), total R$ 150,50" in res.informacoes[0]
+    assert "1 linha(s) do mesmo CNPJ" in res.informacoes[1]
+    assert not res.avisos
+
+
+def test_planilha_com_coluna_valor_e_comissao_nao_vira_shopee():
+    res = tabela.importar(
+        "t.csv", "Cliente;CNPJ;Valor;Comissão\nA;11222333000181;100;10\nA;11222333000181;50;5\n".encode()
+    )
+    assert res.reconhecido is None
+    assert [ln.valor for ln in res.linhas] == ["100.00", "50.00"]  # nada é somado fora do relatório da Shopee
+
+
+def test_cliente_da_planilha():
+    c = clientes.de_planilha("11222333000181", "LOJA A", {"cep": "88015-100", "cidade": "Florianópolis", "uf": "sc"})
+    assert (c.cep, c.c_mun, c.origem) == ("88015100", "4205407", "planilha")
+    assert clientes.pendente_receita(c) and clientes.pendente_receita(None)
+
+
 # --- CEP -------------------------------------------------------------------------------------------------
 
 CEP_BRASILAPI = {

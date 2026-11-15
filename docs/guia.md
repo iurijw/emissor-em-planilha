@@ -189,6 +189,7 @@ Atalhos da tabela:
 | Ordenar | Clique no título da coluna (de novo para inverter) |
 | Desfazer ou refazer uma alteração | <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz e <kbd>Ctrl</kbd>+<kbd>Y</kbd> refaz (ou as setas no começo da barra); vale para edição, colagem, exclusão de linhas, ordenação e importação |
 | Substituir a tabela inteira | **Importar planilha** (`.xlsx` ou `.csv`), substituindo ou acrescentando linhas na aba aberta |
+| Emitir a Comissão Extra da Shopee (afiliado PJ) | **Importar planilha** com o relatório mensal NF/RPA da Central do Afiliado, como veio: uma linha por marca, valores somados, e-mail e endereço de cada marca no cadastro |
 
 Em **Usuários** (só administradores), convide as outras pessoas: o sistema gera um link de uso único para cada uma
 criar a própria senha. **Operadores** editam a tabela, emitem e cancelam notas; **administradores** também cuidam

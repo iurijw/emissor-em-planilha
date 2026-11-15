@@ -262,6 +262,53 @@ def test_importar_exportar_tabela(api, pfx_bytes, nfse_exemplo_bytes):
     assert r.status_code == 400 and "Formato não suportado" in r.json()["mensagem"]
 
 
+def test_importar_relatorio_da_shopee_cadastra_clientes(api, pfx_bytes, nfse_exemplo_bytes, monkeypatch):
+    from emissor.db import Cliente
+    from emissor.services import clientes as clientes_service
+
+    from .test_servicos import RELATORIO_SHOPEE
+
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    r = api.post("/api/tabela/importar", files={"arquivo": ("shopee.csv", RELATORIO_SHOPEE.encode("cp1252"))})
+    assert r.status_code == 200, r.text
+    corpo = r.json()
+    assert corpo["reconhecido"] == "shopee" and corpo["importadas"] == 2
+    assert corpo["linhas"][0]["descricao"].startswith("Comissão Extra de afiliado Shopee")
+
+    # O tomador do XML do onboarding já estava cadastrado: o relatório só completa o que faltava.
+    a = api.get("/api/clientes/11222333000181").json()
+    assert a["email"] == "contato@lojaa.com.br" and a["origem"] == "xml"
+    b = api.get("/api/clientes/03017190000148").json()
+    assert b["nome"] == "LOJA B" and b["origem"] == "planilha" and not b["endereco_completo"]
+
+    # Sem endereço completo, a consulta automática ainda vai à Receita e só completa o que faltou.
+    pedidos = []
+
+    def consultar(doc, http=None):
+        pedidos.append(doc)
+        return clientes_service.ConsultaCnpj(
+            True,
+            "brasilapi",
+            Cliente(
+                documento=doc,
+                nome="NOME DA RECEITA",
+                cep="01001000",
+                logradouro="Praça da Sé",
+                bairro="Sé",
+                c_mun="3550308",
+                email="receita@x.com",
+                origem="brasilapi",
+            ),
+        )
+
+    monkeypatch.setattr(clientes_service, "consultar_cnpj", consultar)
+    r = api.post("/api/clientes/consultar-pendentes", json={"documentos": ["11222333000181", "03017190000148"]})
+    assert r.status_code == 200, r.text
+    assert pedidos == ["03017190000148"]  # o outro já tem cadastro com endereço
+    b = api.get("/api/clientes/03017190000148").json()
+    assert b["nome"] == "LOJA B" and b["origem"] == "brasilapi" and b["endereco_completo"]  # o nome do relatório fica
+
+
 def test_config_invalida(api, pfx_bytes, nfse_exemplo_bytes):
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
     r = api.put("/api/config", json={"serie": 70000})

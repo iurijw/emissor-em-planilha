@@ -216,6 +216,14 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 - Importação de clientes por XML (`POST /api/clientes/importar-xmls`, XMLs soltos ou `.zip`): cliente novo recebe
   os dados da nota mais recente; cliente existente só tem os campos **vazios** completados; notas cujo tomador é o
   próprio prestador são ignoradas.
+- **Relatório NF/RPA da Shopee** (2026-11-15, `services/tabela.py`): afiliado PJ emite uma NFS-e por marca da Comissão
+  Extra desde 01/08/2026, a partir do relatório mensal da Central do Afiliado. A Shopee **não publica o leiaute**: o
+  reconhecimento é por trecho (CNPJ + coluna com "comissão", sem coluna "Valor" exata), o cabeçalho é procurado nas 15
+  primeiras linhas, linhas sem CNPJ (total) são puladas, linhas do mesmo CNPJ somadas e a descrição vazia vira
+  `DESCRICAO_SHOPEE` (com `{competencia_anterior}`). **Conferir com um relatório real** e ajustar os trechos. E-mail e
+  endereço em colunas separadas (de qualquer planilha) vão ao cadastro: cliente novo com `origem = "planilha"`,
+  existente só nos campos vazios; `pendente_receita` faz a consulta automática da Receita completar quem ficou sem
+  endereço (o nome da planilha prevalece).
 
 | Rotas | |
 |---|---|
@@ -920,5 +928,6 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-06 | Dicas para E0116, E1235 e para os erros do leiaute conferido no sistema (pelo campo); dica de inscrição municipal antes da de município; notas já recusadas mostram a dica atual; endereço com caractere nulo responde 404 | Pedido do Iuri: explicar melhor os erros vistos nos clientes (E0116 em produção, E0120 com dica de município errada); robôs geravam centenas de erros 500 no log |
 | 2026-11-09 | Várias empresas (CNPJs) na mesma instalação, cada uma com o A1 dela ou por procuração (certificado do procurador); isolamento por filtro automático do ORM; clientes por empresa com opção de compartilhar; desligado na hospedagem até o Iuri pedir (lá: 3 CNPJs no preço, R$ 14,90 por CNPJ a mais) | Pedido do Iuri: escritórios emitem por vários clientes; a procuração eletrônica para a NFS-e por API passou a valer em 01/11/2026 |
 | 2026-11-12 | Tipo de imunidade, exigibilidade suspensa, benefício municipal e grupos de diferimento/tributação regular do IBS/CBS na tributação; descontos, pedido e informações complementares só na nota avulsa; exportação, tomador no exterior, obra, evento, dedução da base, intermediário, destinatário e NFS-e referenciada só na nota avulsa; compra governamental na tributação (o tomador estrangeiro não vai para o cadastro) | Pedido do Iuri: opções do leiaute que a tela não oferecia ou mandava incompletas (imunidade sem o tipo) |
+| 2026-11-15 | Importar o relatório NF/RPA da Shopee na tabela (uma linha por marca) e, depois, uma API `/api/v1` com tokens por empresa (só o administrador cria), incluída na hospedagem; primeiro conector de entrada: Asaas | Plano da thread "Planejar API de integração do emissor": para NFS-e, o que pesa é cobrança (Asaas, Stripe) e o afiliado PJ da Shopee, não venda de produto |
 | 2026-11-15 | Frontend segue os guias do Chrome (Modern Web Guidance): diálogos nativos, popovers, `:user-invalid`, fontes em rem | Pedido do Iuri: usar o que o navegador já faz (foco, Esc, camada superior, acessibilidade) em vez de código próprio |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
