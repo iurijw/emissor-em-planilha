@@ -28,6 +28,8 @@ def ver(admin: AdminEmpresa) -> dict[str, Any]:
             {"id": "recebido", "descricao": "Quando o dinheiro fica disponível (PAYMENT_RECEIVED)"},
             {"id": "confirmado", "descricao": "Quando o pagamento é confirmado (PAYMENT_CONFIRMED; Pix na hora)"},
         ],
+        # A Stripe cria o webhook sozinha quando o sistema tem endereço público com https.
+        "stripe_cria_webhook": conectores.url_publica().startswith("https://"),
         "escopos": [{"id": k, "descricao": v} for k, v in tokens_api.ESCOPOS.items()],
         "eventos": [{"id": k, "descricao": v} for k, v in webhooks.EVENTOS.items()],
         "limites": {"por_minuto": tokens_api.LIMITE_POR_MINUTO, "notas_por_dia": tokens_api.LIMITE_NOTAS_DIA},
@@ -105,11 +107,13 @@ def reenviar(entrega_id: str, admin: AdminEmpresa) -> dict[str, Any]:
 class ConectorEntrada(BaseModel):
     chave: str
     ambiente: str
+    tipo: str = "asaas"  # asaas | stripe
     nome: str = ""
-    ambiente_origem: str | None = None  # producao | sandbox (do Asaas); deduzido da chave quando dá
-    gatilho: str = "recebido"
+    ambiente_origem: str | None = None  # producao | sandbox (Asaas) | teste (Stripe); deduzido da chave quando dá
+    gatilho: str | None = None
     tributacao_id: int | None = None
     descricao: str = ""
+    segredo_webhook: str | None = None  # Stripe: whsec_... do endpoint criado no painel (sem endereço público)
 
 
 @router.post("/conectores")
@@ -118,14 +122,17 @@ def criar_conector(entrada: ConectorEntrada, admin: AdminEmpresa) -> dict[str, A
         admin.empresa_id,
         chave=entrada.chave,
         ambiente=entrada.ambiente,
+        tipo=entrada.tipo,
         nome=entrada.nome,
         ambiente_origem=entrada.ambiente_origem,
         gatilho=entrada.gatilho,
         tributacao_id=entrada.tributacao_id,
         descricao=entrada.descricao,
+        segredo_webhook=entrada.segredo_webhook,
         criado_por=admin.email,
     )
-    auth.auditar("conector_criado", f"Asaas “{c['nome']}” ({c['ambiente_origem']} → NFS-e {c['ambiente']})", admin)
+    origem = conectores.TIPOS[c["tipo"]]
+    auth.auditar("conector_criado", f"{origem} “{c['nome']}” ({c['ambiente_origem']} → NFS-e {c['ambiente']})", admin)
     return c | {"token": token}
 
 
@@ -136,14 +143,16 @@ class ConectorAlteracao(BaseModel):
     tributacao_id: int | None = None
     descricao: str | None = None
     chave: str | None = None
+    segredo_webhook: str | None = None
 
 
 @router.put("/conectores/{conector_id}")
 def alterar_conector(conector_id: int, entrada: ConectorAlteracao, admin: AdminEmpresa) -> dict[str, Any]:
     mudancas = entrada.model_dump(exclude_unset=True)
     c = conectores.alterar(admin.empresa_id, conector_id, mudancas)
-    campos = ", ".join(k if k != "chave" else "chave da API" for k in mudancas)
-    auth.auditar("conector_alterado", f"Asaas “{c['nome']}”: {campos}", admin)
+    nomes = {"chave": "chave da API", "segredo_webhook": "segredo do webhook"}
+    campos = ", ".join(nomes.get(k, k) for k in mudancas)
+    auth.auditar("conector_alterado", f"{conectores.TIPOS[c['tipo']]} “{c['nome']}”: {campos}", admin)
     return c
 
 
@@ -157,7 +166,7 @@ def novo_token_conector(conector_id: int, admin: AdminEmpresa) -> dict[str, str]
 @router.delete("/conectores/{conector_id}")
 def remover_conector(conector_id: int, admin: AdminEmpresa) -> dict[str, bool]:
     c = conectores.remover(admin.empresa_id, conector_id)
-    auth.auditar("conector_removido", f"Asaas “{c.nome}”", admin)
+    auth.auditar("conector_removido", f"{conectores.TIPOS[c.tipo]} “{c.nome}”", admin)
     return {"ok": True}
 
 

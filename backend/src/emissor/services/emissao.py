@@ -224,9 +224,14 @@ def validar_linhas(
                         f"neste mês ({e.dh_emissao:%d/%m/%Y})."
                     )
                     break
-        em_andamento = s.exec(
-            select(Emissao).where(Emissao.linha_id == ln.id, Emissao.status.in_(["pendente", "processando"]))
-        ).first()
+        # Nota avulsa (linha transitória, sem id): ``linha_id == None`` viraria IS NULL e qualquer avulsa na fila
+        # bloquearia a próxima (duas cobranças pagas seguidas, duas chamadas da API).
+        em_andamento = (
+            ln.id is not None
+            and s.exec(
+                select(Emissao).where(Emissao.linha_id == ln.id, Emissao.status.in_(["pendente", "processando"]))
+            ).first()
+        )
         if em_andamento:
             v.erros.append("Esta linha já está em uma emissão em andamento.")
         res.append(v)

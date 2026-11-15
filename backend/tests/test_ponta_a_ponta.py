@@ -464,6 +464,156 @@ def _fluxo_asaas(api, sim) -> None:
     conectores.definir_transporte(None)
 
 
+def _fluxo_stripe(api, sim) -> None:
+    """Conector da Stripe: webhook criado na Stripe, assinatura conferida, fatura paga e Checkout viram nota."""
+    import hashlib
+    import hmac
+    import json as json_
+    import os
+    import time as time_
+    from urllib.parse import parse_qs
+
+    from emissor.services import conectores
+
+    pedidos: list[httpx.Request] = []
+
+    def stripe(req: httpx.Request) -> httpx.Response:
+        pedidos.append(req)
+        if req.headers.get("authorization") != "Bearer rk_test_chave-teste":
+            return httpx.Response(401, json={"error": {"type": "invalid_request_error", "message": "Invalid API Key"}})
+        caminho = req.url.path
+        if req.method == "GET" and caminho == "/v1/customers":
+            return httpx.Response(200, json={"object": "list", "data": []})
+        if req.method == "POST" and caminho == "/v1/webhook_endpoints":
+            return httpx.Response(200, json={"id": "we_1", "object": "webhook_endpoint", "secret": "whsec_automatico"})
+        if req.method == "DELETE" and caminho.startswith("/v1/webhook_endpoints/"):
+            return httpx.Response(200, json={"id": caminho.rsplit("/", 1)[1], "deleted": True})
+        if caminho == "/v1/customers/cus_2":
+            return httpx.Response(
+                200,
+                json={"id": "cus_2", "name": "Maria Teste", "metadata": {"cpf_cnpj": "529.982.247-25"}, "tax_ids": {}},
+            )
+        if caminho == "/v1/checkout/sessions/cs_1/line_items":
+            return httpx.Response(200, json={"object": "list", "data": [{"description": "Consultoria {extra}"}]})
+        return httpx.Response(404, json={"error": {"message": "No such object"}})
+
+    conectores.definir_transporte(httpx.MockTransport(stripe))
+
+    def ok(r: httpx.Response, status: int = 200) -> httpx.Response:
+        assert r.status_code == status, f"{r.request.method} {r.request.url} → {r.status_code}: {r.text[:500]}"
+        return r
+
+    base = {"tipo": "stripe", "ambiente": "homologacao", "descricao": "{cobranca}"}
+    antes = os.environ.get("EMISSOR_URL_PUBLICA")
+    os.environ.pop("EMISSOR_URL_PUBLICA", None)
+    try:
+        pendente = ok(
+            api.post("/api/integracoes/conectores", json=base | {"chave": "rk_test_chave-teste", "nome": "Sem https"})
+        ).json()
+        assert pendente["segredo_pendente"] is True and pendente["webhook_criado"] is False
+        ok(api.post("/api/integracoes/conectores", json=base | {"chave": "rk_live_x", "ambiente": "producao"}), 400)
+        ok(api.post("/api/integracoes/conectores", json=base | {"chave": "rk_test_x", "ambiente": "producao"}), 400)
+        manual = ok(
+            api.post(
+                "/api/integracoes/conectores",
+                json=base | {"chave": "rk_test_chave-teste", "segredo_webhook": "whsec_manual", "nome": "Manual"},
+            )
+        ).json()
+        assert manual["token"] is None and manual["webhook_criado"] is False and manual["segredo_pendente"] is False
+        ok(api.delete(f"/api/integracoes/conectores/{pendente['id']}"))
+        os.environ["EMISSOR_URL_PUBLICA"] = "https://empresa.exemplo.com.br"
+        assert ok(api.get("/api/integracoes")).json()["stripe_cria_webhook"] is True
+        con = ok(api.post("/api/integracoes/conectores", json=base | {"chave": "rk_test_chave-teste"})).json()
+    finally:
+        os.environ.pop("EMISSOR_URL_PUBLICA", None)
+        if antes is not None:
+            os.environ["EMISSOR_URL_PUBLICA"] = antes
+    assert con["webhook_criado"] is True and con["ambiente_origem"] == "teste" and con["gatilho"] == "pago"
+    criado = next(p for p in pedidos if p.method == "POST" and p.url.path == "/v1/webhook_endpoints")
+    form = parse_qs(criado.content.decode())
+    assert form["url"] == ["https://empresa.exemplo.com.br" + con["caminho"]]
+    assert set(form["enabled_events[]"]) == set(conectores.EVENTOS_STRIPE)
+    ok(api.post(f"/api/integracoes/conectores/{con['id']}/token"), 400)  # a Stripe não usa token
+
+    def aviso(tipo: str, evt: str, obj: dict, *, livemode=False, segredo="whsec_automatico", t=None):
+        corpo = json_.dumps(
+            {"id": evt, "object": "event", "type": tipo, "livemode": livemode, "data": {"object": obj}}
+        ).encode()
+        t = int(t or time_.time())
+        v1 = hmac.new(segredo.encode(), f"{t}.".encode() + corpo, hashlib.sha256).hexdigest()
+        with TestClient(api.app) as fora:
+            return fora.post(con["caminho"], content=corpo, headers={"Stripe-Signature": f"t={t},v1={v1}"})
+
+    fatura = {
+        "object": "invoice",
+        "id": "in_1",
+        "number": "ABC-0001",
+        "amount_paid": 15050,
+        "currency": "brl",
+        "customer": "cus_1",
+        "customer_name": "Cliente Stripe Ltda",
+        "customer_email": "financeiro@exemplo.com.br",
+        "customer_address": {
+            "line1": "Rua das Flores, 100",
+            "line2": "Sala 2",
+            "city": "Itajaí",
+            "state": "SC",
+            "postal_code": "89000-000",
+            "country": "BR",
+        },
+        "customer_tax_ids": [{"type": "br_cnpj", "value": TOMADOR_CNPJ}],
+        "lines": {"data": [{"description": "Plano Pro (nov/2026)"}]},
+    }
+    assert aviso("invoice.paid", "evt_1", fatura, segredo="whsec_errado").status_code == 400
+    assert aviso("invoice.paid", "evt_1", fatura, t=time_.time() - 3600).status_code == 400  # assinatura velha
+    assert aviso("invoice.paid", "evt_1", fatura).json() == {"ok": True, "repetido": False}
+    assert aviso("invoice.paid", "evt_1", fatura).json()["repetido"] is True
+    aviso("invoice.paid", "evt_2", fatura | {"id": "in_0", "amount_paid": 0})
+    aviso("invoice.paid", "evt_3", fatura | {"id": "in_real"}, livemode=True)
+    aviso("invoice.paid", "evt_4", fatura | {"id": "in_usd", "currency": "usd"})
+    sessao_base = {
+        "object": "checkout.session",
+        "id": "cs_1",
+        "mode": "payment",
+        "payment_status": "paid",
+        "amount_total": 9900,
+        "currency": "brl",
+        "customer": "cus_2",
+        "invoice": None,
+        "customer_details": {"name": None, "email": "maria@exemplo.com.br", "address": None, "tax_ids": []},
+    }
+    aviso("checkout.session.completed", "evt_5", sessao_base)
+    aviso("checkout.session.completed", "evt_6", sessao_base | {"id": "cs_sub", "mode": "subscription"})
+    aviso("checkout.session.completed", "evt_7", sessao_base | {"id": "cs_boleto", "payment_status": "unpaid"})
+    assert conectores.processador().processar_pendentes() == 7
+
+    evs = {e["id"].split(":", 1)[1]: e for e in ok(api.get(f"/api/integracoes/conectores/{con['id']}/eventos")).json()}
+    assert evs["evt_1"]["status"] == "emitida", evs["evt_1"]["mensagem"]
+    assert evs["evt_5"]["status"] == "emitida", evs["evt_5"]["mensagem"]
+    assert evs["evt_2"]["status"] == "ignorado" and evs["evt_3"]["status"] == "ignorado", evs
+    assert evs["evt_4"]["status"] == "erro" and "USD" in evs["evt_4"]["mensagem"], evs
+    assert evs["evt_6"]["status"] == "ignorado" and evs["evt_7"]["status"] == "ignorado", evs
+    nota = ok(api.get(f"/api/emissoes/{evs['evt_1']['emissao_id']}")).json()
+    assert nota["valor"] in ("150.50", "150,50", 150.5) and "Plano Pro" in nota["descricao"], nota
+    assert nota["tomador_documento"] == TOMADOR_CNPJ, nota
+    nota = ok(api.get(f"/api/emissoes/{evs['evt_5']['emissao_id']}")).json()
+    assert nota["tomador_documento"] == "52998224725" and "(extra)" in nota["descricao"], nota
+    cli = ok(api.get("/api/clientes/52998224725")).json()
+    assert cli["nome"] in ("Maria Teste", "Pessoa Teste") and cli["email"], cli  # cadastro já existente prevalece
+
+    endereco = conectores._endereco_stripe(fatura["customer_address"])
+    assert endereco["logradouro"] == "Rua das Flores" and endereco["numero"] == "100"
+    assert endereco["complemento"] == "Sala 2" and endereco["cep"] == "89000000" and endereco["c_mun"]
+
+    ok(api.put(f"/api/integracoes/conectores/{con['id']}", json={"segredo_webhook": "whsec_novo"}))
+    assert aviso("invoice.paid", "evt_8", fatura, segredo="whsec_novo").status_code == 200
+    ok(api.delete(f"/api/integracoes/conectores/{con['id']}"))
+    assert any(p.method == "DELETE" and p.url.path == "/v1/webhook_endpoints/we_1" for p in pedidos)
+    ok(api.delete(f"/api/integracoes/conectores/{manual['id']}"))
+    assert sum(p.method == "DELETE" for p in pedidos) == 1  # o endpoint manual é do administrador
+    conectores.definir_transporte(None)
+
+
 def _fluxo_varias_empresas(api, sim) -> None:
     """Duas empresas a mais (uma com o A1 dela, outra por procuração), isoladas entre si."""
     um = _como(api, 1)
@@ -1213,6 +1363,7 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     # API de integração e webhooks
     _fluxo_api_v1(api, sim)
     _fluxo_asaas(api, sim)
+    _fluxo_stripe(api, sim)
 
     # Várias empresas e procuração
     _fluxo_varias_empresas(api, sim)
@@ -1234,6 +1385,11 @@ def test_api_de_integracao(api, sim, pfx_bytes, nfse_exemplo_bytes):
 def test_conector_asaas(api, sim, pfx_bytes, nfse_exemplo_bytes):
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
     _fluxo_asaas(api, sim)
+
+
+def test_conector_stripe(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    _fluxo_stripe(api, sim)
 
 
 def test_varias_empresas_e_procuracao(api, sim, pfx_bytes, nfse_exemplo_bytes):

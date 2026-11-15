@@ -33,12 +33,12 @@ export function LogoMarca({ marca, tamanho = 40 }: { marca: Marca | null; tamanh
 
 /** Vitrine das integrações: o que já liga direto, o que funciona pela API e o que vem depois. */
 export function CatalogoIntegracoes({
-  conectoresAsaas,
-  abrirAsaas,
+  conectados,
+  abrir,
   irParaApi,
 }: {
-  conectoresAsaas: number;
-  abrirAsaas: () => void;
+  conectados: { asaas: number; stripe: number };
+  abrir: (tipo: "asaas" | "stripe") => void;
   irParaApi: () => void;
 }) {
   const itens: Item[] = [
@@ -47,9 +47,18 @@ export function CatalogoIntegracoes({
       marca: MARCAS.asaas,
       titulo: "Asaas",
       texto: "Cada cobrança paga vira uma nota, com o cliente da cobrança como tomador.",
-      situacao: conectoresAsaas > 0 ? "conectado" : "disponivel",
-      acao: abrirAsaas,
-      rotuloAcao: conectoresAsaas > 0 ? "Ver conector" : "Conectar",
+      situacao: conectados.asaas > 0 ? "conectado" : "disponivel",
+      acao: () => abrir("asaas"),
+      rotuloAcao: conectados.asaas > 0 ? "Ver conector" : "Conectar",
+    },
+    {
+      id: "stripe",
+      marca: MARCAS.stripe,
+      titulo: "Stripe",
+      texto: "Cada fatura paga e cada Checkout ou Payment Link pago vira uma nota, com o cliente como tomador.",
+      situacao: conectados.stripe > 0 ? "conectado" : "disponivel",
+      acao: () => abrir("stripe"),
+      rotuloAcao: conectados.stripe > 0 ? "Ver conector" : "Conectar",
     },
     {
       id: "shopee",
@@ -76,13 +85,6 @@ export function CatalogoIntegracoes({
       acao: irParaApi,
       rotuloAcao: "Criar token",
     })),
-    {
-      id: "stripe",
-      marca: MARCAS.stripe,
-      titulo: "Stripe",
-      texto: "Fatura paga vira nota. Por enquanto, ligue pela API ou por uma automação.",
-      situacao: "breve",
-    },
     {
       id: "mercadopago",
       marca: MARCAS.mercadopago,

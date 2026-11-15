@@ -408,19 +408,22 @@ class EntregaWebhook(SQLModel, table=True):
 
 
 class ConectorEntrada(SQLModel, table=True):
-    """Conector de entrada: outro sistema (Asaas) avisa um pagamento e o emissor faz a nota (``services.conectores``)."""
+    """Conector de entrada: outro sistema (Asaas, Stripe) avisa um pagamento e o emissor faz a nota (``services.conectores``)."""
 
     __tablename__ = "conector_entrada"
     id: int | None = Field(default=None, primary_key=True)
     empresa_id: int = Field(index=True)
-    tipo: str = "asaas"
+    tipo: str = "asaas"  # asaas | stripe
     nome: str = ""
     ambiente: str  # "1" produção | "2" homologação: ambiente da NFS-e (a empresa precisa estar nele)
     caminho: str = Field(index=True, unique=True)  # /api/v1/entrada/<tipo>/<caminho>
-    token_hash: str  # SHA-256 do token que o Asaas manda em asaas-access-token
-    chave_enc: bytes = Field(sa_column=Column(LargeBinary, nullable=False))  # chave da API do Asaas, cifrada
-    ambiente_origem: str = "producao"  # producao | sandbox (do Asaas)
-    gatilho: str = "recebido"  # recebido (PAYMENT_RECEIVED) | confirmado (PAYMENT_CONFIRMED ou RECEIVED)
+    token_hash: str  # SHA-256 do token que o Asaas manda em asaas-access-token (na Stripe, sem uso)
+    chave_enc: bytes = Field(sa_column=Column(LargeBinary, nullable=False))  # chave da API da origem, cifrada
+    # Stripe: segredo de assinatura do endpoint (whsec_..., cifrado) e id do endpoint criado pelo emissor (we_...).
+    segredo_enc: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))
+    webhook_origem_id: str | None = None
+    ambiente_origem: str = "producao"  # producao | sandbox (Asaas) | teste (Stripe)
+    gatilho: str = "recebido"  # Asaas: recebido | confirmado; Stripe: pago
     tributacao_id: int | None = None  # None = padrões das configurações
     descricao: str = ""  # modelo da descrição; {cobranca} = descrição da cobrança no Asaas
     ativo: bool = True

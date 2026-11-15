@@ -35,14 +35,18 @@ type Entrega = {
   criado_em: string | null;
   proxima_em: string | null;
 };
+type TipoConector = "asaas" | "stripe";
 type Conector = {
   id: number;
-  tipo: "asaas";
+  tipo: TipoConector;
   nome: string;
   ambiente: "producao" | "homologacao";
-  ambiente_origem: "producao" | "sandbox";
+  ambiente_origem: "producao" | "sandbox" | "teste";
   caminho: string;
-  gatilho: "recebido" | "confirmado";
+  webhook_criado: boolean;
+  segredo_pendente: boolean;
+  eventos_origem: string[];
+  gatilho: string;
   tributacao_id: number | null;
   tributacao_nome: string | null;
   descricao: string;
@@ -62,8 +66,10 @@ type AvisoEntrada = {
 };
 type FormConector = {
   id?: number;
+  tipo: TipoConector;
   nome: string;
   chave: string;
+  segredo: string;
   ambiente: string;
   ambiente_origem: string;
   gatilho: string;
@@ -76,6 +82,7 @@ type Integracoes = {
   webhooks: WebhookApi[];
   conectores: Conector[];
   gatilhos: Opcao[];
+  stripe_cria_webhook: boolean;
   escopos: Opcao[];
   eventos: Opcao[];
   limites: { por_minuto: number; notas_por_dia: number };
@@ -116,7 +123,7 @@ export function SecaoIntegracoes() {
   const [entregas, setEntregas] = useState<WebhookApi | null>(null);
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
-  const [pedidoAsaas, setPedidoAsaas] = useState(0);
+  const [pedidos, setPedidos] = useState<Record<TipoConector, number>>({ asaas: 0, stripe: 0 });
   const tokensRef = useRef<HTMLHeadingElement>(null);
   const d = dados.data;
 
@@ -152,8 +159,11 @@ export function SecaoIntegracoes() {
       {d && (
         <>
           <CatalogoIntegracoes
-            conectoresAsaas={d.conectores.length}
-            abrirAsaas={() => setPedidoAsaas((n) => n + 1)}
+            conectados={{
+              asaas: d.conectores.filter((c) => c.tipo === "asaas").length,
+              stripe: d.conectores.filter((c) => c.tipo === "stripe").length,
+            }}
+            abrir={(tipo) => setPedidos((p) => ({ ...p, [tipo]: p[tipo] + 1 }))}
             irParaApi={() => tokensRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
           />
           <h3 className="integracoes__titulo" ref={tokensRef}>Tokens</h3>
@@ -253,7 +263,8 @@ export function SecaoIntegracoes() {
           >
             Novo webhook
           </button>
-          <ReceberCobrancas d={d} pedido={pedidoAsaas} />
+          <ReceberCobrancas d={d} tipo="asaas" pedido={pedidos.asaas} />
+          <ReceberCobrancas d={d} tipo="stripe" pedido={pedidos.stripe} />
           {!novoToken && !novoWebhook && !revogar && <div style={{ marginTop: 12 }}><ErroCaixa erro={erro} /></div>}
         </>
       )}
@@ -478,7 +489,7 @@ function Entregas({ webhook, fechar }: { webhook: WebhookApi; fechar: () => void
   );
 }
 
-/** Endereço que só a rede local alcança: o Asaas (na internet) não consegue entregar os avisos. */
+/** Endereço que só a rede local alcança: o Asaas e a Stripe (na internet) não conseguem entregar os avisos. */
 function enderecoLocal() {
   const h = location.hostname;
   return (
@@ -488,38 +499,53 @@ function enderecoLocal() {
   );
 }
 
-const formNovo = (d: Integracoes): FormConector => ({
-  nome: "Asaas",
+const NOME_TIPO: Record<TipoConector, string> = { asaas: "Asaas", stripe: "Stripe" };
+
+const formNovo = (d: Integracoes, tipo: TipoConector): FormConector => ({
+  tipo,
+  nome: NOME_TIPO[tipo],
   chave: "",
+  segredo: "",
   ambiente: d.ambiente_atual,
   ambiente_origem: "producao",
-  gatilho: "recebido",
+  gatilho: tipo === "stripe" ? "pago" : "recebido",
   tributacao_id: null,
   descricao: "{cobranca}",
 });
 
-const QUANDO_EMITIR = { recebido: "Pagamento recebido", confirmado: "Pagamento confirmado" } as const;
+const QUANDO_EMITIR: Record<string, string> = {
+  recebido: "Pagamento recebido",
+  confirmado: "Pagamento confirmado",
+  pago: "Fatura ou Checkout pago",
+};
 
-/** Conector do Asaas: cada cobrança paga vira uma nota, sem programar nada. */
-function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
+const ORIGEM: Record<string, string> = { producao: "produção", sandbox: "sandbox", teste: "modo de teste" };
+
+/** Conector de cobrança (Asaas ou Stripe): cada pagamento vira uma nota, sem programar nada. */
+function ReceberCobrancas({ d, tipo, pedido }: { d: Integracoes; tipo: TipoConector; pedido: number }) {
   const qc = useQueryClient();
   const toast = useToast();
   const tributacoes = useTributacoes();
   const [form, setForm] = useState<FormConector | null>(null);
-  const [criado, setCriado] = useState<{ conector: Conector; token: string } | null>(null);
+  const [criado, setCriado] = useState<{ conector: Conector; token: string | null } | null>(null);
+  const [segredo, setSegredo] = useState("");
   const [avisos, setAvisos] = useState<Conector | null>(null);
   const [remover, setRemover] = useState<Conector | null>(null);
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
   const tituloRef = useRef<HTMLHeadingElement>(null);
-  // Clique no cartão do Asaas no catálogo: sem conector, abre o cadastro; com conector, mostra a lista.
+  const lista = d.conectores.filter((c) => c.tipo === tipo);
+  const nome = NOME_TIPO[tipo];
+  const stripe = tipo === "stripe";
+  // Clique no cartão do catálogo: sem conector, abre o cadastro; com conector, mostra a lista.
   useEffect(() => {
     if (!pedido) return;
-    if (d.conectores.length === 0) setForm(formNovo(d));
+    if (lista.length === 0) setForm(formNovo(d, tipo));
     else tituloRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedido]);
-  const chaveConhecida = form ? /^\$aact_(prod|hmlg)_/.test(form.chave.trim()) : true;
+  const chaveConhecida = form ? stripe || /^\$aact_(prod|hmlg)_/.test(form.chave.trim()) : true;
+  const chaveTeste = !!form && /^(sk|rk)_test_/.test(form.chave.trim());
 
   async function executar(fn: () => Promise<void>) {
     setErro(null);
@@ -542,100 +568,126 @@ function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
         tributacao_id: f.tributacao_id,
         descricao: f.descricao,
         ...(f.chave.trim() ? { chave: f.chave.trim() } : {}),
+        ...(f.segredo.trim() ? { segredo_webhook: f.segredo.trim() } : {}),
       };
       if (f.id) {
         await api.put(`/api/integracoes/conectores/${f.id}`, corpo);
         toast("Conector alterado.");
       } else {
-        const r = await api.post<Conector & { token: string }>("/api/integracoes/conectores", {
+        const r = await api.post<Conector & { token: string | null }>("/api/integracoes/conectores", {
           ...corpo,
+          tipo: f.tipo,
           ambiente: f.ambiente,
           ambiente_origem: chaveConhecida ? null : f.ambiente_origem,
         });
-        setCriado({ conector: r, token: r.token });
+        if (r.webhook_criado) toast(`${nome} conectada: o webhook foi criado na Stripe.`);
+        else setCriado({ conector: r, token: r.token });
       }
       setForm(null);
     });
   }
 
+  async function salvarSegredo(c: Conector) {
+    await executar(async () => {
+      await api.put(`/api/integracoes/conectores/${c.id}`, { segredo_webhook: segredo.trim() });
+      setSegredo("");
+      setCriado(null);
+      toast("Segredo guardado. Os avisos da Stripe já são aceitos.");
+    });
+  }
+
+  const urlConector = (c: Conector) => location.origin + c.caminho;
+
   return (
     <>
-      {d.conectores.length > 0 && (
+      {lista.length > 0 && (
         <>
-      <h3 className="integracoes__titulo" ref={tituloRef}>Receber cobranças (Asaas)</h3>
-        <div className="tabela-caixa" style={{ marginBottom: 12 }}>
-          <table className="tabela">
-            <thead>
-              <tr><th>Conector</th><th>Emite quando</th><th>Tributação</th><th>Último aviso</th><th /></tr>
-            </thead>
-            <tbody>
-              {d.conectores.map((c) => (
-                <tr key={c.id} className={c.ativo ? undefined : "linha--apagada"}>
-                  <td>
-                    <b>{c.nome}</b>
-                    <div style={{ color: "var(--grafite)" }}>
-                      Asaas {c.ambiente_origem === "sandbox" ? "sandbox" : "produção"} → NFS-e em {AMBIENTE[c.ambiente].toLowerCase()}
-                    </div>
-                    {c.eventos_com_erro > 0 && <div style={{ color: "var(--erro)" }}>{c.eventos_com_erro} aviso(s) com erro</div>}
-                  </td>
-                  <td>{QUANDO_EMITIR[c.gatilho]}</td>
-                  <td>{c.tributacao_nome ?? "Padrão"}</td>
-                  <td>{quando(c.ultimo_evento_em)}</td>
-                  <td className="dir" style={{ whiteSpace: "nowrap" }}>
-                    <button className="btn btn--pequeno" onClick={() => setAvisos(c)}>Avisos</button>{" "}
-                    <button
-                      className="btn btn--pequeno"
-                      onClick={() =>
-                        setForm({
-                          id: c.id,
-                          nome: c.nome,
-                          chave: "",
-                          ambiente: c.ambiente,
-                          ambiente_origem: c.ambiente_origem,
-                          gatilho: c.gatilho,
-                          tributacao_id: c.tributacao_id,
-                          descricao: c.descricao,
-                        })
-                      }
-                    >
-                      Editar
-                    </button>{" "}
-                    <button
-                      className="btn btn--pequeno btn--fantasma"
-                      disabled={ocupado}
-                      onClick={() => executar(async () => { await api.put(`/api/integracoes/conectores/${c.id}`, { ativo: !c.ativo }); })}
-                    >
-                      {c.ativo ? "Pausar" : "Retomar"}
-                    </button>{" "}
-                    <button
-                      className="btn btn--pequeno btn--fantasma"
-                      disabled={ocupado}
-                      onClick={() =>
-                        executar(async () => {
-                          const r = await api.post<{ token: string }>(`/api/integracoes/conectores/${c.id}/token`);
-                          setCriado({ conector: c, token: r.token });
-                        })
-                      }
-                    >
-                      Novo token
-                    </button>{" "}
-                    <button className="btn btn--pequeno btn--fantasma" onClick={() => setRemover(c)}>Remover</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      <button className="btn" onClick={() => setForm(formNovo(d))}>
-        Conectar outra conta do Asaas
-      </button>
+          <h3 className="integracoes__titulo" ref={tituloRef}>Receber pagamentos ({nome})</h3>
+          <div className="tabela-caixa" style={{ marginBottom: 12 }}>
+            <table className="tabela">
+              <thead>
+                <tr><th>Conector</th><th>Emite quando</th><th>Tributação</th><th>Último aviso</th><th /></tr>
+              </thead>
+              <tbody>
+                {lista.map((c) => (
+                  <tr key={c.id} className={c.ativo ? undefined : "linha--apagada"}>
+                    <td>
+                      <b>{c.nome}</b>
+                      <div style={{ color: "var(--grafite)" }}>
+                        {nome} {ORIGEM[c.ambiente_origem]} → NFS-e em {AMBIENTE[c.ambiente].toLowerCase()}
+                      </div>
+                      {c.segredo_pendente && (
+                        <div style={{ color: "var(--erro)" }}>
+                          Falta o segredo do webhook.{" "}
+                          <button className="link" onClick={() => setCriado({ conector: c, token: null })}>Concluir</button>
+                        </div>
+                      )}
+                      {c.eventos_com_erro > 0 && <div style={{ color: "var(--erro)" }}>{c.eventos_com_erro} aviso(s) com erro</div>}
+                    </td>
+                    <td>{QUANDO_EMITIR[c.gatilho] ?? c.gatilho}</td>
+                    <td>{c.tributacao_nome ?? "Padrão"}</td>
+                    <td>{quando(c.ultimo_evento_em)}</td>
+                    <td className="dir" style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn btn--pequeno" onClick={() => setAvisos(c)}>Avisos</button>{" "}
+                      <button
+                        className="btn btn--pequeno"
+                        onClick={() =>
+                          setForm({
+                            id: c.id,
+                            tipo: c.tipo,
+                            nome: c.nome,
+                            chave: "",
+                            segredo: "",
+                            ambiente: c.ambiente,
+                            ambiente_origem: c.ambiente_origem,
+                            gatilho: c.gatilho,
+                            tributacao_id: c.tributacao_id,
+                            descricao: c.descricao,
+                          })
+                        }
+                      >
+                        Editar
+                      </button>{" "}
+                      <button
+                        className="btn btn--pequeno btn--fantasma"
+                        disabled={ocupado}
+                        onClick={() => executar(async () => { await api.put(`/api/integracoes/conectores/${c.id}`, { ativo: !c.ativo }); })}
+                      >
+                        {c.ativo ? "Pausar" : "Retomar"}
+                      </button>{" "}
+                      {!stripe && (
+                        <>
+                          <button
+                            className="btn btn--pequeno btn--fantasma"
+                            disabled={ocupado}
+                            onClick={() =>
+                              executar(async () => {
+                                const r = await api.post<{ token: string }>(`/api/integracoes/conectores/${c.id}/token`);
+                                setCriado({ conector: c, token: r.token });
+                              })
+                            }
+                          >
+                            Novo token
+                          </button>{" "}
+                        </>
+                      )}
+                      <button className="btn btn--pequeno btn--fantasma" onClick={() => setRemover(c)}>Remover</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn" onClick={() => setForm(formNovo(d, tipo))}>
+            Conectar outra conta {stripe ? "da Stripe" : "do Asaas"}
+          </button>
         </>
       )}
-      {!form && !remover && <div style={{ marginTop: 12 }}><ErroCaixa erro={erro} /></div>}
+      {!form && !remover && !criado && <div style={{ marginTop: 12 }}><ErroCaixa erro={erro} /></div>}
 
       {form && (
         <Dialogo
-          titulo={form.id ? `Conector “${form.nome}”` : "Conectar o Asaas"}
+          titulo={form.id ? `Conector “${form.nome}”` : `Conectar ${stripe ? "a Stripe" : "o Asaas"}`}
           fechar={() => setForm(null)}
           rodape={
             <>
@@ -653,31 +705,44 @@ function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {!form.id && enderecoLocal() && (
               <div className="aviso">
-                O Asaas avisa os pagamentos pela internet. Este sistema está num endereço da rede local, que ele não
-                alcança: os avisos só chegam se o sistema tiver um endereço público (por exemplo, na hospedagem).
+                {stripe ? "A Stripe" : "O Asaas"} avisa os pagamentos pela internet. Este sistema está num endereço da rede
+                local, que {stripe ? "ela" : "ele"} não alcança: os avisos só chegam se o sistema tiver um endereço público (por
+                exemplo, na hospedagem).
               </div>
             )}
             {!form.id && (
               <p style={{ margin: 0, color: "var(--grafite)" }}>
-                Cada cobrança paga vira uma nota, com o cliente da cobrança como tomador. Aviso repetido não emite outra
-                nota, e estornos não cancelam nada sozinhos.
+                {stripe
+                  ? "Cada fatura paga (assinaturas e faturas avulsas) e cada Checkout ou Payment Link pago vira uma nota, com o cliente como tomador."
+                  : "Cada cobrança paga vira uma nota, com o cliente da cobrança como tomador."}{" "}
+                Aviso repetido não emite outra nota, e estornos não cancelam nada sozinhos.
               </p>
             )}
             <label className="campo">
-              <span>{form.id ? "Chave da API do Asaas (só para trocar)" : "Chave da API do Asaas"}</span>
+              <span>{form.id ? `Chave da API ${stripe ? "da Stripe" : "do Asaas"} (só para trocar)` : `Chave da API ${stripe ? "da Stripe" : "do Asaas"}`}</span>
               <input
                 data-autofocus
                 type="password"
                 autoComplete="off"
                 spellCheck={false}
                 className="num"
-                placeholder="$aact_prod_..."
+                placeholder={stripe ? "rk_live_..." : "$aact_prod_..."}
                 value={form.chave}
                 onChange={(e) => setForm({ ...form, chave: e.target.value })}
               />
               <small>
-                No Asaas: Integrações → Chaves de API. Ela serve só para ler o CPF/CNPJ e o endereço do cliente da cobrança e
-                fica guardada cifrada.
+                {stripe ? (
+                  <>
+                    Na Stripe: Desenvolvedores → Chaves de API. Prefira uma chave restrita com leitura em Customers, Invoices e
+                    Checkout Sessions{d.stripe_cria_webhook ? " e escrita em Webhook Endpoints (para o webhook ser criado sozinho)" : ""}.
+                    Fica guardada cifrada.
+                  </>
+                ) : (
+                  <>
+                    No Asaas: Integrações → Chaves de API. Ela serve só para ler o CPF/CNPJ e o endereço do cliente da cobrança e
+                    fica guardada cifrada.
+                  </>
+                )}
               </small>
             </label>
             {!form.id && form.chave.trim() && !chaveConhecida && (
@@ -694,20 +759,24 @@ function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
                 <span>Ambiente da NFS-e</span>
                 <select value={form.ambiente} onChange={(e) => setForm({ ...form, ambiente: e.target.value })}>
                   <option value="homologacao">Homologação (testes, sem validade)</option>
-                  <option value="producao">Produção</option>
+                  <option value="producao" disabled={chaveTeste}>Produção</option>
                 </select>
-                <small>Chave do sandbox do Asaas só emite em homologação.</small>
+                <small>
+                  {stripe ? "Chave de teste da Stripe (sk_test_, rk_test_)" : "Chave do sandbox do Asaas"} só emite em homologação.
+                </small>
               </label>
             )}
-            <label className="campo">
-              <span>Emitir a nota quando</span>
-              <select value={form.gatilho} onChange={(e) => setForm({ ...form, gatilho: e.target.value })}>
-                {d.gatilhos.map((g) => (
-                  <option key={g.id} value={g.id}>{g.descricao}</option>
-                ))}
-              </select>
-              <small>No cartão de crédito o dinheiro fica disponível cerca de 32 dias depois da confirmação; Pix e boleto, logo.</small>
-            </label>
+            {!stripe && (
+              <label className="campo">
+                <span>Emitir a nota quando</span>
+                <select value={form.gatilho} onChange={(e) => setForm({ ...form, gatilho: e.target.value })}>
+                  {d.gatilhos.map((g) => (
+                    <option key={g.id} value={g.id}>{g.descricao}</option>
+                  ))}
+                </select>
+                <small>No cartão de crédito o dinheiro fica disponível cerca de 32 dias depois da confirmação; Pix e boleto, logo.</small>
+              </label>
+            )}
             <label className="campo">
               <span>Tributação</span>
               <select
@@ -729,46 +798,92 @@ function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
                 onChange={(e) => setForm({ ...form, descricao: e.target.value })}
               />
               <small>
-                <code>{"{cobranca}"}</code> é a descrição da cobrança no Asaas; as variáveis da tabela também valem (ex.:{" "}
-                <code>{"{mes}"}</code>, <code>{"{competencia}"}</code>).
+                <code>{"{cobranca}"}</code>{" "}
+                {stripe ? "é a descrição da fatura (ou dos itens do Checkout)" : "é a descrição da cobrança no Asaas"}; as
+                variáveis da tabela também valem (ex.: <code>{"{mes}"}</code>, <code>{"{competencia}"}</code>).
               </small>
             </label>
-            <ErroCaixa erro={erro} titulo={form.id ? "Conector não alterado" : "Asaas não conectado"} />
+            {stripe && (
+              <p style={{ margin: 0, color: "var(--grafite)" }}>
+                O CPF/CNPJ vem do Tax ID do cliente (br_cpf ou br_cnpj, que o Checkout pode pedir) ou do metadata{" "}
+                <code>cpf_cnpj</code>. Sem ele, o aviso fica com erro para você completar e processar de novo.
+              </p>
+            )}
+            <ErroCaixa erro={erro} titulo={form.id ? "Conector não alterado" : `${nome} não conectad${stripe ? "a" : "o"}`} />
           </div>
         </Dialogo>
       )}
 
       {criado && (
         <Dialogo
-          titulo="Falta cadastrar o webhook no Asaas"
+          titulo={`Falta cadastrar o webhook ${stripe ? "na Stripe" : "no Asaas"}`}
           fechar={() => setCriado(null)}
           largo
-          rodape={<button className="btn btn--primario" onClick={() => setCriado(null)}>Já cadastrei</button>}
+          rodape={
+            stripe ? (
+              <>
+                <button className="btn" onClick={() => setCriado(null)}>Depois</button>
+                <button className="btn btn--primario" disabled={ocupado || !segredo.trim().startsWith("whsec_")} onClick={() => salvarSegredo(criado.conector)}>
+                  {ocupado && <Spinner />} Guardar segredo
+                </button>
+              </>
+            ) : (
+              <button className="btn btn--primario" onClick={() => setCriado(null)}>Já cadastrei</button>
+            )
+          }
         >
           <ol style={{ marginTop: 0, paddingLeft: "1.25rem", display: "flex", flexDirection: "column", gap: 8 }}>
-            <li>No Asaas, abra Integrações → Webhooks e crie um webhook novo.</li>
+            <li>
+              {stripe
+                ? "Na Stripe, abra Desenvolvedores → Webhooks e adicione um destino (endpoint) novo."
+                : "No Asaas, abra Integrações → Webhooks e crie um webhook novo."}
+            </li>
             <li>
               Em URL, cole:
-              <code className="num segredo-api">{location.origin + criado.conector.caminho}</code>
-              <button className="btn btn--pequeno" onClick={async () => { await copiar(location.origin + criado.conector.caminho); toast("Copiado."); }}>
+              <code className="num segredo-api">{urlConector(criado.conector)}</code>
+              <button className="btn btn--pequeno" onClick={async () => { await copiar(urlConector(criado.conector)); toast("Copiado."); }}>
                 Copiar URL
               </button>
             </li>
+            {criado.token && (
+              <li>
+                Em Token de autenticação, cole:
+                <code className="num segredo-api">{criado.token}</code>
+                <button className="btn btn--pequeno" onClick={async () => { await copiar(criado.token ?? ""); toast("Copiado."); }}>
+                  Copiar token
+                </button>
+              </li>
+            )}
             <li>
-              Em Token de autenticação, cole:
-              <code className="num segredo-api">{criado.token}</code>
-              <button className="btn btn--pequeno" onClick={async () => { await copiar(criado.token); toast("Copiado."); }}>
-                Copiar token
-              </button>
+              Marque os eventos{" "}
+              {criado.conector.eventos_origem.map((e, i) => (
+                <span key={e}>{i > 0 && (i === criado.conector.eventos_origem.length - 1 ? " e " : ", ")}<code>{e}</code></span>
+              ))}{" "}
+              e salve.
             </li>
-            <li>
-              Marque os eventos de cobrança <code>PAYMENT_RECEIVED</code>
-              {criado.conector.gatilho === "confirmado" && <> e <code>PAYMENT_CONFIRMED</code></>} e salve.
-            </li>
+            {stripe && (
+              <li>
+                <label className="campo">
+                  <span>Cole aqui o segredo de assinatura do destino (whsec_...)</span>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="num"
+                    placeholder="whsec_..."
+                    value={segredo}
+                    onChange={(e) => setSegredo(e.target.value)}
+                  />
+                </label>
+              </li>
+            )}
           </ol>
-          <p style={{ color: "var(--grafite)", marginBottom: 0 }}>
-            O token não aparece de novo. Se perder, gere outro no conector e troque no Asaas.
-          </p>
+          {!stripe && (
+            <p style={{ color: "var(--grafite)", marginBottom: 0 }}>
+              O token não aparece de novo. Se perder, gere outro no conector e troque no Asaas.
+            </p>
+          )}
+          <ErroCaixa erro={erro} titulo="Segredo não guardado" />
         </Dialogo>
       )}
 
@@ -796,8 +911,10 @@ function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
           }
         >
           <p style={{ marginTop: 0 }}>
-            Os pagamentos deixam de virar nota e o histórico de avisos é apagado. Notas já emitidas não mudam. Remova também o
-            webhook no Asaas.
+            Os pagamentos deixam de virar nota e o histórico de avisos é apagado. Notas já emitidas não mudam.{" "}
+            {remover.webhook_criado
+              ? "O webhook que este sistema criou na Stripe é apagado junto."
+              : `Remova também o webhook ${stripe ? "na Stripe" : "no Asaas"}.`}
           </p>
           <ErroCaixa erro={erro} titulo="Não foi possível remover" />
         </Dialogo>
@@ -823,7 +940,7 @@ function Avisos({ conector, fechar }: { conector: Conector; fechar: () => void }
     erro: "Erro",
   } as const;
   return (
-    <Dialogo titulo="Avisos recebidos do Asaas" fechar={fechar} largo rodape={<button className="btn" onClick={fechar}>Fechar</button>}>
+    <Dialogo titulo={`Avisos recebidos ${conector.tipo === "stripe" ? "da Stripe" : "do Asaas"}`} fechar={fechar} largo rodape={<button className="btn" onClick={fechar}>Fechar</button>}>
       <ErroCaixa erro={lista.error} titulo="Não foi possível carregar os avisos" />
       {lista.data?.length === 0 && <p style={{ marginTop: 0 }}>Nenhum aviso recebido ainda.</p>}
       {!!lista.data?.length && (

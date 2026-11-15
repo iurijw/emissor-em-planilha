@@ -244,6 +244,20 @@ clientes). A mesma cobrança nunca gera duas notas, e um estorno não cancela a 
 que chegou e processar de novo um aviso com erro (por exemplo, depois de completar o CPF/CNPJ do cliente no Asaas). O
 Asaas precisa alcançar o sistema pela internet: numa instalação só na rede local os avisos não chegam.
 
+### Notas automáticas dos pagamentos da Stripe
+
+No cartão **Stripe** de **Configurações → Integrações**, clique em **Conectar**, cole uma chave da API da Stripe
+(Desenvolvedores → Chaves de API; prefira uma chave restrita com leitura em Customers, Invoices e Checkout Sessions e
+escrita em Webhook Endpoints) e escolha o ambiente da NFS-e, a tributação e a descrição (`{cobranca}` traz a descrição
+da fatura ou dos itens do Checkout). Na hospedagem o webhook é criado na Stripe sozinho. Numa instalação própria sem
+`EMISSOR_URL_PUBLICA`, o sistema mostra a URL: crie um destino em Desenvolvedores → Webhooks com os eventos
+`invoice.paid`, `checkout.session.completed` e `checkout.session.async_payment_succeeded` e cole o segredo
+(`whsec_...`) no conector.
+
+Cada fatura paga (assinaturas e faturas avulsas) e cada Checkout ou Payment Link pago vira uma nota. O CPF/CNPJ vem do
+Tax ID do cliente (`br_cpf` ou `br_cnpj`, que o Checkout pode pedir) ou do metadata `cpf_cnpj`. Pagamentos em outra
+moeda ficam com erro (emita pela nota avulsa), e chave de teste da Stripe só emite em homologação.
+
 ## Configuração
 
 Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker, edite `docker-compose.yaml`):

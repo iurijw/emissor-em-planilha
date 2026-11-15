@@ -1,7 +1,8 @@
-"""Entrada dos conectores (``/api/v1/entrada/<tipo>/<caminho>``): o Asaas avisa um pagamento e o emissor faz a nota.
+"""Entrada dos conectores (``/api/v1/entrada/<tipo>/<caminho>``): o Asaas ou a Stripe avisa um pagamento e o emissor
+faz a nota.
 
 Rota pública (sem token da API): quem chama se identifica pelo caminho do conector e pelo token no cabeçalho
-``asaas-access-token``. Ver ``emissor.services.conectores``.
+``asaas-access-token`` (Asaas) ou pela assinatura ``Stripe-Signature`` (Stripe). Ver ``emissor.services.conectores``.
 """
 
 from __future__ import annotations
@@ -22,5 +23,4 @@ async def receber(tipo: str, caminho: str, request: Request) -> dict[str, Any]:
     if tamanho and tamanho.isdigit() and int(tamanho) > conectores.MAX_CORPO:
         raise conectores.ConectorError("Aviso grande demais.", 413)
     corpo = await request.body()
-    token = request.headers.get("asaas-access-token")
-    return await run_in_threadpool(conectores.receber, tipo, caminho, token, corpo)
+    return await run_in_threadpool(conectores.receber, tipo, caminho, request.headers, corpo)

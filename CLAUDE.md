@@ -258,7 +258,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/assinatura`, `POST /api/assinatura/confirmar\|recusar` (hospedagem: aceite no fim do teste) | assinatura |
 | `GET /api/atualizacoes`, `PUT /api/atualizacoes/automatica`, `POST /api/atualizacoes/aplicar` (admin, só `iniciar.bat`) | versão e atualizações |
 | `GET /api/integracoes`, `POST /api/integracoes/tokens`, `DELETE /api/integracoes/tokens/{id}`, `POST /api/integracoes/webhooks`, `PUT/DELETE /api/integracoes/webhooks/{id}`, `POST .../webhooks/{id}/testar`, `GET .../webhooks/{id}/entregas`, `POST /api/integracoes/entregas/{id}/reenviar` (admin da empresa) | tokens da API e webhooks |
-| `GET /api/integracoes` também lista `conectores`; `POST /api/integracoes/conectores`, `PUT/DELETE .../conectores/{id}`, `POST .../conectores/{id}/token`, `GET .../conectores/{id}/eventos`, `POST /api/integracoes/eventos-entrada/{id}/reprocessar` (admin da empresa); `POST /api/v1/entrada/asaas/{caminho}` (token do conector) | conector do Asaas |
+| `GET /api/integracoes` também lista `conectores`; `POST /api/integracoes/conectores`, `PUT/DELETE .../conectores/{id}`, `POST .../conectores/{id}/token`, `GET .../conectores/{id}/eventos`, `POST /api/integracoes/eventos-entrada/{id}/reprocessar` (admin da empresa); `POST /api/v1/entrada/asaas/{caminho}` (token do conector), `POST /api/v1/entrada/stripe/{caminho}` (`Stripe-Signature`) | conectores do Asaas e da Stripe |
 | `/api/v1/*` (token, ver "API de integração e webhooks"), `/api/v1/docs` e `/api/v1/openapi.json` (abertos) | API de integração |
 | `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
@@ -679,10 +679,27 @@ Plano: https://claude.ai/artifact/XUXxFhdRMq8K9LGgRzVejU. Camada fina e versiona
   nota: outros eventos, estornos (não cancela sozinho), cobrança excluída. Erro (refazível pela tela): cliente sem
   CPF/CNPJ ou estrangeiro, empresa em outro ambiente, nota com erro, assinatura suspensa. Chave do sandbox só com NFS-e
   em homologação. Avisos guardados por 90 dias. Na rede local o Asaas não alcança o sistema (a tela avisa).
-- **Catálogo na tela** (`components/CatalogoIntegracoes.tsx`): cartões com o logo de cada empresa (Asaas, Shopee, seu
-  sistema, n8n, Zapier, Make, Stripe e Mercado Pago "em breve") e a situação (conectado, disponível, pela API, em breve).
+- **Conector de entrada da Stripe** (mesmo módulo e tabelas, `tipo = "stripe"`; `ConectorEntrada.segredo_enc` e
+  `webhook_origem_id`). O admin cola uma chave secreta ou restrita (`sk_/rk_` + `live_`/`test_` dizem o modo; restrita
+  pede leitura de Customers, Invoices e Checkout Sessions e escrita de Webhook Endpoints), conferida com
+  `GET /v1/customers?limit=1`. Com `EMISSOR_URL_PUBLICA` em https (a hospedagem define) o emissor cria o endpoint
+  (`POST /v1/webhook_endpoints`, eventos `invoice.paid`, `checkout.session.completed` e
+  `checkout.session.async_payment_succeeded`) e guarda o segredo; sem ela o conector fica com `segredo_pendente` e a
+  tela mostra a URL para o admin criar o endpoint e colar o `whsec_`. Remover o conector apaga o endpoint criado pelo
+  emissor. A entrada confere `Stripe-Signature` (HMAC-SHA256 de `"<t>.<corpo>"`, 5 min de tolerância). Nota por fatura
+  paga (`in_...`) ou por Checkout pago sem fatura (`cs_...`, `mode=payment`); Checkout de assinatura ou com fatura fica
+  com a fatura, fatura de valor zero e boleto ainda não compensado são ignorados, moeda que não seja BRL é erro, evento
+  de outro modo (`livemode`) que a chave é ignorado. CPF/CNPJ: Tax ID `br_cpf`/`br_cnpj` da fatura, do Checkout ou do
+  cliente (`GET /v1/customers/{id}?expand[]=tax_ids`), senão metadata `cpf_cnpj`/`cpf`/`cnpj`/`documento`. A Stripe
+  não tem bairro nem número: "Rua X, 100" vira logradouro + número e CNPJ sem endereço completo é completado pela
+  Receita (`consultar_cnpj`, sem trocar o que veio). Chave de teste só com NFS-e em homologação.
+- **Nota avulsa sem linha** (correção de 2026-11-15): a validação via `Emissao.linha_id == ln.id` com `ln.id = None`
+  virava `IS NULL` e qualquer avulsa na fila recusava a próxima ("Esta linha já está em uma emissão em andamento");
+  agora só confere linhas reais.
+- **Catálogo na tela** (`components/CatalogoIntegracoes.tsx`): cartões com o logo de cada empresa (Asaas, Stripe,
+  Shopee, seu sistema, n8n, Zapier, Make e Mercado Pago "em breve") e a situação (conectado, disponível, pela API, em breve).
   Logos do Simple Icons 13.21.0 (CC0) em `components/marcas.ts`; o Asaas não está lá e aparece pelo nome.
-- **Ainda não:** Stripe e Mercado Pago, servidor MCP, evento `certificado.vencendo`, tokens com validade/IPs
+- **Ainda não:** Mercado Pago, servidor MCP, evento `certificado.vencendo`, tokens com validade/IPs
   permitidos.
 
 ### Versão e atualizações (2026-10-31)
@@ -996,5 +1013,6 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-15 | Importar o relatório NF/RPA da Shopee na tabela (uma linha por marca) e, depois, uma API `/api/v1` com tokens por empresa (só o administrador cria), incluída na hospedagem; primeiro conector de entrada: Asaas | Plano da thread "Planejar API de integração do emissor": para NFS-e, o que pesa é cobrança (Asaas, Stripe) e o afiliado PJ da Shopee, não venda de produto |
 | 2026-11-15 | API `/api/v1` só por token (cookie ignorado), token preso a uma empresa e um ambiente; referência externa contra duplicidade; webhooks assinados (HMAC) com retentativa até 24 h; na hospedagem, webhook só https e fora da rede interna | Pedido do Iuri; integrar sem abrir brecha na tela (CSRF, X-Empresa) nem mandar teste para produção; o webhook não pode virar ponte para dentro da máquina |
 | 2026-11-15 | Conector do Asaas: aviso gravado e respondido na hora, nota feita em segundo plano com a cobrança como referência externa; estorno não cancela sozinho; sandbox só em homologação | Pedido do Iuri (primeiro conector); o Asaas repete avisos e pausa a fila se demorarem; cancelar nota é decisão da pessoa |
+| 2026-11-15 | Conector da Stripe: webhook criado pelo emissor quando há endereço público, corpo assinado conferido, nota por fatura paga ou Checkout pago sem fatura | Pedido do Iuri; a fatura cobre assinaturas e o Checkout com fatura, então um pagamento nunca vira duas notas |
 | 2026-11-15 | Frontend segue os guias do Chrome (Modern Web Guidance): diálogos nativos, popovers, `:user-invalid`, fontes em rem | Pedido do Iuri: usar o que o navegador já faz (foco, Esc, camada superior, acessibilidade) em vez de código próprio |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
