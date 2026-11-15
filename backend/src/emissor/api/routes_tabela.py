@@ -145,11 +145,50 @@ def importar_tabela(
                 )
             )
         s.commit()
+        clientes = _cadastrar_da_planilha(s, res)
     log.info(
         "tabela importada",
-        extra={"arquivo": arquivo.filename, "linhas": len(res.linhas), "modo": modo, "aba_id": aba.id},
+        extra={
+            "arquivo": arquivo.filename,
+            "linhas": len(res.linhas),
+            "modo": modo,
+            "aba_id": aba.id,
+            "reconhecido": res.reconhecido,
+            "clientes": clientes,
+        },
     )
-    return {"aba_id": aba.id, "linhas": _listar_linhas(aba.id), "importadas": len(res.linhas), "avisos": res.avisos}
+    return {
+        "aba_id": aba.id,
+        "linhas": _listar_linhas(aba.id),
+        "importadas": len(res.linhas),
+        "avisos": res.avisos,
+        "reconhecido": res.reconhecido,
+        "informacoes": res.informacoes,
+    }
+
+
+def _cadastrar_da_planilha(s, res: tabela_service.ResultadoImportacao) -> int:
+    """E-mail e endereço que vieram na planilha: cadastro novo ou só os campos vazios do existente.
+
+    Cliente novo fica com ``origem = "planilha"``; sem endereço completo, a consulta automática da Receita ainda o
+    completa (``pendente_receita``). Nada que já estava no cadastro é trocado.
+    """
+    n = 0
+    for li in res.linhas:
+        if not li.cadastro or not cli_service.documento_valido(li.documento):
+            continue
+        novo = cli_service.de_planilha(li.documento, li.nome, li.cadastro)
+        atual = _cliente_db(s, li.documento)
+        if atual is None:
+            if not li.nome:
+                continue  # sem nome não dá para cadastrar; a Receita preenche
+            s.add(novo)
+            n += 1
+        elif cli_service.completar_vazios(atual, novo):
+            s.add(atual)
+            n += 1
+    s.commit()
+    return n
 
 
 @router.get("/tabela/exportar")
@@ -348,14 +387,20 @@ def _consultar_pendentes(entrada: ConsultarPendentes) -> dict[str, Any]:
         if len(n) == 14 and n not in docs:
             docs.append(n)
     with sessao() as s:
-        faltando = [d for d in docs if _cliente_db(s, d) is None]
+        faltando = [d for d in docs if cli_service.pendente_receita(_cliente_db(s, d))]
     for i, doc in enumerate(faltando[:50]):  # limite por chamada; o front repete se houver mais
         if i:
             time.sleep(0.3)  # gentileza com a API pública
         r = cli_service.consultar_cnpj(doc)
         if r.encontrado:
             with sessao() as s:
-                c = cli_service.upsert(s, r.cliente, sobrescrever=False)
+                c = _cliente_db(s, doc)
+                if c is None:
+                    c = cli_service.upsert(s, r.cliente, sobrescrever=False)
+                else:  # cadastrado pela planilha: a Receita só completa o que faltou
+                    cli_service.completar_vazios(c, r.cliente)
+                    c.origem = r.cliente.origem
+                    s.add(c)
                 s.commit()
             resultados.append({"documento": doc, "ok": True, "fonte": r.fonte, "nome": c.nome})
         else:

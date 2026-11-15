@@ -363,7 +363,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       ...new Set(
         linhas
           .map((l) => l.documento)
-          .filter((d) => d.length === 14 && documentoValido(d) && !clientes.has(d) && !consultados.current.has(d)),
+          .filter((d) => d.length === 14 && documentoValido(d) && pendenteReceita(clientes.get(d)) && !consultados.current.has(d)),
       ),
     ];
     if (!faltando.length) return;
@@ -896,6 +896,11 @@ function DetalheUltima({ linha }: { linha: LinhaLocal }) {
   );
 }
 
+/** CNPJ sem cadastro, ou cadastrado só por uma planilha importada e ainda sem endereço: vale buscar na Receita. */
+function pendenteReceita(c: Cliente | undefined): boolean {
+  return !c || (c.origem === "planilha" && !c.endereco_completo);
+}
+
 function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: () => void; concluido: (l: Linha[]) => void }) {
   const [modo, setModo] = useState<"substituir" | "acrescentar">("substituir");
   const [erro, setErro] = useState<unknown>(null);
@@ -908,8 +913,12 @@ function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: 
     try {
       const fd = new FormData();
       fd.append("arquivo", files[0]);
-      const r = await api.post<{ linhas: Linha[]; importadas: number; avisos: string[] }>(`/api/tabela/importar?modo=${modo}${abaId ? `&aba_id=${abaId}` : ""}`, fd);
+      const r = await api.post<{ linhas: Linha[]; importadas: number; avisos: string[]; informacoes?: string[] }>(
+        `/api/tabela/importar?modo=${modo}${abaId ? `&aba_id=${abaId}` : ""}`,
+        fd,
+      );
       toast(`${r.importadas} linha(s) importada(s).${r.avisos.length ? ` ${r.avisos.length} aviso(s).` : ""}`);
+      (r.informacoes ?? []).forEach((a) => toast(a));
       r.avisos.slice(0, 3).forEach((a) => toast(a, "erro"));
       concluido(r.linhas);
     } catch (e) {
@@ -923,6 +932,10 @@ function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: 
       <p style={{ marginTop: 0, color: "var(--grafite)" }}>
         Vai para a aba aberta. Excel (.xlsx) ou CSV com as colunas <b>Nome</b>, <b>CNPJ/CPF</b>, <b>Valor</b> e <b>Descrição</b>. A primeira linha pode
         ter esses títulos; sem títulos, vale essa ordem.
+      </p>
+      <p style={{ marginTop: 0, color: "var(--grafite)" }}>
+        Afiliado da Shopee? Envie o <b>relatório mensal NF/RPA</b> da Central do Afiliado como veio: o sistema reconhece, faz uma linha por marca e
+        cadastra o e-mail e o endereço de cada uma.
       </p>
       <div className="amb-escolha" style={{ marginBottom: 16 }}>
         <button type="button" className="amb-op" aria-pressed={modo === "substituir"} onClick={() => setModo("substituir")}>

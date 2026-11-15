@@ -229,6 +229,56 @@ def upsert(s: Session, novo: Cliente, *, sobrescrever: bool = True) -> Cliente:
     return atual
 
 
+CAMPOS_CADASTRO = (
+    "nome",
+    "c_mun",
+    "cep",
+    "logradouro",
+    "numero",
+    "complemento",
+    "bairro",
+    "fone",
+    "email",
+    "inscricao_municipal",
+    "situacao_cadastral",
+)
+
+
+def completar_vazios(atual: Cliente, novo: Cliente) -> bool:
+    """Preenche só os campos vazios de ``atual`` com os de ``novo``. Devolve se algo mudou."""
+    mudou = False
+    for campo in CAMPOS_CADASTRO:
+        valor = getattr(novo, campo)
+        if valor not in (None, "") and getattr(atual, campo) in (None, ""):
+            setattr(atual, campo, valor)
+            mudou = True
+    if mudou:
+        atual.atualizado_em = agora()
+    return mudou
+
+
+def de_planilha(documento: str, nome: str, dados: dict[str, str]) -> Cliente:
+    """Cliente com o e-mail e o endereço que vieram na planilha importada (ex.: relatório NF/RPA da Shopee)."""
+    cep = somente_digitos(dados.get("cep", "")) or ""
+    return Cliente(
+        documento=documento,
+        nome=nome,
+        email=dados.get("email") or None,
+        cep=cep if len(cep) == 8 else None,
+        logradouro=dados.get("logradouro") or None,
+        numero=dados.get("numero") or None,
+        complemento=dados.get("complemento") or None,
+        bairro=dados.get("bairro") or None,
+        c_mun=codes.codigo_municipio(dados.get("cidade"), dados.get("uf")),
+        origem="planilha",
+    )
+
+
+def pendente_receita(c: Cliente | None) -> bool:
+    """Sem cadastro, ou cadastrado só pela planilha e ainda sem endereço completo: vale consultar a Receita."""
+    return c is None or (c.origem == "planilha" and not c.endereco_completo)
+
+
 def de_tomador(t: Tomador, origem: str = "xml") -> Cliente:
     e = t.endereco
     return Cliente(
