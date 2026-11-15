@@ -7,6 +7,12 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.15.0 (15/11/2026)
+
+- Janelas e menus mais fáceis de usar pelo teclado: Esc e clicar fora fecham, e o foco volta para onde estava.
+- Campos só ficam vermelhos depois que você mexe neles, e o tamanho de texto do celular passa a valer.
+- A tela de entrada abre mais rápido.
+
 ## 0.14.0 (12/11/2026)
 
 - Tributação com tipo de imunidade, exigibilidade suspensa, benefício municipal, exportação e compra governamental.
