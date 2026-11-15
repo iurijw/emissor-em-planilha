@@ -850,3 +850,14 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 @media (max-width: 560px) {
   .regra { grid-template-columns: 1fr; }
 }
+
+/* ---------- Integrações (tokens da API e webhooks) ---------- */
+.integracoes__titulo { font-size: 0.9375rem; margin: 22px 0 10px; }
+.integracoes__titulo:first-of-type { margin-top: 8px; }
+.integracoes__opcoes { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.integracoes__opcoes legend { font-weight: 600; font-size: 0.8125rem; margin-bottom: 8px; padding: 0; }
+.segredo-api {
+  display: block; padding: 10px 12px; background: var(--papel); border: 1px solid var(--linha-forte);
+  border-radius: var(--raio); overflow-wrap: anywhere; user-select: all; font-size: 0.8125rem;
+}
+.linha--apagada td { color: var(--grafite-claro); }

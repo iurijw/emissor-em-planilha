@@ -93,6 +93,10 @@ class Acesso:
     # Empresa da requisição e o papel do usuário nela (preenchidos pelo middleware; ver ``emissor.empresas``).
     empresa_id: int | None = None
     papel_empresa: str | None = None
+    # Token da API (``/api/v1``): o token, o que ele pode fazer e o ambiente dele (ver ``emissor.tokens_api``).
+    token_id: int | None = None
+    escopos: tuple[str, ...] = ()
+    ambiente_token: str | None = None
 
     @property
     def admin(self) -> bool:

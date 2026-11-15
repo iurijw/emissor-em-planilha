@@ -232,6 +232,132 @@ def _emitir_na(api, empresa_id: int, documento: str, valor: str) -> dict:
     return e.get(f"/api/lotes/{lote.json()['id']}").json()["emissoes"][0]
 
 
+def _fluxo_api_v1(api, sim) -> None:
+    """API de integração: tokens, notas, lotes, referência externa, cancelamento, clientes e webhooks."""
+    import hashlib
+    import hmac
+    import json as json_
+
+    from emissor.services import webhooks
+
+    recebidos: list[httpx.Request] = []
+
+    def destino(req: httpx.Request) -> httpx.Response:
+        recebidos.append(req)
+        return httpx.Response(204)
+
+    webhooks.definir_entregador(webhooks.Entregador(transport=httpx.MockTransport(destino)))
+
+    def ok(r: httpx.Response, status: int = 200) -> httpx.Response:
+        assert r.status_code == status, f"{r.request.method} {r.request.url} → {r.status_code}: {r.text[:500]}"
+        return r
+
+    info = ok(api.get("/api/integracoes")).json()
+    todos = [e["id"] for e in info["escopos"]]
+    token = ok(api.post("/api/integracoes/tokens", json={"nome": "ERP", "escopos": todos, "ambiente": "homologacao"}))
+    token = token.json()["token"]
+    assert token.startswith("emp_") and token not in str(ok(api.get("/api/integracoes")).json())
+    h = {"Authorization": f"Bearer {token}"}
+
+    # O cookie da tela não abre a API, e o token não abre a tela.
+    ok(api.get("/api/v1/empresa"), 401)
+    ok(api.get("/api/v1/empresa", headers={"Authorization": "Bearer emp_x_y"}), 401)
+    with TestClient(api.app) as anonimo:
+        assert anonimo.get("/api/status", headers=h).status_code == 401
+        assert anonimo.get("/api/v1/openapi.json").status_code == 200
+        assert anonimo.get("/api/v1/docs").status_code == 200
+
+    emp = ok(api.get("/api/v1/empresa", headers=h)).json()
+    assert emp["pronta_para_emitir"] is True and emp["ambiente_token"] == "homologacao", emp
+    ok(api.get("/api/v1/tributacoes", headers=h))
+
+    wh = ok(
+        api.post(
+            "/api/integracoes/webhooks",
+            json={
+                "url": "https://exemplo.com.br/nfse",
+                "eventos": ["nota.autorizada", "lote.concluido"],
+                "ambiente": "homologacao",
+            },
+        )
+    ).json()
+    segredo = wh["segredo"]
+    assert ok(api.post(f"/api/integracoes/webhooks/{wh['id']}/testar")).json()["ok"] is True
+    recebidos.clear()
+
+    nota = {"documento": TOMADOR_CPF, "nome": "P", "valor": "7,50", "descricao": "Cobrança {mes}"}
+    v = ok(api.post("/api/v1/notas/validar", json=nota, headers=h)).json()
+    assert v["pode_emitir"] is True, v
+    criada = ok(api.post("/api/v1/notas", json=nota | {"referencia_externa": "cob_1"}, headers=h), 202).json()
+    assert criada["status"] == "pendente" and criada["repetida"] is False
+    repetida = ok(api.post("/api/v1/notas", json=nota, headers=h | {"Idempotency-Key": "cob_1"})).json()
+    assert repetida["id"] == criada["id"] and repetida["repetida"] is True
+    api.worker.processar_lote(criada["lote_id"])
+    n = ok(api.get(f"/api/v1/notas/{criada['id']}", headers=h)).json()
+    assert n["status"] == "autorizada" and n["numero_nfse"] and n["origem"].startswith("api:"), n
+    ok(api.get(f"/api/v1/notas/{n['id']}/xml", headers=h))
+    assert ok(api.get(f"/api/v1/notas/{n['id']}/pdf", headers=h)).content.startswith(b"%PDF")
+    lista = ok(api.get("/api/v1/notas", params={"referencia_externa": "cob_1"}, headers=h)).json()
+    assert [i["id"] for i in lista["itens"]] == [n["id"]]
+
+    lote = ok(
+        api.post(
+            "/api/v1/lotes",
+            json={"notas": [nota | {"referencia_externa": "cob_2"}, nota | {"referencia_externa": "cob_3"}]},
+            headers=h,
+        ),
+        202,
+    ).json()
+    ok(api.post("/api/v1/lotes", json={"notas": [nota | {"referencia_externa": "cob_2"}]}, headers=h), 409)
+    api.worker.processar_lote(lote["id"])
+    assert ok(api.get(f"/api/v1/lotes/{lote['id']}", headers=h)).json()["contagem"] == {"autorizada": 2}
+
+    # Webhooks: uma nota.autorizada por nota e um lote.concluido por lote, assinados com o segredo.
+    webhooks.entregador().processar_pendentes()
+    eventos = sorted(r.headers["X-Emissor-Evento"] for r in recebidos)
+    assert eventos == ["lote.concluido"] * 2 + ["nota.autorizada"] * 3, eventos
+    for r in recebidos:
+        t, v1 = (p.split("=", 1)[1] for p in r.headers["X-Emissor-Assinatura"].split(","))
+        esperado = hmac.new(segredo.encode(), f"{t}.{r.content.decode()}".encode(), hashlib.sha256).hexdigest()
+        assert hmac.compare_digest(v1, esperado)
+        assert json_.loads(r.content)["id"] == r.headers["X-Emissor-Entrega"]
+    entregas = ok(api.get(f"/api/integracoes/webhooks/{wh['id']}/entregas")).json()
+    assert {e["status"] for e in entregas} == {"entregue"}
+    ok(api.post(f"/api/integracoes/entregas/{entregas[0]['id']}/reenviar"))
+    ok(api.put(f"/api/integracoes/webhooks/{wh['id']}", json={"ativo": False}))
+    ok(api.delete(f"/api/integracoes/webhooks/{wh['id']}"))
+
+    c = ok(
+        api.post(
+            f"/api/v1/notas/{n['id']}/cancelamento",
+            json={"c_motivo": "2", "x_motivo": "Serviço não prestado"},
+            headers=h,
+        )
+    ).json()
+    assert c["status"] == "cancelada"
+    ok(api.put(f"/api/v1/clientes/{TOMADOR_CPF}", json={"nome": "Pessoa Teste"}, headers=h))
+    assert ok(api.get(f"/api/v1/clientes/{TOMADOR_CPF}", headers=h)).json()["nome"] == "Pessoa Teste"
+    w = ok(
+        api.post(
+            "/api/v1/webhooks", json={"url": "https://exemplo.com.br/x", "eventos": ["nota.cancelada"]}, headers=h
+        ),
+        201,
+    ).json()
+    assert [x["id"] for x in ok(api.get("/api/v1/webhooks", headers=h)).json()] == [w["id"]]
+    ok(api.delete(f"/api/v1/webhooks/{w['id']}", headers=h))
+
+    # Token de produção numa empresa em homologação não emite; sem a permissão, 403.
+    prod = ok(
+        api.post("/api/integracoes/tokens", json={"nome": "Prod", "escopos": ["notas:emitir"], "ambiente": "producao"})
+    ).json()
+    hp = {"Authorization": f"Bearer {prod['token']}"}
+    assert ok(api.post("/api/v1/notas", json=nota, headers=hp), 409).json()["ambiente_token"] == "producao"
+    ok(api.get("/api/v1/notas", headers=hp), 403)
+    ok(api.delete(f"/api/integracoes/tokens/{prod['id']}"))
+    ok(api.get("/api/v1/empresa", headers=hp), 401)
+    webhooks.definir_entregador(None)
+
+
 def _fluxo_varias_empresas(api, sim) -> None:
     """Duas empresas a mais (uma com o A1 dela, outra por procuração), isoladas entre si."""
     um = _como(api, 1)
@@ -978,6 +1104,9 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     assert rel.content.decode("utf-8-sig").count("\n") == 3  # cabeçalho + 2 notas
     assert sim.rejeicoes == []
 
+    # API de integração e webhooks
+    _fluxo_api_v1(api, sim)
+
     # Várias empresas e procuração
     _fluxo_varias_empresas(api, sim)
 
@@ -988,6 +1117,11 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
 
     faltando = sorted({f"{m} {p}" for (m, _), p in api.app_rotas.items()} - chamadas)
     assert faltando == [], f"Rotas sem teste ponta a ponta: {faltando}"
+
+
+def test_api_de_integracao(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    _fluxo_api_v1(api, sim)
 
 
 def test_varias_empresas_e_procuracao(api, sim, pfx_bytes, nfse_exemplo_bytes):

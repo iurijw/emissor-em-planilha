@@ -257,6 +257,8 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
 | `GET /api/assinatura`, `POST /api/assinatura/confirmar\|recusar` (hospedagem: aceite no fim do teste) | assinatura |
 | `GET /api/atualizacoes`, `PUT /api/atualizacoes/automatica`, `POST /api/atualizacoes/aplicar` (admin, só `iniciar.bat`) | versão e atualizações |
+| `GET /api/integracoes`, `POST /api/integracoes/tokens`, `DELETE /api/integracoes/tokens/{id}`, `POST /api/integracoes/webhooks`, `PUT/DELETE /api/integracoes/webhooks/{id}`, `POST .../webhooks/{id}/testar`, `GET .../webhooks/{id}/entregas`, `POST /api/integracoes/entregas/{id}/reenviar` (admin da empresa) | tokens da API e webhooks |
+| `/api/v1/*` (token, ver "API de integração e webhooks"), `/api/v1/docs` e `/api/v1/openapi.json` (abertos) | API de integração |
 | `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
 | `GET/POST /api/usuarios`, `PUT/DELETE /api/usuarios/{id}` (excluir só desativado), `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
@@ -628,6 +630,42 @@ até o Iuri pedir (`empresas.limite()`: `EMISSOR_LIMITE_EMPRESAS`, senão 1 com 
 - **Preço na hospedagem (quando habilitar):** até 3 CNPJs no mesmo preço; cada um a mais R$ 14,90/mês. O app só lê
   `EMISSOR_LIMITE_EMPRESAS`; a cobrança fica no painel (repositório da hospedagem).
 
+### API de integração e webhooks (2026-11-15, branch `claude/api-v1-webhooks`)
+
+Plano: https://claude.ai/artifact/XUXxFhdRMq8K9LGgRzVejU. Camada fina e versionada (`api/routes_api_v1.py`, prefixo
+`/api/v1`) sobre os serviços da tela; documentação aberta em `/api/v1/docs` (`/api/v1/openapi.json`, sem dados).
+- **Tokens** (`emissor/tokens_api.py`, tabela `token_api`): `emp_<prefixo>_<segredo>`, banco só com o SHA-256; um
+  token = uma empresa + um ambiente + escopos (`notas:ler`, `notas:emitir`, `notas:cancelar`, `clientes:ler`,
+  `clientes:escrever`, `webhooks`). Só o administrador da empresa cria e revoga (Configurações → Integrações,
+  `components/Integracoes.tsx`, rotas `/api/integracoes/*`). No middleware, `/api/v1/*` aceita **só**
+  `Authorization: Bearer` (o cookie da tela é ignorado, então sem CSRF) e o token **só** abre `/api/v1`; `X-Empresa`
+  é ignorado. `Acesso` ganhou `token_id`, `escopos` e `ambiente_token`; o e-mail na auditoria é `token:<nome>`.
+  Limites em memória: 60 req/min por token (429 com `Retry-After`) e 1.000 notas/dia (`EMISSOR_API_LIMITE_MINUTO`,
+  `EMISSOR_API_LIMITE_NOTAS_DIA`). Suspensão da hospedagem vale igual (`exigir_login`).
+- **Ambiente:** emitir e cancelar com token de outro ambiente que o da empresa → 409; consultas só veem notas do
+  ambiente do token.
+- **Notas:** `POST /notas` (mesmos campos da nota avulsa + `referencia_externa`, ou o cabeçalho `Idempotency-Key`) →
+  202 com a nota `pendente`; `POST /lotes` (até 500, todas conferidas antes; uma com erro recusa o lote com o
+  `indice`), `GET /lotes/{id}`, `GET /notas` (status, de, ate, tomador, referencia_externa, lote_id),
+  `GET /notas/{id}` (+ `/xml`, `/pdf`), `POST /notas/{id}/cancelamento`, `POST /notas/validar`, `GET /empresa`,
+  `GET /tributacoes`, `GET|PUT /clientes/{doc}`, `GET|POST|DELETE /webhooks`. Formato das notas: `webhooks.nota_publica`.
+  `criar_avulsas` (em `services/emissao.py`, a nota avulsa da tela também passa por ela) grava `emissao.origem`
+  (`api:<token>`) e `emissao.referencia_externa`.
+- **Referência externa:** com nota que conta no mesmo ambiente (tudo menos `rejeitada`/`nao_enviada`),
+  `ReferenciaEmUso`: `POST /notas` devolve a nota existente com `repetida: true` (200); no lote, 409 com a lista.
+  Conferida sob um lock do processo (um processo só), sem índice único (a referência volta a valer após recusa).
+- **Webhooks** (`services/webhooks.py`, tabelas `webhook` e `entrega_webhook`): por empresa e ambiente, eventos
+  `nota.autorizada|rejeitada|erro|cancelada|substituida` e `lote.concluido`, disparados depois que a situação é
+  gravada (`finalizar_autorizada`, `_falha`, `_finalizar_lote`, `registrar_evento`). A entrega é gravada na hora e uma
+  thread (`Entregador`, iniciada com o worker) envia: `X-Emissor-Evento`, `X-Emissor-Entrega` (id para deduplicar) e
+  `X-Emissor-Assinatura: t=<unix>,v1=HMAC-SHA256(segredo, "<t>.<corpo>")`; segredo `whsec_...` cifrado com a chave
+  Fernet. Fora de 2xx: novas tentativas em 1 min, 5 min, 30 min, 2 h, 6 h e 24 h, depois `falhou` (reenviar pela
+  tela). Sem seguir redirecionamento. Na hospedagem só `https` e nunca IP não público (conferido no cadastro e a cada
+  envio; DNS rebinding entre a conferência e a conexão não é tratado); na instalação própria `http` e rede local
+  valem. Entregas antigas (30 dias) são apagadas. "Testar" envia um evento `teste` na hora.
+- **Ainda não:** conectores de entrada (Asaas primeiro), servidor MCP, evento `certificado.vencendo`, tokens com
+  validade/IPs permitidos.
+
 ### Versão e atualizações (2026-10-31)
 
 Ícone de seta no topo (`components/Atualizacoes.tsx`, ao lado do lugar reservado para a ajuda) que abre a linha do
@@ -937,5 +975,6 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-09 | Várias empresas (CNPJs) na mesma instalação, cada uma com o A1 dela ou por procuração (certificado do procurador); isolamento por filtro automático do ORM; clientes por empresa com opção de compartilhar; desligado na hospedagem até o Iuri pedir (lá: 3 CNPJs no preço, R$ 14,90 por CNPJ a mais) | Pedido do Iuri: escritórios emitem por vários clientes; a procuração eletrônica para a NFS-e por API passou a valer em 01/11/2026 |
 | 2026-11-12 | Tipo de imunidade, exigibilidade suspensa, benefício municipal e grupos de diferimento/tributação regular do IBS/CBS na tributação; descontos, pedido e informações complementares só na nota avulsa; exportação, tomador no exterior, obra, evento, dedução da base, intermediário, destinatário e NFS-e referenciada só na nota avulsa; compra governamental na tributação (o tomador estrangeiro não vai para o cadastro) | Pedido do Iuri: opções do leiaute que a tela não oferecia ou mandava incompletas (imunidade sem o tipo) |
 | 2026-11-15 | Importar o relatório NF/RPA da Shopee na tabela (uma linha por marca) e, depois, uma API `/api/v1` com tokens por empresa (só o administrador cria), incluída na hospedagem; primeiro conector de entrada: Asaas | Plano da thread "Planejar API de integração do emissor": para NFS-e, o que pesa é cobrança (Asaas, Stripe) e o afiliado PJ da Shopee, não venda de produto |
+| 2026-11-15 | API `/api/v1` só por token (cookie ignorado), token preso a uma empresa e um ambiente; referência externa contra duplicidade; webhooks assinados (HMAC) com retentativa até 24 h; na hospedagem, webhook só https e fora da rede interna | Pedido do Iuri; integrar sem abrir brecha na tela (CSRF, X-Empresa) nem mandar teste para produção; o webhook não pode virar ponte para dentro da máquina |
 | 2026-11-15 | Frontend segue os guias do Chrome (Modern Web Guidance): diálogos nativos, popovers, `:user-invalid`, fontes em rem | Pedido do Iuri: usar o que o navegador já faz (foco, Esc, camada superior, acessibilidade) em vez de código próprio |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

@@ -16,6 +16,8 @@ Tabelas:
 - ``auditoria``     quem fez o quê (login, emissão, cancelamento, configurações, usuários)
 - ``usuario_empresa`` empresas que cada usuário (não administrador da instalação) acessa e o papel nelas
 - ``instancia``     opções da instalação (cadastro de clientes compartilhado)
+- ``token_api``     tokens da API ``/api/v1`` (por empresa, com escopos e ambiente)
+- ``webhook``, ``entrega_webhook`` avisos enviados a outros sistemas (ver ``emissor.services.webhooks``)
 - ``migracao``      passos de migração do banco já feitos
 
 As tabelas com ``empresa_id`` são filtradas pela empresa do contexto (ver ``emissor.empresas``).
@@ -232,6 +234,9 @@ class Emissao(SQLModel, table=True):
     tributacao_nome: str | None = None
     tributacao_json: str | None = None
     nota_json: str | None = None  # DadosNota da nota avulsa (informações complementares, descontos)
+    # API (``/api/v1``): identificador da nota no sistema de quem integra (anti-duplicidade) e quem a criou
+    referencia_externa: str | None = Field(default=None, index=True)
+    origem: str | None = None  # None = tela; "api:<id do token>"
     criado_em: NaiveDatetime = Field(default_factory=agora)
     atualizado_em: NaiveDatetime = Field(default_factory=agora)
 
@@ -348,6 +353,58 @@ class Instancia(SQLModel, table=True):
     id: int = Field(default=1, primary_key=True)
     compartilhar_clientes: bool = False
     atualizado_em: NaiveDatetime = Field(default_factory=agora)
+
+
+class TokenApi(SQLModel, table=True):
+    """Token da API (``/api/v1``) de uma empresa. O banco guarda só o SHA-256 do token (ver ``emissor.tokens_api``)."""
+
+    __tablename__ = "token_api"
+    id: int | None = Field(default=None, primary_key=True)
+    empresa_id: int = Field(index=True)
+    nome: str
+    prefixo: str = Field(index=True, unique=True)  # parte pública do token (emp_<prefixo>_...), mostrada na tela
+    hash: str  # SHA-256 do token inteiro
+    escopos: str  # separados por espaço
+    ambiente: str  # "1" produção | "2" homologação: o token só emite/consulta neste ambiente
+    criado_por: int | None = None
+    criado_em: NaiveDatetime = Field(default_factory=agora)
+    ultimo_uso: NaiveDatetime | None = None
+    ultimo_ip: str | None = None
+    revogado_em: NaiveDatetime | None = None
+
+
+class Webhook(SQLModel, table=True):
+    """Endereço que recebe os eventos de uma empresa (nota autorizada, rejeitada, cancelada, lote concluído)."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    empresa_id: int = Field(index=True)
+    url: str
+    eventos: str  # separados por espaço
+    ambiente: str  # "1" produção | "2" homologação: só eventos de notas deste ambiente
+    segredo_enc: bytes = Field(sa_column=Column(LargeBinary, nullable=False))  # chave do HMAC, cifrada (Fernet)
+    ativo: bool = True
+    descricao: str = ""
+    criado_por: str | None = None  # e-mail do usuário ou "token:<nome>"
+    criado_em: NaiveDatetime = Field(default_factory=agora)
+    falhas_seguidas: int = 0
+
+
+class EntregaWebhook(SQLModel, table=True):
+    """Um evento a entregar num webhook (com as tentativas)."""
+
+    __tablename__ = "entrega_webhook"
+    id: str = Field(primary_key=True)  # vai no cabeçalho X-Emissor-Entrega (o recebedor deduplica por ele)
+    webhook_id: int = Field(index=True)
+    empresa_id: int = Field(index=True)
+    evento: str
+    corpo: str  # JSON enviado (o mesmo em todas as tentativas)
+    status: str = Field(default="pendente", index=True)  # pendente | entregue | falhou
+    tentativas: int = 0
+    proxima_em: NaiveDatetime = Field(default_factory=agora, index=True)
+    ultimo_status: int | None = None
+    ultimo_erro: str | None = None
+    criado_em: NaiveDatetime = Field(default_factory=agora, index=True)
+    entregue_em: NaiveDatetime | None = None
 
 
 class Migracao(SQLModel, table=True):

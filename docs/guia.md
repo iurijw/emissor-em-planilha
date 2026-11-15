@@ -216,6 +216,20 @@ está aberta naquela aba do navegador e troca de empresa. Os clientes são de ca
 entre todas (opção no fim de Configurações → Empresas). Em **Usuários**, o administrador do sistema escolhe quais
 empresas cada usuário acessa e com qual papel. Na versão hospedada a opção ainda não está disponível.
 
+## Integração com outros sistemas (API)
+
+Outro sistema (cobrança, ERP, loja) pode emitir, consultar e cancelar notas sem passar pela tela:
+
+1. Em **Configurações → Integrações (API)**, o administrador cria um **token**: escolhe o nome, o ambiente
+   (homologação ou produção) e as permissões. O token aparece uma vez só; copie para o outro sistema.
+2. O outro sistema chama `https://<seu endereço>/api/v1/...` com o cabeçalho `Authorization: Bearer <token>`.
+   A documentação completa, com exemplos, fica em `/api/v1/docs`.
+3. Para receber um aviso quando a nota sai (ou é recusada, cancelada), cadastre um **webhook** na mesma tela. Cada
+   aviso chega assinado com o segredo mostrado no cadastro.
+
+Envie sempre a `referencia_externa` (por exemplo, o número da cobrança): repetir o mesmo pedido não emite a nota de
+novo. Na rede local sem HTTPS o token passa sem criptografia; use a API só entre máquinas do escritório.
+
 ## Configuração
 
 Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker, edite `docker-compose.yaml`):

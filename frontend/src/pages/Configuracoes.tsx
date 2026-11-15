@@ -15,6 +15,7 @@ import {
 import { useTributacoes } from "../components/Abas";
 import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { ImportarClientesXml } from "../components/ImportarClientesXml";
+import { SecaoIntegracoes } from "../components/Integracoes";
 import { nomeEmpresa, SecaoEmpresas, useEmpresas } from "../components/Empresas";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, useToast } from "../ui";
 import { CartaoCertificado, ZonaArquivo } from "./Onboarding";
@@ -28,6 +29,7 @@ const SECOES = [
   ["clientes-xml", "Clientes via XML"],
   ["numeracao", "Numeração"],
   ["conexao", "Conexão com a Sefin"],
+  ["integracoes", "Integrações (API)"],
   ["diagnostico", "Diagnóstico"],
 ] as const;
 
@@ -83,6 +85,7 @@ export function Configuracoes({ status, adminInstancia }: { status: Status; admi
             </section>
             <SecaoNumeracao cfg={cfg.data} />
             <SecaoConexao ambiente={cfg.data.ambiente} />
+            <SecaoIntegracoes />
             {adminInstancia && <SecaoDiagnostico versao={status.versao} />}
           </div>
         </div>
