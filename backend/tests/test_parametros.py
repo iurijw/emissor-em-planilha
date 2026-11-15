@@ -108,7 +108,8 @@ def test_aliquota_municipal_encontrada(certificado):
     with _client(certificado, [httpx.Response(200, json=corpo)], urls) as c:
         r = c.aliquota_municipal("4205407", "171901", COMPETENCIA)
     assert r.encontrado is True and r.aliquota == "2.50"  # a vigente na competência
-    assert urls == ["https://adn.producaorestrita.nfse.gov.br/parametrizacao/4205407/171901/2026-10-27/aliquota"]
+    # Formato que o ADN real aceita (conferido em 15/11/2026): serviço com 9 dígitos e pontos, data AAAA-MM-DD.
+    assert urls == ["https://adn.producaorestrita.nfse.gov.br/parametrizacao/4205407/17.19.01.000/2026-10-27/aliquota"]
 
 
 def test_aliquota_municipal_nao_encontrada_tenta_o_formato_alternativo(certificado):
@@ -120,7 +121,8 @@ def test_aliquota_municipal_nao_encontrada_tenta_o_formato_alternativo(certifica
     with _client(certificado, respostas, urls) as c:
         r = c.aliquota_municipal("4205407", "080101", COMPETENCIA)
     assert r.encontrado is False and r.mensagem == "Nenhuma alíquota encontrada."
-    assert urls[1].endswith("/parametrizacao/4205407/08.01.01.000/10-27-2026/aliquota")
+    assert urls[0].endswith("/parametrizacao/4205407/08.01.01.000/2026-10-27/aliquota")
+    assert urls[1].endswith("/parametrizacao/4205407/080101/2026-10-27/aliquota")
     # o alternativo achou: vale o que achou
     achou = {"aliquotas": {"080101000": [{"Aliq": 2.0, "DtIni": "2026-01-01"}]}}
     respostas = [httpx.Response(400, json={"mensagem": "x"}), httpx.Response(200, json=achou)]

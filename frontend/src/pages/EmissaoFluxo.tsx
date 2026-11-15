@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { type AliquotaIss, api, baixar, type DadosTributacao, type Emissao, type Lote, type Status, type Validacao } from "../api";
 import { nomeEmpresa } from "../components/Empresas";
+import { ListaRegrasPrefeitura } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 
@@ -269,6 +270,15 @@ export function EmissaoFluxo(props: {
                   </label>
                 </div>
               </div>
+            )}
+            {!bloqueado && (val.regras_prefeitura?.length ?? 0) > 0 && (
+              <details className="regras-bloco regras-bloco--emissao" open>
+                <summary>
+                  {val.regras_prefeitura!.length} aviso(s) do cadastro da prefeitura para conferir{" "}
+                  <small>não impedem a emissão</small>
+                </summary>
+                <ListaRegrasPrefeitura regras={val.regras_prefeitura!} comOrigem />
+              </details>
             )}
             {prod && !bloqueado && (
               <label className="campo" style={{ maxWidth: 380 }}>

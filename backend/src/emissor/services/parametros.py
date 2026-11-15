@@ -6,7 +6,8 @@ alíquota (``SefinClient.aliquota_municipal``) diz antes se o serviço está lá
 
 É só um aviso: nunca bloqueia a emissão nem as configurações, e qualquer falha (sem certificado, ADN fora do ar,
 resposta que não se entende) vira "não conferido". O formato da consulta não tem documentação oficial publicada
-(ver CLAUDE.md, "Conferência do serviço na prefeitura").
+(ver CLAUDE.md, "Código do serviço e tela de tributação"). O resto do que a prefeitura cadastrou (retenções,
+regimes especiais, alíquotas, benefício) está em ``regras_prefeitura``.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from typing import Any
 
@@ -27,7 +28,7 @@ from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
 from emissor.nfse.constants import Ambiente
 from emissor.nfse.errors import SefinError
-from emissor.nfse.models import aplicar_tributacao
+from emissor.nfse.models import ConfigFiscal, aplicar_tributacao
 from emissor.services import certificado as cert_service
 from emissor.services import tributacao as trib_service
 
@@ -191,6 +192,8 @@ class Alvo:
     c_trib_nac: str
     c_loc_prestacao: str | None
     origem: str
+    # Tributação completa (prestador incluído), para as regras da prefeitura (``regras_prefeitura``).
+    cfg: ConfigFiscal | None = field(default=None, compare=False)
 
 
 def alvos(
@@ -201,7 +204,7 @@ def alvos(
     if base is None:
         return None, []
     abas = {a.id: a for a in trib_service.garantir_abas(s)}
-    vistos: dict[tuple[str, str | None], Alvo] = {}
+    vistos: dict[tuple, Alvo] = {}
     for ln in linhas:
         if ln.aba_id is not None:
             try:
@@ -211,21 +214,27 @@ def alvos(
         else:
             nome, dados = nome_avulsa or ("só desta nota" if tributacao_avulsa else None), tributacao_avulsa
         cfg = aplicar_tributacao(base, dados)
-        chave = (cfg.c_trib_nac, cfg.c_loc_prestacao)
+        # O que muda as regras da prefeitura (retenção, benefício) separa as tributações; a consulta é a mesma.
+        chave = (cfg.c_trib_nac, cfg.c_loc_prestacao, cfg.c_pais_prestacao, cfg.trib_issqn, cfg.tp_ret_issqn,
+                 cfg.n_bm, cfg.p_red_bcbm)  # fmt: skip
         if chave not in vistos:
             vistos[chave] = Alvo(
-                cfg.c_trib_nac, cfg.c_loc_prestacao, f"tributação “{nome}”" if nome else "tributação padrão"
+                cfg.c_trib_nac, cfg.c_loc_prestacao, f"tributação “{nome}”" if nome else "tributação padrão", cfg
             )
     return base.c_mun_emissor, list(vistos.values())
 
 
-def avisos(ambiente: Ambiente, c_mun_emissor: str | None, lista: list[Alvo]) -> list[str]:
+def avisos(ambiente: Ambiente, c_mun_emissor: str | None, lista: list[Alvo], ate: float | None = None) -> list[str]:
     """Avisos para a conferência antes de emitir: só o que a prefeitura disse que não tem."""
     if not c_mun_emissor:
         return []
     res = []
-    limite = time.monotonic() + ORCAMENTO_VALIDACAO
+    limite = ate if ate is not None else time.monotonic() + ORCAMENTO_VALIDACAO
+    vistos: set[tuple[str, str | None]] = set()
     for a in lista:
+        if (a.c_trib_nac, a.c_loc_prestacao) in vistos:
+            continue
+        vistos.add((a.c_trib_nac, a.c_loc_prestacao))
         if time.monotonic() > limite:
             break
         c = conferir(ambiente, c_mun_emissor, a.c_trib_nac, a.c_loc_prestacao)

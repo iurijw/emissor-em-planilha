@@ -442,6 +442,29 @@ export interface ConferenciaServico {
   ambiente: string;
 }
 
+/** Algo que a prefeitura cadastrou no Sistema Nacional para o serviço (parametrização do ADN). Nunca bloqueia. */
+export interface RegraPrefeitura {
+  tipo: "retencao" | "regime_especial" | "aliquota" | "beneficio";
+  /** "aviso": vale conferir; "info": bate com o cadastro. */
+  nivel: "aviso" | "info";
+  titulo: string;
+  mensagem: string;
+  /** Na emissão: a tributação em que apareceu. */
+  origem?: string;
+}
+
+export interface RegrasPrefeitura {
+  municipio: string | null;
+  municipio_nome: string | null;
+  competencia: string;
+  regras: RegraPrefeitura[];
+  /** Do mais novo para o mais antigo; datas AAAA-MM-DD. */
+  historico_aliquotas: { aliquota: string | null; inicio: string | null; fim: string | null }[];
+  /** Por que não deu para conferir tudo (sem certificado, ADN fora do ar...). */
+  mensagem: string | null;
+  ambiente: string;
+}
+
 export interface Validacao {
   ambiente: Ambiente;
   ambiente_descricao: string;
@@ -449,6 +472,8 @@ export interface Validacao {
   /** Avisos que valem para várias linhas (ex.: serviço que a prefeitura não tem cadastrado). */
   avisos: string[];
   linhas: { linha_id: number; erros: string[]; avisos: string[] }[];
+  /** O que a prefeitura cadastrou para os serviços (retenção, regime especial...): só informa, sem pedir ciência. */
+  regras_prefeitura?: RegraPrefeitura[];
   quantidade: number;
   total: string;
   tributacao_nome?: string | null;

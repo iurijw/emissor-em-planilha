@@ -33,7 +33,7 @@ from emissor.nfse.xsd import validar_dps, validar_evento, validar_nfse
 from emissor.services import clientes as clientes_service
 from emissor.services import emissao as emissao_service
 from emissor.services import eventos as eventos_service
-from emissor.services import parametros, variaveis
+from emissor.services import parametros, regras_prefeitura, variaveis
 
 from .conftest import ADMIN_EMAIL, ADMIN_SENHA, CNPJ_PRESTADOR, SENHA_PFX, _gerar_pfx, entrar_como_admin
 from .sefin_simulada import BRASILAPI_CLIENTE, SefinSimulada, brasilapi_simulada, conferir_assinatura_sefin
@@ -641,7 +641,7 @@ def test_servico_que_a_prefeitura_nao_administra(api, sim, pfx_bytes, nfse_exemp
         return r.json()
 
     def consultas() -> int:
-        return sum("/parametrizacao/" in c for c in sim.chamadas)
+        return sum("/aliquota" in c for c in sim.chamadas)
 
     r = conferir()
     assert r["situacao"] == "encontrado" and "2,00%" in r["mensagem"] and r["municipio"] == mun, r
@@ -675,6 +675,99 @@ def test_servico_que_a_prefeitura_nao_administra(api, sim, pfx_bytes, nfse_exemp
     assert r["situacao"] == "nao_conferido" and r["mensagem"].startswith("Não foi possível conferir agora"), r
     sim.fora_do_ar = False
     assert api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["avisos"] == []  # falha guardada 5 min
+
+
+def test_regras_da_prefeitura(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """Retenção, regime especial, alíquota e benefício cadastrados pela prefeitura: avisos que não bloqueiam."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    fiscal = api.get("/api/config").json()["fiscal"]
+    c_trib, mun, cnpj = fiscal["c_trib_nac"], fiscal["c_mun_emissor"], fiscal["cnpj"]
+
+    def regras(**trib) -> dict:
+        r = api.post("/api/config/regras-prefeitura", json={"tributacao": {"c_trib_nac": c_trib, **trib}})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def titulos(r: dict) -> list[tuple[str, str]]:
+        return [(x["tipo"], x["nivel"]) for x in r["regras"]]
+
+    # Nada cadastrado além da alíquota: sem avisos, com o histórico.
+    r = regras()
+    assert r["municipio"] == mun and r["regras"] == [] and r["mensagem"] is None, r
+    assert r["historico_aliquotas"][0]["aliquota"] == "2.00"
+
+    # Retenção pelo tomador cadastrada e tributação sem retenção: aviso com a descrição da prefeitura.
+    sim.retencoes[mun] = [("XI - a pessoa jurídica de direito público, tomadora", [2], [c_trib])]
+    sim.regimes_especiais.add((mun, c_trib))
+    hoje = agora().date()
+    sim.historico_aliquotas[(mun, c_trib)] = [(2.0, "2025-01-01", None), (5.0, f"{hoje.year + 1}-01-01", None)]
+    regras_prefeitura.limpar_cache()
+    r = regras()
+    assert ("retencao", "aviso") in titulos(r) and ("regime_especial", "aviso") in titulos(r), r
+    ret = next(x for x in r["regras"] if x["tipo"] == "retencao")
+    assert "pode ser retido pelo tomador" in ret["mensagem"] and "direito público" in ret["mensagem"]
+    assert "legislação municipal" in ret["mensagem"]
+    assert ("aliquota", "info") in titulos(r)  # alíquota nova já cadastrada para o ano que vem
+    # Com retenção, a mesma regra vira informação; com o regime informado, o regime também.
+    _regime(api, reg_esp_trib="6")
+    r = regras(tp_ret_issqn="2", p_aliq_iss="2")
+    assert ("retencao", "info") in titulos(r) and ("regime_especial", "info") in titulos(r), r
+
+    # Regime informado sem cadastro na prefeitura: aviso.
+    sim.regimes_especiais.clear()
+    regras_prefeitura.limpar_cache()
+    assert ("regime_especial", "aviso") in titulos(regras())
+    _regime(api, reg_esp_trib="0")
+
+    # Benefício municipal: não encontrado, de outro CNPJ e cadastrado.
+    n_bm = f"{mun}0400001"
+    r = regras(n_bm=n_bm, p_red_bcbm="10")
+    assert any(x["tipo"] == "beneficio" and "não tem o benefício" in x["mensagem"] for x in r["regras"]), r
+    sim.beneficios[n_bm] = {
+        "codigoBeneficio": n_bm,
+        "descricao": "Redução para serviços de contabilidade",
+        "dataInicioVigencia": "2025-01-01T00:00:00",
+        "dataFimVigencia": None,
+        "tipoBeneficio": 2,
+        "reducaoPercentualBC": 20.0,
+        "aliquotaDiferenciada": None,
+        "servicos": [
+            {
+                "codigoServico": f"{c_trib[:2]}.{c_trib[2:4]}.{c_trib[4:]}.000",
+                "dataInicioVigencia": "2025-01-01T00:00:00",
+            }
+        ],
+        "contribuintes": [
+            {"tipoInscricao": 1, "inscricao": "99999999000191", "dataInicioVigencia": "2025-01-01T00:00:00"}
+        ],
+    }
+    regras_prefeitura.limpar_cache()
+    bm = next(x for x in regras(n_bm=n_bm, p_red_bcbm="10")["regras"] if x["tipo"] == "beneficio")
+    assert bm["nivel"] == "aviso" and "CNPJ desta não está" in bm["mensagem"] and "20%" in bm["mensagem"], bm
+    sim.beneficios[n_bm]["contribuintes"][0]["inscricao"] = cnpj
+    regras_prefeitura.limpar_cache()
+    bm = next(x for x in regras(n_bm=n_bm, p_red_bcbm="20")["regras"] if x["tipo"] == "beneficio")
+    assert bm["nivel"] == "info", bm
+
+    # Na emissão: os avisos vêm à parte, sem erro nem ciência, e a nota sai.
+    ids = _linhas(api, [{"nome": "A", "documento": TOMADOR_CNPJ, "valor": "10", "descricao": "a"}])
+    val = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()
+    assert val["avisos"] == [] and val["linhas"][0]["erros"] == [], val
+    assert {x["tipo"] for x in val["regras_prefeitura"]} == {"retencao"}, val["regras_prefeitura"]
+    assert val["regras_prefeitura"][0]["origem"] == "tributação padrão"
+    av = api.post(
+        "/api/avulsa/validar", json={"nome": "A", "documento": TOMADOR_CNPJ, "valor": "10", "descricao": "a"}
+    ).json()
+    assert len(av["regras_prefeitura"]) == 1
+    assert _emitir(api, ids)["emissoes"][0]["status"] == "autorizada"
+
+    # ADN fora do ar: sem regras, com o motivo, e a validação continua.
+    regras_prefeitura.limpar_cache()
+    sim.fora_do_ar = True
+    r = regras()
+    assert r["regras"] == [] and r["mensagem"].startswith("Não foi possível conferir agora"), r
+    assert api.post("/api/tabela/validar", json={"linha_ids": ids}).status_code == 200
+    sim.fora_do_ar = False
 
 
 # --- todas as rotas ---------------------------------------------------------------------------------------
@@ -814,6 +907,9 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     assert (
         ok(api.post("/api/config/conferir-servico", json={"c_trib_nac": "171901"})).json()["situacao"] == "encontrado"
     )
+    assert ok(api.post("/api/config/regras-prefeitura", json={"tributacao": {"c_trib_nac": "171901"}})).json()[
+        "municipio"
+    ]
     assert ok(api.post("/api/config/testar-conexao")).json()["ok"] is True
     ok(api.post("/api/logs/cliente", json={"mensagem": "teste de log do navegador"}))
 

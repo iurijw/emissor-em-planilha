@@ -204,8 +204,10 @@ class SefinClient:
         ``MM-DD-AAAA``). "Não encontrado" só quando um deles responde que não há cadastro.
         """
         tentativas = (
+            # O formato que o ADN real aceita (conferido em 15/11/2026: com 6 dígitos ele responde 400, "o código do
+            # serviço deve ser composto por nove dígitos"); o das bibliotecas de referência fica de reserva.
+            (f"{formatar_c_trib_nac(c_trib_nac)}.000", competencia.isoformat()),
             (c_trib_nac, competencia.isoformat()),
-            (f"{formatar_c_trib_nac(c_trib_nac)}.000", competencia.strftime("%m-%d-%Y")),
         )
         respostas = []
         for servico, comp in tentativas:
@@ -219,6 +221,20 @@ class SefinClient:
                 return r
             respostas.append(r)
         return next((r for r in respostas if r.encontrado is False), respostas[0])
+
+    def parametrizacao(self, caminho: str) -> tuple[int, Any]:
+        """ADN ``GET /parametrizacao/{caminho}`` (só leitura): (status, JSON). O que o município cadastrou no Sistema
+        Nacional: retenções, regimes especiais, histórico de alíquotas, benefícios (Swagger oficial do ADN).
+
+        404 com corpo = nada cadastrado; 400 com corpo = consulta mal formada. Certificado recusado, excesso de
+        consultas e falha do ADN viram ``SefinError``, como em ``aliquota_municipal``.
+        """
+        url = f"{self.ambiente.adn_url}/parametrizacao/{caminho.lstrip('/')}"
+        resp = self._request("GET", url, "parametrizacao", timeout=_TIMEOUT_CONSULTA)
+        dados = self._json(resp, "parametrizacao")
+        if resp.status_code in (401, 403, 429, 495, 496) or resp.status_code >= 500:
+            raise self._erro_http(resp, dados, "O Ambiente Nacional recusou a consulta")
+        return resp.status_code, dados
 
     # --- infraestrutura -----------------------------------------------------------
     def _request(
