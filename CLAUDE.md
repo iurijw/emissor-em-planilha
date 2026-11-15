@@ -258,6 +258,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/assinatura`, `POST /api/assinatura/confirmar\|recusar` (hospedagem: aceite no fim do teste) | assinatura |
 | `GET /api/atualizacoes`, `PUT /api/atualizacoes/automatica`, `POST /api/atualizacoes/aplicar` (admin, só `iniciar.bat`) | versão e atualizações |
 | `GET /api/integracoes`, `POST /api/integracoes/tokens`, `DELETE /api/integracoes/tokens/{id}`, `POST /api/integracoes/webhooks`, `PUT/DELETE /api/integracoes/webhooks/{id}`, `POST .../webhooks/{id}/testar`, `GET .../webhooks/{id}/entregas`, `POST /api/integracoes/entregas/{id}/reenviar` (admin da empresa) | tokens da API e webhooks |
+| `GET /api/integracoes` também lista `conectores`; `POST /api/integracoes/conectores`, `PUT/DELETE .../conectores/{id}`, `POST .../conectores/{id}/token`, `GET .../conectores/{id}/eventos`, `POST /api/integracoes/eventos-entrada/{id}/reprocessar` (admin da empresa); `POST /api/v1/entrada/asaas/{caminho}` (token do conector) | conector do Asaas |
 | `/api/v1/*` (token, ver "API de integração e webhooks"), `/api/v1/docs` e `/api/v1/openapi.json` (abertos) | API de integração |
 | `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
@@ -663,8 +664,23 @@ Plano: https://claude.ai/artifact/XUXxFhdRMq8K9LGgRzVejU. Camada fina e versiona
   tela). Sem seguir redirecionamento. Na hospedagem só `https` e nunca IP não público (conferido no cadastro e a cada
   envio; DNS rebinding entre a conferência e a conexão não é tratado); na instalação própria `http` e rede local
   valem. Entregas antigas (30 dias) são apagadas. "Testar" envia um evento `teste` na hora.
-- **Ainda não:** conectores de entrada (Asaas primeiro), servidor MCP, evento `certificado.vencendo`, tokens com
-  validade/IPs permitidos.
+- **Conector de entrada do Asaas** (`services/conectores.py`, `api/routes_entrada.py`, tabelas `conector_entrada` e
+  `evento_entrada`; base: documentação oficial do Asaas lida em 15/11/2026). O admin cola a chave da API do Asaas
+  (cifrada; `$aact_prod_`/`$aact_hmlg_` dizem produção/sandbox, conferida com `GET /v3/customers?limit=1`) e escolhe o
+  ambiente da NFS-e, a tributação, a descrição (`{cobranca}` = descrição da cobrança, mais as variáveis da tabela) e o
+  gatilho: `recebido` (`PAYMENT_RECEIVED`) ou `confirmado` (`PAYMENT_CONFIRMED` ou `RECEIVED`; Pix e dinheiro só têm
+  RECEIVED, cartão de crédito fica disponível ~32 dias depois). Recebe o endereço `POST /api/v1/entrada/asaas/<caminho>`
+  (fora do token da API) e um token mostrado uma vez, que o Asaas manda em `asaas-access-token` (o Asaas não assina o
+  corpo; banco só com o SHA-256). A rota grava o aviso (id `<conector>:<evt_...>`, repetido = ignorado) e responde 200
+  na hora (o Asaas entrega mais de uma vez e pausa a fila após 15 falhas); a thread `Processador` (com o worker) lê o
+  cliente em `GET /v3/customers/{id}`, completa o cadastro (só campos vazios; município por `cityName`+`state`) e chama
+  `criar_avulsas` com `referencia_externa` = id da cobrança (`pay_...`) e `origem = asaas:<id>`, então confirmado e
+  recebido da mesma cobrança fazem uma nota só (`repetida`). Asaas fora do ar: novas tentativas em 1 min a 2 h. Sem
+  nota: outros eventos, estornos (não cancela sozinho), cobrança excluída. Erro (refazível pela tela): cliente sem
+  CPF/CNPJ ou estrangeiro, empresa em outro ambiente, nota com erro, assinatura suspensa. Chave do sandbox só com NFS-e
+  em homologação. Avisos guardados por 90 dias. Na rede local o Asaas não alcança o sistema (a tela avisa).
+- **Ainda não:** Stripe e Mercado Pago, servidor MCP, evento `certificado.vencendo`, tokens com validade/IPs
+  permitidos.
 
 ### Versão e atualizações (2026-10-31)
 
@@ -976,5 +992,6 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-12 | Tipo de imunidade, exigibilidade suspensa, benefício municipal e grupos de diferimento/tributação regular do IBS/CBS na tributação; descontos, pedido e informações complementares só na nota avulsa; exportação, tomador no exterior, obra, evento, dedução da base, intermediário, destinatário e NFS-e referenciada só na nota avulsa; compra governamental na tributação (o tomador estrangeiro não vai para o cadastro) | Pedido do Iuri: opções do leiaute que a tela não oferecia ou mandava incompletas (imunidade sem o tipo) |
 | 2026-11-15 | Importar o relatório NF/RPA da Shopee na tabela (uma linha por marca) e, depois, uma API `/api/v1` com tokens por empresa (só o administrador cria), incluída na hospedagem; primeiro conector de entrada: Asaas | Plano da thread "Planejar API de integração do emissor": para NFS-e, o que pesa é cobrança (Asaas, Stripe) e o afiliado PJ da Shopee, não venda de produto |
 | 2026-11-15 | API `/api/v1` só por token (cookie ignorado), token preso a uma empresa e um ambiente; referência externa contra duplicidade; webhooks assinados (HMAC) com retentativa até 24 h; na hospedagem, webhook só https e fora da rede interna | Pedido do Iuri; integrar sem abrir brecha na tela (CSRF, X-Empresa) nem mandar teste para produção; o webhook não pode virar ponte para dentro da máquina |
+| 2026-11-15 | Conector do Asaas: aviso gravado e respondido na hora, nota feita em segundo plano com a cobrança como referência externa; estorno não cancela sozinho; sandbox só em homologação | Pedido do Iuri (primeiro conector); o Asaas repete avisos e pausa a fila se demorarem; cancelar nota é decisão da pessoa |
 | 2026-11-15 | Frontend segue os guias do Chrome (Modern Web Guidance): diálogos nativos, popovers, `:user-invalid`, fontes em rem | Pedido do Iuri: usar o que o navegador já faz (foco, Esc, camada superior, acessibilidade) em vez de código próprio |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

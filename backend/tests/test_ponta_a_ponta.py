@@ -358,6 +358,112 @@ def _fluxo_api_v1(api, sim) -> None:
     webhooks.definir_entregador(None)
 
 
+def _fluxo_asaas(api, sim) -> None:
+    """Conector do Asaas: pagamento recebido vira nota, aviso repetido não duplica, estorno e erros ficam registrados."""
+    import json as json_
+
+    from emissor.services import conectores
+
+    pedidos: list[httpx.Request] = []
+
+    def asaas(req: httpx.Request) -> httpx.Response:
+        pedidos.append(req)
+        if req.headers.get("access_token") != "$aact_hmlg_chave-teste":
+            return httpx.Response(401, json={"errors": [{"code": "invalid_access_token", "description": "x"}]})
+        if req.url.path == "/v3/customers":
+            return httpx.Response(200, json={"object": "list", "data": []})
+        if req.url.path == "/v3/customers/cus_1":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "customer",
+                    "id": "cus_1",
+                    "name": "Cliente Asaas Ltda",
+                    "cpfCnpj": TOMADOR_CNPJ,
+                    "email": "financeiro@exemplo.com.br",
+                    "address": "Rua das Flores",
+                    "addressNumber": "100",
+                    "province": "Centro",
+                    "postalCode": "89000000",
+                    "cityName": "Itajaí",
+                    "state": "SC",
+                    "campoNovo": "ignorado",
+                },
+            )
+        if req.url.path == "/v3/customers/cus_sem_doc":
+            return httpx.Response(200, json={"id": "cus_sem_doc", "name": "Sem Documento", "cpfCnpj": None})
+        return httpx.Response(404, json={"errors": []})
+
+    conectores.definir_transporte(httpx.MockTransport(asaas))
+
+    def ok(r: httpx.Response, status: int = 200) -> httpx.Response:
+        assert r.status_code == status, f"{r.request.method} {r.request.url} → {r.status_code}: {r.text[:500]}"
+        return r
+
+    base = {"ambiente": "homologacao", "descricao": "Mensalidade {mes}: {cobranca}"}
+    ok(api.post("/api/integracoes/conectores", json=base | {"chave": "$aact_hmlg_errada"}), 400)
+    ok(api.post("/api/integracoes/conectores", json=base | {"chave": "$aact_hmlg_x", "ambiente": "producao"}), 400)
+    con = ok(api.post("/api/integracoes/conectores", json=base | {"chave": "$aact_hmlg_chave-teste"})).json()
+    assert con["ambiente_origem"] == "sandbox" and con["caminho"].startswith("/api/v1/entrada/asaas/")
+    token = con["token"]
+    assert token not in str(ok(api.get("/api/integracoes")).json())
+
+    def aviso(evento: str, evt: str, pagamento: str = "pay_1", cliente: str = "cus_1", valor=150.5, tok=token):
+        corpo = {
+            "id": evt,
+            "event": evento,
+            "dateCreated": "2026-11-15 10:00:00",
+            "payment": {
+                "object": "payment",
+                "id": pagamento,
+                "customer": cliente,
+                "value": valor,
+                "description": "Plano {mensal}",
+                "billingType": "PIX",
+                "status": "RECEIVED",
+            },
+        }
+        with TestClient(api.app) as fora:  # o Asaas não tem o cookie da tela
+            return fora.post(con["caminho"], content=json_.dumps(corpo), headers={"asaas-access-token": tok})
+
+    assert aviso("PAYMENT_RECEIVED", "evt_1", tok="errado").status_code == 401
+    assert aviso("PAYMENT_RECEIVED", "evt_1").json() == {"ok": True, "repetido": False}
+    assert aviso("PAYMENT_RECEIVED", "evt_1").json()["repetido"] is True  # o Asaas entrega mais de uma vez
+    aviso("PAYMENT_CONFIRMED", "evt_2", pagamento="pay_2")  # gatilho "recebido": confirmado não emite
+    aviso("PAYMENT_REFUNDED", "evt_3")
+    aviso("PAYMENT_RECEIVED", "evt_4", pagamento="pay_4", cliente="cus_sem_doc")
+    assert conectores.processador().processar_pendentes() == 4
+
+    evs = {e["id"].split(":", 1)[1]: e for e in ok(api.get(f"/api/integracoes/conectores/{con['id']}/eventos")).json()}
+    assert evs["evt_1"]["status"] == "emitida", evs
+    assert evs["evt_2"]["status"] == "ignorado" and evs["evt_3"]["status"] == "ignorado"
+    assert "Estorno" in evs["evt_3"]["mensagem"]
+    assert evs["evt_4"]["status"] == "erro" and "CPF/CNPJ" in evs["evt_4"]["mensagem"]
+    nota = ok(api.get(f"/api/emissoes/{evs['evt_1']['emissao_id']}")).json()
+    assert nota["valor"] in ("150.50", "150,50", 150.5), nota
+    assert "(mensal)" in nota["descricao"] and nota["tomador_documento"] == TOMADOR_CNPJ, nota
+    cli = ok(api.get(f"/api/clientes/{TOMADOR_CNPJ}")).json()
+    assert cli["c_mun"] and cli["logradouro"], cli
+
+    # Outro evento da mesma cobrança (ex.: confirmado e depois recebido) não faz outra nota.
+    ok(api.put(f"/api/integracoes/conectores/{con['id']}", json={"gatilho": "confirmado"}))
+    aviso("PAYMENT_CONFIRMED", "evt_5")
+    conectores.processador().processar_pendentes()
+    evs = {e["id"].split(":", 1)[1]: e for e in ok(api.get(f"/api/integracoes/conectores/{con['id']}/eventos")).json()}
+    assert evs["evt_5"]["status"] == "repetida" and evs["evt_5"]["emissao_id"] == evs["evt_1"]["emissao_id"]
+
+    # Reprocessar o aviso que ficou com erro, depois de completar o cliente.
+    ok(api.post(f"/api/integracoes/eventos-entrada/{evs['evt_4']['id']}/reprocessar"))
+    ok(api.post(f"/api/integracoes/eventos-entrada/{evs['evt_1']['id']}/reprocessar"), 400)
+    novo = ok(api.post(f"/api/integracoes/conectores/{con['id']}/token")).json()["token"]
+    assert aviso("PAYMENT_RECEIVED", "evt_6", tok=token).status_code == 401
+    assert aviso("PAYMENT_RECEIVED", "evt_6", tok=novo).status_code == 200
+    ok(api.delete(f"/api/integracoes/conectores/{con['id']}"))
+    with TestClient(api.app) as fora:
+        assert fora.post(con["caminho"], content=b"{}", headers={"asaas-access-token": novo}).status_code == 404
+    conectores.definir_transporte(None)
+
+
 def _fluxo_varias_empresas(api, sim) -> None:
     """Duas empresas a mais (uma com o A1 dela, outra por procuração), isoladas entre si."""
     um = _como(api, 1)
@@ -1106,6 +1212,7 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
 
     # API de integração e webhooks
     _fluxo_api_v1(api, sim)
+    _fluxo_asaas(api, sim)
 
     # Várias empresas e procuração
     _fluxo_varias_empresas(api, sim)
@@ -1122,6 +1229,11 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
 def test_api_de_integracao(api, sim, pfx_bytes, nfse_exemplo_bytes):
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
     _fluxo_api_v1(api, sim)
+
+
+def test_conector_asaas(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    _fluxo_asaas(api, sim)
 
 
 def test_varias_empresas_e_procuracao(api, sim, pfx_bytes, nfse_exemplo_bytes):

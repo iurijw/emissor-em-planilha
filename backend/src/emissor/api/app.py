@@ -25,6 +25,7 @@ from emissor.api import (
     routes_config,
     routes_emissoes,
     routes_empresas,
+    routes_entrada,
     routes_integracoes,
     routes_tabela,
     routes_tributacao,
@@ -34,7 +35,7 @@ from emissor.db import EmpresaInexistente, engine
 from emissor.logging_setup import bind_context, setup_logging
 from emissor.nfse.certificate import CertificadoError
 from emissor.nfse.errors import SefinError, TipoErro
-from emissor.services import webhooks
+from emissor.services import conectores, webhooks
 from emissor.services.emissao import LoteError, ReferenciaEmUso, worker
 from emissor.services.tabela import ImportacaoError
 from emissor.services.tributacao import TributacaoError
@@ -67,6 +68,9 @@ tela. Acompanhe por `GET /notas/{id}` ou receba o evento num webhook (`nota.auto
 **Webhooks:** cada entrega leva `X-Emissor-Assinatura: t=<unix>,v1=<hex>`, com `v1 = HMAC-SHA256(segredo,
 "<t>.<corpo>")`; confira a assinatura e recuse `t` antigo. Respostas fora de 2xx são repetidas por até 24 h.
 
+**Cobranças do Asaas:** em *Configurações → Integrações → Receber cobranças* o administrador liga o Asaas: cada
+pagamento recebido vira uma nota, sem programar nada (a nota leva `referencia_externa` = id da cobrança).
+
 **Limites:** 60 requisições por minuto e 1.000 notas por dia por token (ajustáveis na instalação própria).
 """
 
@@ -86,6 +90,7 @@ async def lifespan(app: FastAPI):
     if app.state.iniciar_worker:
         worker().iniciar()
         webhooks.entregador().iniciar()
+        conectores.processador().iniciar()
     log.info("servidor iniciado", extra={"versao": config.VER_APLIC, "data_dir": str(config.DATA_DIR)})
     yield
 
@@ -220,6 +225,10 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     async def _webhook(_req: Request, exc: webhooks.WebhookError):
         return JSONResponse({"mensagem": exc.mensagem}, status_code=exc.status)
 
+    @app.exception_handler(conectores.ConectorError)
+    async def _conector(_req: Request, exc: conectores.ConectorError):
+        return JSONResponse({"mensagem": exc.mensagem}, status_code=exc.status)
+
     @app.exception_handler(TributacaoError)
     async def _tributacao(_req: Request, exc: TributacaoError):
         return JSONResponse({"mensagem": exc.mensagem, "detalhes": exc.detalhes}, status_code=400)
@@ -252,6 +261,7 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     app.include_router(routes_emissoes.router, prefix="/api", dependencies=logado)
     app.include_router(routes_empresas.router, prefix="/api", dependencies=logado)
     app.include_router(routes_integracoes.router, prefix="/api", dependencies=logado)
+    app.include_router(routes_entrada.router, prefix="/api")
     app.include_router(routes_api_v1.router, prefix="/api")
 
     @app.get("/api/v1/openapi.json", include_in_schema=False)

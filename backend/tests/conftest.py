@@ -32,9 +32,9 @@ def data_dir_isolado(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_FILE", tmp_path / "data" / "emissor.db")
     from emissor import assinatura, atualizacoes, auth, db, tokens_api
     from emissor.services import certificado as cert_service
+    from emissor.services import conectores, parametros, regras_prefeitura, webhooks
     from emissor.services import emissao as emissao_service
     from emissor.services import eventos as eventos_service
-    from emissor.services import parametros, regras_prefeitura, webhooks
 
     # Sem consulta à prefeitura (ADN) fora dos testes ponta a ponta, que ligam com o ADN simulado.
     monkeypatch.setattr(parametros, "ATIVA", False)
@@ -56,6 +56,8 @@ def data_dir_isolado(tmp_path, monkeypatch):
     auth.limpar_limites()
     tokens_api.limpar_limites()
     webhooks.definir_entregador(None)
+    conectores.definir_processador(None)
+    conectores.definir_transporte(None)
     security.reset_cache()
     db.reset_engine()
     cert_service._limpar_cache()

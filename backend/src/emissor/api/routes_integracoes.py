@@ -1,4 +1,4 @@
-"""Configurações → Integrações: tokens da API e webhooks da empresa (só o administrador da empresa)."""
+"""Configurações → Integrações: tokens da API, webhooks e conectores de entrada (só o administrador da empresa)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from emissor import auth, tokens_api
 from emissor.api.deps import AdminEmpresa
 from emissor.db import obter_config, sessao
-from emissor.services import webhooks
+from emissor.services import conectores, webhooks
 
 router = APIRouter(prefix="/integracoes")
 
@@ -23,6 +23,11 @@ def ver(admin: AdminEmpresa) -> dict[str, Any]:
         "ambiente_atual": ambiente,
         "tokens": tokens_api.listar(admin.empresa_id),
         "webhooks": webhooks.listar(admin.empresa_id),
+        "conectores": conectores.listar(admin.empresa_id),
+        "gatilhos": [
+            {"id": "recebido", "descricao": "Quando o dinheiro fica disponível (PAYMENT_RECEIVED)"},
+            {"id": "confirmado", "descricao": "Quando o pagamento é confirmado (PAYMENT_CONFIRMED; Pix na hora)"},
+        ],
         "escopos": [{"id": k, "descricao": v} for k, v in tokens_api.ESCOPOS.items()],
         "eventos": [{"id": k, "descricao": v} for k, v in webhooks.EVENTOS.items()],
         "limites": {"por_minuto": tokens_api.LIMITE_POR_MINUTO, "notas_por_dia": tokens_api.LIMITE_NOTAS_DIA},
@@ -95,3 +100,74 @@ def entregas(webhook_id: int, admin: AdminEmpresa, limite: int = 50) -> list[dic
 @router.post("/entregas/{entrega_id}/reenviar")
 def reenviar(entrega_id: str, admin: AdminEmpresa) -> dict[str, Any]:
     return webhooks.reenviar(admin.empresa_id, entrega_id)
+
+
+class ConectorEntrada(BaseModel):
+    chave: str
+    ambiente: str
+    nome: str = ""
+    ambiente_origem: str | None = None  # producao | sandbox (do Asaas); deduzido da chave quando dá
+    gatilho: str = "recebido"
+    tributacao_id: int | None = None
+    descricao: str = ""
+
+
+@router.post("/conectores")
+def criar_conector(entrada: ConectorEntrada, admin: AdminEmpresa) -> dict[str, Any]:
+    token, c = conectores.criar(
+        admin.empresa_id,
+        chave=entrada.chave,
+        ambiente=entrada.ambiente,
+        nome=entrada.nome,
+        ambiente_origem=entrada.ambiente_origem,
+        gatilho=entrada.gatilho,
+        tributacao_id=entrada.tributacao_id,
+        descricao=entrada.descricao,
+        criado_por=admin.email,
+    )
+    auth.auditar("conector_criado", f"Asaas “{c['nome']}” ({c['ambiente_origem']} → NFS-e {c['ambiente']})", admin)
+    return c | {"token": token}
+
+
+class ConectorAlteracao(BaseModel):
+    nome: str | None = None
+    ativo: bool | None = None
+    gatilho: str | None = None
+    tributacao_id: int | None = None
+    descricao: str | None = None
+    chave: str | None = None
+
+
+@router.put("/conectores/{conector_id}")
+def alterar_conector(conector_id: int, entrada: ConectorAlteracao, admin: AdminEmpresa) -> dict[str, Any]:
+    mudancas = entrada.model_dump(exclude_unset=True)
+    c = conectores.alterar(admin.empresa_id, conector_id, mudancas)
+    campos = ", ".join(k if k != "chave" else "chave da API" for k in mudancas)
+    auth.auditar("conector_alterado", f"Asaas “{c['nome']}”: {campos}", admin)
+    return c
+
+
+@router.post("/conectores/{conector_id}/token")
+def novo_token_conector(conector_id: int, admin: AdminEmpresa) -> dict[str, str]:
+    token = conectores.novo_token(admin.empresa_id, conector_id)
+    auth.auditar("conector_alterado", f"conector {conector_id}: token novo", admin)
+    return {"token": token}
+
+
+@router.delete("/conectores/{conector_id}")
+def remover_conector(conector_id: int, admin: AdminEmpresa) -> dict[str, bool]:
+    c = conectores.remover(admin.empresa_id, conector_id)
+    auth.auditar("conector_removido", f"Asaas “{c.nome}”", admin)
+    return {"ok": True}
+
+
+@router.get("/conectores/{conector_id}/eventos")
+def eventos_conector(conector_id: int, admin: AdminEmpresa, limite: int = 50) -> list[dict[str, Any]]:
+    return conectores.eventos(admin.empresa_id, conector_id, limite)
+
+
+@router.post("/eventos-entrada/{evento_id}/reprocessar")
+def reprocessar_evento(evento_id: str, admin: AdminEmpresa) -> dict[str, Any]:
+    r = conectores.reprocessar(admin.empresa_id, evento_id)
+    auth.auditar("conector_reprocessar", f"aviso {evento_id}", admin)
+    return r

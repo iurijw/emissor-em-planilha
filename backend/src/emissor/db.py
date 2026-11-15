@@ -407,6 +407,48 @@ class EntregaWebhook(SQLModel, table=True):
     entregue_em: NaiveDatetime | None = None
 
 
+class ConectorEntrada(SQLModel, table=True):
+    """Conector de entrada: outro sistema (Asaas) avisa um pagamento e o emissor faz a nota (``services.conectores``)."""
+
+    __tablename__ = "conector_entrada"
+    id: int | None = Field(default=None, primary_key=True)
+    empresa_id: int = Field(index=True)
+    tipo: str = "asaas"
+    nome: str = ""
+    ambiente: str  # "1" produção | "2" homologação: ambiente da NFS-e (a empresa precisa estar nele)
+    caminho: str = Field(index=True, unique=True)  # /api/v1/entrada/<tipo>/<caminho>
+    token_hash: str  # SHA-256 do token que o Asaas manda em asaas-access-token
+    chave_enc: bytes = Field(sa_column=Column(LargeBinary, nullable=False))  # chave da API do Asaas, cifrada
+    ambiente_origem: str = "producao"  # producao | sandbox (do Asaas)
+    gatilho: str = "recebido"  # recebido (PAYMENT_RECEIVED) | confirmado (PAYMENT_CONFIRMED ou RECEIVED)
+    tributacao_id: int | None = None  # None = padrões das configurações
+    descricao: str = ""  # modelo da descrição; {cobranca} = descrição da cobrança no Asaas
+    ativo: bool = True
+    criado_por: str | None = None
+    criado_em: NaiveDatetime = Field(default_factory=agora)
+    ultimo_evento_em: NaiveDatetime | None = None
+
+
+class EventoEntrada(SQLModel, table=True):
+    """Um aviso recebido por um conector de entrada (guardado antes de responder; processado em segundo plano)."""
+
+    __tablename__ = "evento_entrada"
+    id: str = Field(primary_key=True)  # "<conector>:<id do evento na origem>": aviso repetido não vira outra nota
+    conector_id: int = Field(index=True)
+    empresa_id: int = Field(index=True)
+    evento: str  # ex.: PAYMENT_RECEIVED
+    pagamento_id: str | None = Field(default=None, index=True)
+    valor: str | None = None
+    corpo: str
+    status: str = Field(default="pendente", index=True)  # pendente | emitida | repetida | ignorado | erro
+    mensagem: str | None = None
+    emissao_id: int | None = None
+    tentativas: int = 0
+    proxima_em: NaiveDatetime = Field(default_factory=agora, index=True)
+    recebido_em: NaiveDatetime = Field(default_factory=agora, index=True)
+    processado_em: NaiveDatetime | None = None
+
+
 class Migracao(SQLModel, table=True):
     nome: str = Field(primary_key=True)
     feita_em: NaiveDatetime = Field(default_factory=agora)

@@ -230,6 +230,20 @@ Outro sistema (cobrança, ERP, loja) pode emitir, consultar e cancelar notas sem
 Envie sempre a `referencia_externa` (por exemplo, o número da cobrança): repetir o mesmo pedido não emite a nota de
 novo. Na rede local sem HTTPS o token passa sem criptografia; use a API só entre máquinas do escritório.
 
+### Notas automáticas das cobranças do Asaas
+
+Em **Configurações → Integrações → Receber cobranças**, o administrador clica em **Conectar o Asaas**, cola a chave da
+API do Asaas (Integrações → Chaves de API, no Asaas) e escolhe o ambiente da NFS-e, a tributação, a descrição da nota
+(`{cobranca}` traz a descrição da cobrança; as variáveis da tabela, como `{mes}`, também valem) e quando emitir
+(pagamento recebido ou confirmado). O sistema mostra uma URL e um token: no Asaas, crie um webhook em
+Integrações → Webhooks com essa URL, o token em "Token de autenticação" e o evento `PAYMENT_RECEIVED` (e
+`PAYMENT_CONFIRMED`, se escolheu emitir na confirmação).
+
+Cada cobrança paga vira uma nota para o cliente da cobrança (CPF/CNPJ e endereço vêm do Asaas e entram no cadastro de
+clientes). A mesma cobrança nunca gera duas notas, e um estorno não cancela a nota sozinho. Em **Avisos** dá para ver o
+que chegou e processar de novo um aviso com erro (por exemplo, depois de completar o CPF/CNPJ do cliente no Asaas). O
+Asaas precisa alcançar o sistema pela internet: numa instalação só na rede local os avisos não chegam.
+
 ## Configuração
 
 Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker, edite `docker-compose.yaml`):
