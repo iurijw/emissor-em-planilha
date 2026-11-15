@@ -1,3 +1,5 @@
+// CSS da grade junto com ela: só baixado quando a tela de emissão abre.
+import "@glideapps/glide-data-grid/dist/index.css";
 import {
   CompactSelection,
   DataEditor,
@@ -565,7 +567,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       const ativo = document.activeElement;
       const naGrade = !!ativo && !!caixaGrade.current?.contains(ativo) && !ativo.closest("input, textarea, [contenteditable]");
       const semFoco = !ativo || ativo === document.body;
-      if (!naGrade && !(semFoco && !document.querySelector(".veu, .gaveta"))) return;
+      if (!naGrade && !(semFoco && !document.querySelector("dialog[open]"))) return;
       e.preventDefault();
       andarPasso(direcao);
     };

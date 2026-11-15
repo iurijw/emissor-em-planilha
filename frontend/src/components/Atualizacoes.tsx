@@ -2,9 +2,9 @@
 // ponto, quando há versão nova. Na hospedagem o painel atualiza sozinho e o ícone nunca acende. Na instalação pelo
 // iniciar.bat o administrador atualiza por aqui ou liga a atualização automática ao iniciar; no Docker, o comando.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
-import { copiar, ErroCaixa, Spinner, useToast } from "../ui";
+import { copiar, ErroCaixa, Spinner, useDialogoModal, usePopover, useToast } from "../ui";
 
 interface Versao {
   versao: string;
@@ -75,6 +75,7 @@ async function aguardarNovaVersao(de: string, espera = 6 * 60_000): Promise<bool
 
 function Atualizando({ de, para }: { de: string; para: string }) {
   const [demorou, setDemorou] = useState(false);
+  const dialogo = useDialogoModal();
   useEffect(() => {
     let vivo = true;
     aguardarNovaVersao(de).then((voltou) => {
@@ -87,32 +88,30 @@ function Atualizando({ de, para }: { de: string; para: string }) {
     };
   }, [de]);
   return (
-    <div className="veu" role="alertdialog" aria-live="polite" aria-label="Atualizando o sistema">
-      <div className="dialogo atualizando">
-        {demorou ? (
-          <>
-            <h2>A atualização está demorando</h2>
-            <p>
-              Confira a janela do <code>iniciar.bat</code> no computador que serve o sistema. Se ela tiver fechado, abra
-              o <code>iniciar.bat</code> de novo.
-            </p>
-            <button className="btn" onClick={() => location.reload()}>
-              Recarregar a página
-            </button>
-          </>
-        ) : (
-          <>
-            <Spinner />
-            <h2>
-              Atualizando para a versão <span className="num">{para}</span>
-            </h2>
-            <p>
-              O sistema fecha, baixa a versão nova e abre de novo. Leva de 1 a 2 minutos; esta página recarrega sozinha.
-            </p>
-          </>
-        )}
-      </div>
-    </div>
+    <dialog ref={dialogo} className="dialogo atualizando" role="alertdialog" aria-live="polite" aria-label="Atualizando o sistema">
+      {demorou ? (
+        <>
+          <h2>A atualização está demorando</h2>
+          <p>
+            Confira a janela do <code>iniciar.bat</code> no computador que serve o sistema. Se ela tiver fechado, abra
+            o <code>iniciar.bat</code> de novo.
+          </p>
+          <button className="btn" onClick={() => location.reload()}>
+            Recarregar a página
+          </button>
+        </>
+      ) : (
+        <>
+          <Spinner />
+          <h2>
+            Atualizando para a versão <span className="num">{para}</span>
+          </h2>
+          <p>
+            O sistema fecha, baixa a versão nova e abre de novo. Leva de 1 a 2 minutos; esta página recarrega sozinha.
+          </p>
+        </>
+      )}
+    </dialog>
   );
 }
 
@@ -205,9 +204,8 @@ function Rodape({
 }
 
 export function Atualizacoes() {
-  const [aberto, setAberto] = useState(false);
+  const pop = usePopover();
   const [atualizando, setAtualizando] = useState<{ de: string; para: string } | null>(null);
-  const caixa = useRef<HTMLSpanElement>(null);
   const q = useQuery({
     queryKey: ["atualizacoes"],
     queryFn: () => api.get<SituacaoAtualizacoes>("/api/atualizacoes"),
@@ -215,20 +213,6 @@ export function Atualizacoes() {
     refetchInterval: 6 * 3600_000,
     retry: false,
   });
-
-  useEffect(() => {
-    if (!aberto) return;
-    const fora = (e: MouseEvent) => {
-      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
-    };
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setAberto(false);
-    document.addEventListener("mousedown", fora);
-    document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", fora);
-      document.removeEventListener("keydown", esc);
-    };
-  }, [aberto]);
 
   const s = q.data;
   if (!s) return null;
@@ -238,77 +222,83 @@ export function Atualizacoes() {
     : `Versão ${s.versao_atual}: novidades`;
 
   return (
-    <span className="att" ref={caixa}>
+    <span className="att">
       {atualizando && <Atualizando {...atualizando} />}
       <button
         className={`ic-att ${nova ? "ic-att--nova" : ""}`}
         title={titulo}
         aria-label={titulo}
-        aria-haspopup="dialog"
-        aria-expanded={aberto}
-        onClick={() => setAberto((a) => !a)}
+        popovertarget="att-pop"
       >
         <SetaAcima />
         {nova && <span className="ic-att__ponto" />}
       </button>
-      {aberto && (
-        <section className="att-pop" role="dialog" aria-label="Atualizações">
-          <div className="att-pop__cab">
-            <h2>Atualizações</h2>
-            <p>
-              {nova ? (
-                <>
-                  {s.novas === 1 ? "1 versão nova" : `${s.novas} versões novas`} desde a sua (
-                  <span className="num">{s.versao_atual}</span>).
-                </>
-              ) : s.instalacao === "hospedagem" ? (
-                <>
-                  Versão <span className="num">{s.versao_atual}</span>, a mais recente. A hospedagem instala as novas
-                  sozinha.
-                </>
-              ) : (
-                <>
-                  Você está na versão mais recente (<span className="num">{s.versao_atual}</span>).
-                </>
-              )}
-            </p>
-          </div>
-          <ol className="lt">
-            {s.versoes.map((v) => (
-              <li
-                key={v.versao}
-                className={`lt__item ${v.atual ? "lt__item--atual" : v.nova ? "lt__item--nova" : "lt__item--antiga"}`}
-              >
-                <div className="lt__cab">
-                  <span className="num lt__n">{v.versao}</span>
-                  {v.atual && <span className="lt__selo">Sua versão</span>}
-                  <span className="lt__d">{dataCurta(v.data)}</span>
-                </div>
-                {v.itens.length > 0 ? (
-                  <ul>
-                    {v.itens.map((t) => (
-                      <li key={t}>{t}</li>
-                    ))}
-                  </ul>
+      <dialog
+        className="att-pop"
+        id="att-pop"
+        popover="auto"
+        aria-label="Atualizações"
+        ref={pop.ref}
+      >
+        {pop.aberto && (
+          <>
+            <div className="att-pop__cab">
+              <h2>Atualizações</h2>
+              <p>
+                {nova ? (
+                  <>
+                    {s.novas === 1 ? "1 versão nova" : `${s.novas} versões novas`} desde a sua (
+                    <span className="num">{s.versao_atual}</span>).
+                  </>
+                ) : s.instalacao === "hospedagem" ? (
+                  <>
+                    Versão <span className="num">{s.versao_atual}</span>, a mais recente. A hospedagem instala as novas
+                    sozinha.
+                  </>
                 ) : (
-                  <p className="lt__vazio">
-                    <a href={`${s.url_versoes}/tag/v${v.versao}`} target="_blank" rel="noreferrer">
-                      Ver o que mudou no GitHub
-                    </a>
-                  </p>
+                  <>
+                    Você está na versão mais recente (<span className="num">{s.versao_atual}</span>).
+                  </>
                 )}
-              </li>
-            ))}
-          </ol>
-          <Rodape
-            s={s}
-            aoAtualizar={(d) => {
-              setAberto(false);
-              setAtualizando(d);
-            }}
-          />
-        </section>
-      )}
+              </p>
+            </div>
+            <ol className="lt">
+              {s.versoes.map((v) => (
+                <li
+                  key={v.versao}
+                  className={`lt__item ${v.atual ? "lt__item--atual" : v.nova ? "lt__item--nova" : "lt__item--antiga"}`}
+                >
+                  <div className="lt__cab">
+                    <span className="num lt__n">{v.versao}</span>
+                    {v.atual && <span className="lt__selo">Sua versão</span>}
+                    <span className="lt__d">{dataCurta(v.data)}</span>
+                  </div>
+                  {v.itens.length > 0 ? (
+                    <ul>
+                      {v.itens.map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="lt__vazio">
+                      <a href={`${s.url_versoes}/tag/v${v.versao}`} target="_blank" rel="noreferrer">
+                        Ver o que mudou no GitHub
+                      </a>
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ol>
+            <Rodape
+              s={s}
+              aoAtualizar={(d) => {
+                pop.fechar();
+                setAtualizando(d);
+              }}
+            />
+          </>
+        )}
+      </dialog>
     </span>
   );
 }

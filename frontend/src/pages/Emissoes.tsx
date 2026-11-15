@@ -497,7 +497,7 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
                   {cancelamento.dh_evento ? ` em ${dataHora(cancelamento.dh_evento)}` : ""}
                 </strong>
                 {cancelamento.motivo && <div>{cancelamento.motivo}</div>}
-                <div style={{ marginTop: 4, fontSize: 12.5 }}>
+                <div style={{ marginTop: 4, fontSize: "0.7812rem" }}>
                   {cancelamento.origem === "sistema" ? "Cancelada por este sistema." : "Registrado fora deste sistema (portal nacional ou prefeitura)."}
                   {" "}O PDF sai com a marca d'água {e.status === "substituida" ? "SUBSTITUÍDA" : "CANCELADA"}.
                 </div>
@@ -532,9 +532,9 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
             <dd>{e.tributacao_nome ?? "Tributação padrão"}{e.linha_id === null && e.lote_id ? " (nota avulsa)" : ""}</dd>
             <dt>Emissão</dt>
             <dd>{dataHora(e.dh_emissao)}</dd>
-            {e.chave_acesso && (<><dt>Chave de acesso</dt><dd className="num" style={{ fontSize: 11 }}>{e.chave_acesso}</dd></>)}
+            {e.chave_acesso && (<><dt>Chave de acesso</dt><dd className="num" style={{ fontSize: "0.6875rem" }}>{e.chave_acesso}</dd></>)}
             {e.n_dps && (<><dt>DPS</dt><dd className="num">série {e.serie} · nº {e.n_dps}</dd></>)}
-            {e.id_dps && (<><dt>Id da DPS</dt><dd className="num" style={{ fontSize: 11 }}>{e.id_dps}</dd></>)}
+            {e.id_dps && (<><dt>Id da DPS</dt><dd className="num" style={{ fontSize: "0.6875rem" }}>{e.id_dps}</dd></>)}
             <dt>Tentativas</dt>
             <dd className="num">{e.tentativas}</dd>
             {e.lote_id && (<><dt>Lote</dt><dd className="num">{e.lote_id}</dd></>)}

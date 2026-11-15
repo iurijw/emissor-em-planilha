@@ -534,7 +534,7 @@ function SecaoDiagnostico({ versao }: { versao: string }) {
       >
         {ocupado && <Spinner />} Baixar arquivo de diagnóstico
       </button>
-      <p style={{ color: "var(--grafite)", fontSize: 12, marginBottom: 0 }}>Versão {versao}</p>
+      <p style={{ color: "var(--grafite)", fontSize: "0.75rem", marginBottom: 0 }}>Versão {versao}</p>
     </section>
   );
 }

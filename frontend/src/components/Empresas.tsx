@@ -12,7 +12,7 @@ import {
 } from "../api";
 import { formatarDocumento } from "../format";
 import { ZonaArquivo } from "../pages/Onboarding";
-import { Dialogo, ErroCaixa, Spinner, useToast } from "../ui";
+import { Dialogo, ehEnter, ErroCaixa, Spinner, usePopover, useToast } from "../ui";
 
 /** Nome da empresa desta aba (o curto, se definido; senão o CNPJ). */
 export function nomeEmpresa(status: Status): string {
@@ -147,26 +147,14 @@ function CampoBusca(props: {
 /** Crachá da empresa no topo: qual empresa esta aba emite, e a lista para trocar. Some com uma empresa só. */
 export function SeletorEmpresa({ admin }: { admin: boolean }) {
   const lista = useEmpresas();
-  const [aberto, setAberto] = useState(false);
+  const pop = usePopover();
+  const aberto = pop.aberto;
   const [busca, setBusca] = useState("");
   const [ativo, setAtivo] = useState(0);
-  const [topo, setTopo] = useState(0);
-  const ref = useRef<HTMLDivElement>(null);
   const opcoes = useRef<HTMLDivElement>(null);
-  const fechar = () => {
-    setAberto(false);
-    setBusca("");
-  };
+  const fechar = pop.fechar;
   useEffect(() => {
-    if (!aberto) return;
-    const fora = (ev: MouseEvent) => !ref.current?.contains(ev.target as Node) && fechar();
-    const esc = (ev: KeyboardEvent) => ev.key === "Escape" && fechar();
-    document.addEventListener("mousedown", fora);
-    document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", fora);
-      document.removeEventListener("keydown", esc);
-    };
+    if (!aberto) setBusca("");
   }, [aberto]);
   useEffect(() => setAtivo(0), [busca]);
   useEffect(() => {
@@ -185,24 +173,18 @@ export function SeletorEmpresa({ admin }: { admin: boolean }) {
       ev.preventDefault();
       const n = filtradas.length;
       if (n) setAtivo((i) => (i + (ev.key === "ArrowDown" ? 1 : n - 1)) % n);
-    } else if (ev.key === "Enter" && filtradas[ativo]) {
+    } else if (ehEnter(ev) && filtradas[ativo]) {
       ev.preventDefault();
       escolher(filtradas[ativo]);
     }
   }
 
   return (
-    <div className="cracha" ref={ref}>
+    <div className="cracha">
       <button
         className="cracha__botao"
         aria-haspopup="listbox"
-        aria-expanded={aberto}
-        onClick={(ev) => {
-          if (aberto) return fechar();
-          // No celular a lista ocupa a largura da tela, logo abaixo do crachá.
-          setTopo(Math.round(ev.currentTarget.getBoundingClientRect().bottom + 6));
-          setAberto(true);
-        }}
+        popovertarget="cracha-lista"
         title={`${atual.nome} · ${linhaDoc(atual)} · ${atual.ambiente === "1" ? "Produção" : "Homologação"} (trocar de empresa)`}
       >
         <Ponto ambiente={atual.ambiente} />
@@ -211,65 +193,67 @@ export function SeletorEmpresa({ admin }: { admin: boolean }) {
           <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      {aberto && (
-        <div className="cracha__lista" style={{ "--cracha-topo": `${topo}px` } as React.CSSProperties}>
-          {comBusca && (
-            <div className="cracha__topo">
-              <CampoBusca
-                autoFocus={!window.matchMedia("(pointer: coarse)").matches /* no celular, sem abrir o teclado sozinho */}
-                valor={busca}
-                mudar={setBusca}
-                rotulo="Buscar empresa"
-                placeholder="Nome, CNPJ ou certificado"
-                onKeyDown={teclado}
-                controla="cracha-opcoes"
-                ativo={filtradas[ativo] ? `cracha-opcao-${filtradas[ativo].id}` : undefined}
-              />
-              <span className="cracha__conta" aria-live="polite">
-                {busca.trim() ? `${filtradas.length} de ${d.empresas.length}` : `${d.empresas.length} empresas`}
-              </span>
-            </div>
-          )}
-          <div className="cracha__opcoes" id="cracha-opcoes" role="listbox" aria-label="Empresas" ref={opcoes}>
-            {filtradas.map((e, i) => (
-              <button
-                key={e.id}
-                id={`cracha-opcao-${e.id}`}
-                data-indice={i}
-                role="option"
-                aria-selected={e.id === atual.id}
-                className={`cracha__item ${comBusca && i === ativo ? "cracha__item--ativo" : ""}`}
-                onMouseMove={() => comBusca && i !== ativo && setAtivo(i)}
-                onClick={() => escolher(e)}
-              >
-                <Ponto ambiente={e.ambiente} />
-                <span className="cracha__texto">
-                  <span className="cracha__nome">
-                    <Destaque texto={e.nome} busca={busca} />
-                  </span>
-                  <span className="cracha__doc">
-                    <span className="num">{linhaDoc(e)}</span>
-                    {e.acesso === "procuracao" && <span className="cracha__marca">por procuração</span>}
-                    {!e.onboarding_concluido && <span className="cracha__marca">configurar</span>}
-                  </span>
+      <div className="cracha__lista" id="cracha-lista" popover="auto" ref={pop.ref}>
+        {aberto && (
+          <>
+            {comBusca && (
+              <div className="cracha__topo">
+                <CampoBusca
+                  autoFocus={!window.matchMedia("(pointer: coarse)").matches /* no celular, sem abrir o teclado sozinho */}
+                  valor={busca}
+                  mudar={setBusca}
+                  rotulo="Buscar empresa"
+                  placeholder="Nome, CNPJ ou certificado"
+                  onKeyDown={teclado}
+                  controla="cracha-opcoes"
+                  ativo={filtradas[ativo] ? `cracha-opcao-${filtradas[ativo].id}` : undefined}
+                />
+                <span className="cracha__conta" aria-live="polite">
+                  {busca.trim() ? `${filtradas.length} de ${d.empresas.length}` : `${d.empresas.length} empresas`}
                 </span>
-                <span className="cracha__amb">{e.ambiente === "1" ? "Produção" : "Homologação"}</span>
-              </button>
-            ))}
-            {filtradas.length === 0 && (
-              <p className="cracha__vazio">
-                Nenhuma empresa com “{busca.trim()}”.{" "}
-                <button type="button" className="btn-texto" onClick={() => setBusca("")}>Limpar busca</button>
-              </p>
+              </div>
             )}
-          </div>
-          {admin && (
-            <a className="cracha__gerenciar" href="#/configuracoes?secao=empresas" onClick={fechar}>
-              Gerenciar empresas
-            </a>
-          )}
-        </div>
-      )}
+            <div className="cracha__opcoes" id="cracha-opcoes" role="listbox" aria-label="Empresas" ref={opcoes}>
+              {filtradas.map((e, i) => (
+                <button
+                  key={e.id}
+                  id={`cracha-opcao-${e.id}`}
+                  data-indice={i}
+                  role="option"
+                  aria-selected={e.id === atual.id}
+                  className={`cracha__item ${comBusca && i === ativo ? "cracha__item--ativo" : ""}`}
+                  onMouseMove={() => comBusca && i !== ativo && setAtivo(i)}
+                  onClick={() => escolher(e)}
+                >
+                  <Ponto ambiente={e.ambiente} />
+                  <span className="cracha__texto">
+                    <span className="cracha__nome">
+                      <Destaque texto={e.nome} busca={busca} />
+                    </span>
+                    <span className="cracha__doc">
+                      <span className="num">{linhaDoc(e)}</span>
+                      {e.acesso === "procuracao" && <span className="cracha__marca">por procuração</span>}
+                      {!e.onboarding_concluido && <span className="cracha__marca">configurar</span>}
+                    </span>
+                  </span>
+                  <span className="cracha__amb">{e.ambiente === "1" ? "Produção" : "Homologação"}</span>
+                </button>
+              ))}
+              {filtradas.length === 0 && (
+                <p className="cracha__vazio">
+                  Nenhuma empresa com “{busca.trim()}”.{" "}
+                  <button type="button" className="btn-texto" onClick={() => setBusca("")}>Limpar busca</button>
+                </p>
+              )}
+            </div>
+            {admin && (
+              <a className="cracha__gerenciar" href="#/configuracoes?secao=empresas" onClick={fechar}>
+                Gerenciar empresas
+              </a>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
