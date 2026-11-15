@@ -934,8 +934,9 @@ function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: 
         ter esses títulos; sem títulos, vale essa ordem.
       </p>
       <p style={{ marginTop: 0, color: "var(--grafite)" }}>
-        Afiliado da Shopee? Envie o <b>relatório mensal NF/RPA</b> da Central do Afiliado como veio: o sistema reconhece, faz uma linha por marca e
-        cadastra o e-mail e o endereço de cada uma.
+        Afiliado da Shopee? Envie o <b>relatório de comissões</b> ou o <b>NF/RPA</b> da Central do Afiliado como veio: o sistema faz uma linha por loja
+        com a comissão paga por ela. O relatório de comissões não traz o CNPJ: preencha na primeira vez, e nos meses seguintes a loja é reconhecida
+        pelo nome.
       </p>
       <div className="amb-escolha" style={{ marginBottom: 16 }}>
         <button type="button" className="amb-op" aria-pressed={modo === "substituir"} onClick={() => setModo("substituir")}>

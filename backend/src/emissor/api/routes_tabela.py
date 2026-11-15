@@ -126,6 +126,7 @@ def importar_tabela(
     conteudo = arquivo.file.read(tabela_service.MAX_BYTES_IMPORTACAO + 1)
     res = tabela_service.importar(arquivo.filename or "", conteudo)
     with sessao() as s:
+        _documentos_pelo_nome(s, res)
         atuais = list(s.exec(select(LinhaTabela).where(LinhaTabela.aba_id == aba.id)))
         if modo == "substituir":
             for ln in atuais:
@@ -165,6 +166,35 @@ def importar_tabela(
         "reconhecido": res.reconhecido,
         "informacoes": res.informacoes,
     }
+
+
+def _documentos_pelo_nome(s, res: tabela_service.ResultadoImportacao) -> None:
+    """Linhas sem CNPJ (o relatório de comissões da Shopee só traz o nome da loja): procura o mesmo nome, sem acento e
+    sem caixa, nas linhas da tabela, nas notas já emitidas e no cadastro, nessa ordem."""
+    faltam = [li for li in res.linhas if not li.documento and li.nome]
+    if not faltam:
+        return
+    achados: dict[str, str] = {}
+
+    def guardar(nome: str | None, doc: str | None) -> None:
+        if nome and doc and cli_service.documento_valido(doc):
+            achados.setdefault(tabela_service._norm(nome), doc)
+
+    for ln in s.exec(select(LinhaTabela).where(LinhaTabela.documento != "")):
+        guardar(ln.nome, ln.documento)
+    for e in s.exec(select(Emissao).order_by(Emissao.id.desc()).limit(20_000)):
+        guardar(e.tomador_nome, e.tomador_documento)
+    for c in s.exec(select(Cliente)):
+        guardar(c.nome, c.documento)
+    sem = 0
+    for li in faltam:
+        li.documento = achados.get(tabela_service._norm(li.nome), "")
+        sem += not li.documento
+    if sem:
+        res.informacoes.append(
+            f"{sem} loja(s) sem CNPJ: o relatório não traz o CNPJ. Preencha a coluna CNPJ/CPF; nos próximos meses o "
+            "sistema reconhece a loja pelo nome."
+        )
 
 
 def _cadastrar_da_planilha(s, res: tabela_service.ResultadoImportacao) -> int:

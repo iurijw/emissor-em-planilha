@@ -309,6 +309,23 @@ def test_importar_relatorio_da_shopee_cadastra_clientes(api, pfx_bytes, nfse_exe
     assert b["nome"] == "LOJA B" and b["origem"] == "brasilapi" and b["endereco_completo"]  # o nome do relatório fica
 
 
+def test_relatorio_de_comissoes_acha_o_cnpj_pelo_nome(api, pfx_bytes, nfse_exemplo_bytes):
+    from .test_servicos import CAB_COMISSOES
+
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    nome = api.get("/api/clientes/11222333000181").json()["nome"]
+    csv_bytes = (
+        CAB_COMISSOES + f"P1,Concluído,{nome.lower()},1,10,1,2.5,2.5,3.5,Concluído\n"
+        "P2,Concluído,Loja Nova,2,10,1,1.25,1.25,2.25,Concluído\n"
+    ).encode()
+    r = api.post("/api/tabela/importar", files={"arquivo": ("AffiliateCommissionReport.csv", csv_bytes)})
+    assert r.status_code == 200, r.text
+    corpo = r.json()
+    assert corpo["reconhecido"] == "shopee_comissoes"
+    assert [(ln["documento"], ln["valor"]) for ln in corpo["linhas"]] == [("11222333000181", "2.50"), ("", "1.25")]
+    assert "1 loja(s) sem CNPJ" in corpo["informacoes"][-1]
+
+
 def test_config_invalida(api, pfx_bytes, nfse_exemplo_bytes):
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
     r = api.put("/api/config", json={"serie": 70000})
