@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.16.0 (15/11/2026)
+
+- Avisos do que a prefeitura cadastrou no Sistema Nacional para o serviço: retenção do ISS, regime especial, mudança de alíquota e benefício municipal.
+- Os avisos aparecem na tela de tributação e antes de emitir, só para conferir; nunca impedem a emissão.
+
 ## 0.15.0 (15/11/2026)
 
 - Janelas e menus mais fáceis de usar pelo teclado: Esc e clicar fora fecham, e o foco volta para onde estava.
