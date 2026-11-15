@@ -2,6 +2,7 @@ import { GridCellKind, type ProvideEditorComponent, type TextCell } from "@glide
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Cliente } from "../api";
 import { formatarDocumento } from "../format";
+import { ehEnter } from "../ui";
 
 /** Minúsculas e sem acento, para comparar nomes. */
 export function normalizarBusca(s: string): string {
@@ -76,7 +77,7 @@ export function EditorNomeCliente(p: Props) {
       e.preventDefault();
       e.stopPropagation();
       setAtivo((a) => Math.max(a - 1, -1));
-    } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+    } else if ((ehEnter(e) || e.key === "Tab") && !e.shiftKey) {
       const exato = sugestoes.find((c) => normalizarBusca(c.nome) === normalizarBusca(texto));
       const alvo = ativo >= 0 ? sugestoes[ativo] : exato;
       if (alvo) {

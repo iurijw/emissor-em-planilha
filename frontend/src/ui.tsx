@@ -1,8 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, logCliente, type ErroEmissao, type MensagemSefin } from "./api";
 import { STATUS_ROTULO } from "./format";
 
 // ---------------- Toasts ----------------
+/** Avisa que um diálogo entrou na camada superior, para os avisos (toasts) voltarem para cima dele. */
+const EVENTO_CAMADA = "emissor:camada-superior";
+
 interface Toast {
   id: number;
   texto: string;
@@ -13,19 +16,46 @@ const ToastCtx = createContext<(texto: string, tipo?: "ok" | "erro") => void>(()
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const seq = useRef(0);
-  const mostrar = useCallback((texto: string, tipo: "ok" | "erro" = "ok") => {
-    const id = ++seq.current;
-    setToasts((t) => [...t, { id, texto, tipo }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tipo === "erro" ? 9000 : 4000);
+  const caixa = useRef<HTMLDivElement>(null);
+  const anunciar = typeof document !== "undefined" && "ariaNotify" in document;
+  const mostrar = useCallback(
+    (texto: string, tipo: "ok" | "erro" = "ok") => {
+      const id = ++seq.current;
+      setToasts((t) => [...t, { id, texto, tipo }]);
+      // Leitores de tela: ariaNotify onde existe; nos outros navegadores, a região aria-live abaixo.
+      if (anunciar) (document as Document & { ariaNotify(t: string): void }).ariaNotify(texto);
+      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tipo === "erro" ? 9000 : 4000);
+    },
+    [anunciar],
+  );
+  // Os avisos ficam num popover manual (camada superior). Cada diálogo que abre entra por cima; reabrir o
+  // popover o põe de novo no topo, para o aviso não ficar escondido atrás do fundo do diálogo.
+  useEffect(() => {
+    const el = caixa.current;
+    if (!el || !("showPopover" in el)) return;
+    const subir = () => {
+      if (el.matches(":popover-open")) el.hidePopover();
+      el.showPopover();
+    };
+    subir();
+    window.addEventListener(EVENTO_CAMADA, subir);
+    return () => window.removeEventListener(EVENTO_CAMADA, subir);
   }, []);
   return (
     <ToastCtx.Provider value={mostrar}>
       {children}
-      <div className="toasts" role="status" aria-live="polite">
+      <div
+        ref={caixa}
+        className="toasts"
+        popover="manual"
+        role="region"
+        aria-label="Avisos"
+        aria-live={anunciar ? undefined : "polite"}
+      >
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.tipo === "erro" ? "toast--erro" : ""}`}>
             <span>{t.texto}</span>
-            <button aria-label="Fechar" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>
+            <button type="button" aria-label="Fechar aviso" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>
               ×
             </button>
           </div>
@@ -125,13 +155,74 @@ export function AmbChip({ ambiente }: { ambiente: string }) {
 }
 
 // ---------------- Diálogo e gaveta ----------------
-function useEsc(fechar?: () => void) {
-  useEffect(() => {
-    if (!fechar) return;
-    const h = (e: KeyboardEvent) => e.key === "Escape" && fechar();
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [fechar]);
+// <dialog> nativo aberto com showModal(): camada superior, página inerte, foco preso no diálogo, Esc e gesto de
+// voltar fecham, e o foco volta para quem abriu. Quem controla se o diálogo existe continua sendo o React: o
+// diálogo abre ao montar e, quando o navegador o fecha (Esc, clique fora), chama `fechar`. Se `fechar` não
+// desmontar o componente (ex.: envio em andamento), o diálogo reabre.
+
+/** Clique fora do retângulo do diálogo (no fundo). Pela posição: o alvo é o próprio <dialog> também no padding. */
+function foraDoDialogo(e: PointerEvent, d: HTMLElement) {
+  const r = d.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+}
+
+/** Foco inicial: o campo marcado com data-autofocus, senão o primeiro campo de texto do corpo. */
+function focarInicio(d: HTMLDialogElement) {
+  const alvo =
+    d.querySelector<HTMLElement>("[data-autofocus]") ??
+    d.querySelector<HTMLElement>(
+      ".dialogo__corpo :is(input:not([type=hidden], [type=checkbox], [type=radio], [type=file], [disabled], [readonly]), select:not([disabled]), textarea:not([disabled], [readonly]))",
+    );
+  alvo?.focus();
+}
+
+export function useDialogoModal(fechar?: () => void) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const fecharRef = useRef(fechar);
+  fecharRef.current = fechar;
+  useLayoutEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (!d.open) d.showModal();
+    focarInicio(d);
+    window.dispatchEvent(new Event(EVENTO_CAMADA));
+
+    const aoCancelar = (e: Event) => {
+      // Diálogo sem "fechar" (ex.: pagamento aprovado): Esc não fecha.
+      if (!fecharRef.current) e.preventDefault();
+    };
+    let reabrir = 0;
+    const aoFechar = () => {
+      fecharRef.current?.();
+      // Se continuou montado (fechar recusou ou não existe), volta a abrir.
+      reabrir = requestAnimationFrame(() => {
+        if (d.isConnected && !d.open) d.showModal();
+      });
+    };
+    // Fechar clicando fora, onde o navegador ainda não tem closedby="any".
+    let pressionouFora = false;
+    const semClosedBy = !("closedBy" in HTMLDialogElement.prototype);
+    const aoPressionar = (e: PointerEvent) => {
+      pressionouFora = semClosedBy && !!fecharRef.current && e.target === d && foraDoDialogo(e, d);
+    };
+    const aoSoltar = (e: PointerEvent) => {
+      if (pressionouFora && e.target === d && foraDoDialogo(e, d)) d.close();
+      pressionouFora = false;
+    };
+    d.addEventListener("cancel", aoCancelar);
+    d.addEventListener("close", aoFechar);
+    d.addEventListener("pointerdown", aoPressionar);
+    d.addEventListener("pointerup", aoSoltar);
+    return () => {
+      cancelAnimationFrame(reabrir);
+      d.removeEventListener("cancel", aoCancelar);
+      d.removeEventListener("close", aoFechar);
+      d.removeEventListener("pointerdown", aoPressionar);
+      d.removeEventListener("pointerup", aoSoltar);
+      if (d.open) d.close();
+    };
+  }, []);
+  return ref;
 }
 
 export function Dialogo(props: {
@@ -140,43 +231,88 @@ export function Dialogo(props: {
   rodape?: ReactNode;
   fechar?: () => void;
   largo?: boolean;
+  /** "alertdialog" para avisos que pedem resposta ou bloqueiam (ex.: atualizando o sistema). */
+  papel?: "alertdialog";
+  className?: string;
 }) {
-  useEsc(props.fechar);
+  const ref = useDialogoModal(props.fechar);
+  const id = useId();
   return (
-    <div className="veu" onMouseDown={(e) => e.target === e.currentTarget && props.fechar?.()}>
-      <div className={`dialogo ${props.largo ? "dialogo--largo" : ""}`} role="dialog" aria-modal="true">
-        <div className="dialogo__topo">
-          <h2>{props.titulo}</h2>
-          {props.fechar && (
-            <button className="fechar" aria-label="Fechar" onClick={props.fechar}>
-              ×
-            </button>
-          )}
-        </div>
-        <div className="dialogo__corpo">{props.children}</div>
-        {props.rodape && <div className="dialogo__rodape">{props.rodape}</div>}
+    <dialog
+      ref={ref}
+      className={`dialogo ${props.largo ? "dialogo--largo" : ""} ${props.className ?? ""}`}
+      aria-labelledby={`${id}-titulo`}
+      role={props.papel}
+      closedby={props.fechar ? "any" : "none"}
+    >
+      <div className="dialogo__topo">
+        <h2 id={`${id}-titulo`}>{props.titulo}</h2>
+        {props.fechar && (
+          <button type="button" className="fechar" aria-label="Fechar" onClick={props.fechar}>
+            ×
+          </button>
+        )}
       </div>
-    </div>
+      <div className="dialogo__corpo">{props.children}</div>
+      {props.rodape && <div className="dialogo__rodape">{props.rodape}</div>}
+    </dialog>
   );
 }
 
 export function Gaveta(props: { titulo: ReactNode; children: ReactNode; rodape?: ReactNode; fechar: () => void }) {
-  useEsc(props.fechar);
+  const ref = useDialogoModal(props.fechar);
+  const id = useId();
   return (
-    <>
-      <div className="gaveta-veu" onClick={props.fechar} />
-      <aside className="gaveta" role="dialog" aria-modal="true">
-        <div className="dialogo__topo" style={{ paddingBottom: 12, borderBottom: "1px solid var(--linha)" }}>
-          <h2>{props.titulo}</h2>
-          <button className="fechar" aria-label="Fechar" onClick={props.fechar}>
-            ×
-          </button>
-        </div>
-        <div className="dialogo__corpo">{props.children}</div>
-        {props.rodape && <div className="dialogo__rodape">{props.rodape}</div>}
-      </aside>
-    </>
+    <dialog
+      ref={ref}
+      className="gaveta"
+      aria-labelledby={`${id}-titulo`}
+      closedby="any"
+    >
+      <div className="dialogo__topo" style={{ paddingBottom: 12, borderBottom: "1px solid var(--linha)" }}>
+        <h2 id={`${id}-titulo`}>{props.titulo}</h2>
+        <button type="button" className="fechar" aria-label="Fechar" onClick={props.fechar}>
+          ×
+        </button>
+      </div>
+      <div className="dialogo__corpo">{props.children}</div>
+      {props.rodape && <div className="dialogo__rodape">{props.rodape}</div>}
+    </dialog>
   );
+}
+
+// ---------------- Popover ancorado (menus do topo) ----------------
+// popover="auto" aberto pelo botão com popovertarget: camada superior, fecha com Esc e clicando fora, e o
+// navegador mantém o aria-expanded do botão. A posição vem do CSS anchor positioning; onde ele não existe,
+// as variáveis --ancora-baixo e --ancora-direita (medidas do botão) fazem o mesmo papel.
+const TEM_ANCORA = typeof CSS !== "undefined" && CSS.supports?.("anchor-name: --a");
+
+export function usePopover() {
+  // Ref por estado: o popover pode aparecer só depois (ex.: quando os dados chegam).
+  const [el, ref] = useState<HTMLElement | null>(null);
+  const [aberto, setAberto] = useState(false);
+  useEffect(() => {
+    if (!el) return;
+    const antes = (e: Event) => {
+      if ((e as ToggleEvent).newState !== "open" || TEM_ANCORA) return;
+      const botao = document.querySelector<HTMLElement>(`[popovertarget="${el.id}"]`);
+      if (!botao) return;
+      const r = botao.getBoundingClientRect();
+      el.style.setProperty("--ancora-baixo", `${Math.round(r.bottom)}px`);
+      el.style.setProperty("--ancora-direita", `${Math.round(window.innerWidth - r.right)}px`);
+    };
+    const depois = (e: Event) => setAberto((e as ToggleEvent).newState === "open");
+    el.addEventListener("beforetoggle", antes);
+    el.addEventListener("toggle", depois);
+    return () => {
+      el.removeEventListener("beforetoggle", antes);
+      el.removeEventListener("toggle", depois);
+    };
+  }, [el]);
+  const fechar = useCallback(() => {
+    if (el?.matches(":popover-open")) el.hidePopover();
+  }, [el]);
+  return { ref, aberto, fechar };
 }
 
 // ---------------- Captura global de erros do navegador ----------------
@@ -189,6 +325,44 @@ export function instalarCapturaDeErros() {
     if (r instanceof ApiError) return; // já tratado/exibido e registrado no servidor
     logCliente("error", `Promise rejeitada: ${r?.message ?? String(r)}`, { stack: r?.stack });
   });
+}
+
+// ---------------- Teclado ----------------
+/** Enter de verdade: não o Enter que confirma a composição de um IME (japonês, chinês...). keyCode 229 cobre o Safari. */
+export function ehEnter(e: { key: string; keyCode: number; nativeEvent: KeyboardEvent }) {
+  return e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229;
+}
+
+// ---------------- Validação acessível ----------------
+// O visual de erro usa :user-invalid (só depois de o usuário mexer no campo ou tentar enviar). Os leitores de tela
+// não enxergam esse estado, então o aria-invalid acompanha o :user-invalid. Fica "false" até lá, porque Firefox e
+// Safari anunciam um campo obrigatório vazio como inválido desde o carregamento.
+type Campo = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+function ehCampo(el: EventTarget | null): el is Campo {
+  return el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement;
+}
+function sincronizarInvalido(el: Campo) {
+  if (!el.willValidate || el.hasAttribute("data-aria-invalid-proprio")) return;
+  let invalido: boolean;
+  try {
+    invalido = el.matches(":user-invalid");
+  } catch {
+    return; // navegador sem :user-invalid
+  }
+  el.setAttribute("aria-invalid", String(invalido));
+}
+export function instalarValidacaoAcessivel() {
+  const aoEvento = (e: Event) => ehCampo(e.target) && sincronizarInvalido(e.target);
+  for (const tipo of ["focusin", "focusout", "input", "change"]) document.addEventListener(tipo, aoEvento, true);
+  // "invalid" vem antes de o navegador marcar o campo como mexido: confere no quadro seguinte.
+  document.addEventListener(
+    "invalid",
+    (e) => {
+      const el = e.target;
+      if (ehCampo(el)) requestAnimationFrame(() => sincronizarInvalido(el));
+    },
+    true,
+  );
 }
 
 export function Spinner() {

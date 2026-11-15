@@ -206,7 +206,7 @@ function DoisFatores({ conta }: { conta: Conta }) {
               conta e leia o código abaixo.
             </p>
             <img className="qr-2fa" src={qr.qr} alt="QR Code para o aplicativo autenticador" />
-            <p style={{ margin: 0, fontSize: 13 }}>
+            <p style={{ margin: 0, fontSize: "0.8125rem" }}>
               Sem câmera? Digite a chave: <code className="num" style={{ wordBreak: "break-all" }}>{qr.segredo}</code>
             </p>
             <label className="campo">

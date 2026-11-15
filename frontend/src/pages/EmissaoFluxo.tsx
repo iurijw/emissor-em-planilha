@@ -321,7 +321,7 @@ export function EmissaoFluxo(props: {
           </>
         ) : (
           <>
-            <span style={{ color: "var(--grafite)", fontSize: 13, marginRight: "auto" }}>
+            <span style={{ color: "var(--grafite)", fontSize: "0.8125rem", marginRight: "auto" }}>
               Pode fechar esta janela: a emissão continua no servidor.
             </span>
             <button className="btn btn--perigo" onClick={parar} disabled={parando}>

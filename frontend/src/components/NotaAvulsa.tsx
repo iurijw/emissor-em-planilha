@@ -455,7 +455,7 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
               ))}
             </div>
             {!admin && trib.data && !trib.data.itens.length && (
-              <p style={{ color: "var(--grafite)", fontSize: 13 }}>
+              <p style={{ color: "var(--grafite)", fontSize: "0.8125rem" }}>
                 Nenhuma tributação cadastrada. Um administrador pode cadastrá-las em Configurações.
               </p>
             )}

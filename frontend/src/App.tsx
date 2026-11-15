@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { api, type Sessao, type Status, type UsuarioSessao } from "./api";
 import { formatarDocumento } from "./format";
 import { AvisoSuspenso, TelaConvite, TelaLogin, TelaPrimeiroAcesso } from "./pages/Acesso";
@@ -8,12 +8,16 @@ import { MinhaConta } from "./pages/Conta";
 import { Usuarios } from "./pages/Usuarios";
 import { Configuracoes } from "./pages/Configuracoes";
 import { Emissoes } from "./pages/Emissoes";
-import { Emitir } from "./pages/Emitir";
 import { Onboarding } from "./pages/Onboarding";
-import { ErroCaixa } from "./ui";
+import { ErroCaixa, Spinner } from "./ui";
 import { FaixaAssinatura, useAssinatura } from "./components/Assinatura";
 import { Atualizacoes } from "./components/Atualizacoes";
 import { nomeEmpresa, SeletorEmpresa } from "./components/Empresas";
+
+// A tela de emissão traz a grade (Glide Data Grid, a maior parte do código): fica num arquivo à parte, baixado
+// só depois do login (a tela de entrada fica leve). Logo depois do login começa a baixar, sem esperar a tela abrir.
+const carregarEmitir = () => import("./pages/Emitir").then((m) => ({ default: m.Emitir }));
+const Emitir = lazy(carregarEmitir);
 
 const ROTAS = [
   { id: "emitir", rotulo: "Emitir notas", admin: false },
@@ -108,6 +112,9 @@ function MenuUsuario({ usuario, urlAssinatura }: { usuario: UsuarioSessao; urlAs
 }
 
 export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessao }) {
+  useEffect(() => {
+    void carregarEmitir();
+  }, []);
   const [rota, setRota] = useState<Rota>(rotaAtual());
   const status = useStatus();
   const assinatura = useAssinatura();
@@ -231,7 +238,17 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </div>
           </div>
         )}
-        {rotaVisivel === "emitir" && <Emitir status={s} admin={adminEmpresa} />}
+        {rotaVisivel === "emitir" && (
+          <Suspense
+            fallback={
+              <div className="carregando-tela" role="status">
+                <Spinner /> Abrindo a tabela…
+              </div>
+            }
+          >
+            <Emitir status={s} admin={adminEmpresa} />
+          </Suspense>
+        )}
         {rotaVisivel === "emissoes" && <Emissoes />}
         {rotaVisivel === "clientes" && <Clientes />}
         {rotaVisivel === "configuracoes" && <Configuracoes status={s} adminInstancia={admin} />}

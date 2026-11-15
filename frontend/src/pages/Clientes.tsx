@@ -70,7 +70,7 @@ export function Clientes() {
                   {c.endereco_completo ? (
                     <>
                       {c.logradouro}, {c.numero} · {c.bairro}
-                      <div style={{ color: "var(--grafite)", fontSize: 12.5 }}>{c.municipio} · {cep(c.cep)}</div>
+                      <div style={{ color: "var(--grafite)", fontSize: "0.7812rem" }}>{c.municipio} · {cep(c.cep)}</div>
                     </>
                   ) : (
                     <span style={{ color: "var(--aviso)" }}>Endereço incompleto — a nota sai sem endereço</span>
@@ -204,7 +204,7 @@ function EditarCliente({ inicial, fechar }: { inicial: Partial<Cliente>; fechar:
           {campo("fone", "Telefone", { num: true })}
           {campo("inscricao_municipal", "Inscrição municipal")}
         </div>
-        {c.origem && <p style={{ color: "var(--grafite)", fontSize: 12.5, margin: 0 }}>Dados de: {ORIGEM[c.origem] ?? c.origem}{c.situacao_cadastral ? ` · situação na Receita: ${c.situacao_cadastral}` : ""}</p>}
+        {c.origem && <p style={{ color: "var(--grafite)", fontSize: "0.7812rem", margin: 0 }}>Dados de: {ORIGEM[c.origem] ?? c.origem}{c.situacao_cadastral ? ` · situação na Receita: ${c.situacao_cadastral}` : ""}</p>}
         <ErroCaixa erro={erro} titulo="Não foi possível concluir" />
       </div>
     </Gaveta>

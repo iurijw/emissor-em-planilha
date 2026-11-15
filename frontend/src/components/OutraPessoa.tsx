@@ -62,7 +62,7 @@ export function OutraPessoa({
   return (
     <section>
       <h3 className="secao-titulo">{titulo}</h3>
-      <p style={{ margin: "0 0 12px", color: "var(--grafite)", fontSize: 13 }}>{ajuda}</p>
+      <p style={{ margin: "0 0 12px", color: "var(--grafite)", fontSize: "0.8125rem" }}>{ajuda}</p>
       <div className="grade-form">
         <label className={`campo campo--obrigatorio${invalido ? " campo--erro" : ""}`}>
           <span>CNPJ / CPF</span>

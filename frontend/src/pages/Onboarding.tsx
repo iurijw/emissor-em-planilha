@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { api, type CertificadoInfo, type Cliente, type Fiscal, type Linha, type Status } from "../api";
 import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
-import { ErroCaixa, Spinner } from "../ui";
+import { ehEnter, ErroCaixa, Spinner } from "../ui";
 import { nomeEmpresa, SairDaEmpresaNova } from "../components/Empresas";
 
 const PASSOS = ["Certificado digital", "Notas anteriores", "Dados da empresa", "Tributação padrão", "Ambiente e numeração", "Revisão"];
@@ -211,7 +211,7 @@ export function Onboarding({ status }: { status: Status }) {
                       value={senha}
                       autoComplete="off"
                       onChange={(e) => setSenha(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && enviarCertificado()}
+                      onKeyDown={(e) => ehEnter(e) && enviarCertificado()}
                     />
                   </label>
                 </>

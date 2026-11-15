@@ -271,6 +271,18 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 - Tabela salva sozinha (debounce 500 ms, fila sequencial de PUTs); CNPJs novos são consultados automaticamente
   (uma vez por sessão) e preenchem o nome só se estiver vazio — **o nome da tabela prevalece** sobre o da Receita.
 - `index.html` servido com `Cache-Control: no-cache` (atualizações chegam aos navegadores; `/assets` tem hash).
+- **Guias do Chrome (Modern Web Guidance, 2026-11-15):** em tela nova ou alterada, ler os guias do tema em
+  `github.com/GoogleChrome/modern-web-guidance-src` (`guides/`; clonar numa pasta temporária, nada vai para o repo).
+  Aplicado: `Dialogo`/`Gaveta` são `<dialog>` nativos com `showModal()` (camada superior, página inerte, Esc e voltar
+  fecham, `closedby="any"` + reserva para clique fora; fechar pelo navegador chama `fechar`, e o diálogo reabre se o
+  componente continuar montado; foco inicial = `[data-autofocus]` ou o primeiro campo do corpo, porque o `autoFocus`
+  do React acontece com o diálogo ainda fechado); avisos (toasts) num `popover="manual"` que volta para o topo a cada
+  diálogo aberto (`EVENTO_CAMADA`) e anunciados por `ariaNotify`; menus do topo (atualizações e crachá da empresa)
+  com `popover="auto"` + `popovertarget` (`usePopover`), presos ao botão por anchor positioning ou pelas variáveis
+  `--ancora-*` onde ele não existe; erro de campo só com `:user-invalid`, e `aria-invalid` acompanhando
+  (`instalarValidacaoAcessivel`; campos com aria-invalid próprio levam `data-aria-invalid-proprio`); `ehEnter` ignora o
+  Enter de composição de IME; fontes em `rem` + `<meta name="text-scale">`; `color-scheme`, `accent-color`,
+  `font-size-adjust: from-font`, `text-wrap`; tela de emissão (grade) carregada à parte, depois do login.
 - **Aviso "ligando o sistema"** (`public/sw.js`, 2026-10-13): service worker registrado só no build de produção em
   HTTPS/localhost. Se a abertura da página não responde em 1,2 s (ou volta 5xx/sem conexão), mostra uma página própria
   que consulta `/api/saude` e recarrega sozinha. Não guarda nada do app (a página sempre vem do servidor); 60 s depois
@@ -354,8 +366,8 @@ Implementação (`nfse/eventos.py`, `services/eventos.py`, tabelas `evento_nfse`
   embutidos (vão para `data/xml`). "Atualizar situação" na nota usa `GET /NFSe/{chave}/Eventos`.
 - ZIP de XMLs inclui os eventos; notas canceladas/substituídas continuam baixáveis e saem do total autorizado.
 - Frontend: `components/CancelarNotas.tsx` (uma ou várias notas, uma por vez; para na primeira falha que não seja
-  rejeição; produção exige digitar CANCELAR). Diálogos (`.veu`, z-index 50) ficam acima da gaveta (41) — o diálogo
-  de cancelamento abre a partir dela. Horários da sincronização vão com fuso (`-03:00`): "há X min" no navegador.
+  rejeição; produção exige digitar CANCELAR). Diálogos e gaveta são `<dialog>` modais: o aberto por último fica por
+  cima (o de cancelamento abre a partir da gaveta). Horários da sincronização vão com fuso (`-03:00`): "há X min" no navegador.
 
 ### Tributações, abas e nota avulsa (F6, 2026-10-11)
 
@@ -878,4 +890,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-06 | Dicas para E0116, E1235 e para os erros do leiaute conferido no sistema (pelo campo); dica de inscrição municipal antes da de município; notas já recusadas mostram a dica atual; endereço com caractere nulo responde 404 | Pedido do Iuri: explicar melhor os erros vistos nos clientes (E0116 em produção, E0120 com dica de município errada); robôs geravam centenas de erros 500 no log |
 | 2026-11-09 | Várias empresas (CNPJs) na mesma instalação, cada uma com o A1 dela ou por procuração (certificado do procurador); isolamento por filtro automático do ORM; clientes por empresa com opção de compartilhar; desligado na hospedagem até o Iuri pedir (lá: 3 CNPJs no preço, R$ 14,90 por CNPJ a mais) | Pedido do Iuri: escritórios emitem por vários clientes; a procuração eletrônica para a NFS-e por API passou a valer em 01/11/2026 |
 | 2026-11-12 | Tipo de imunidade, exigibilidade suspensa, benefício municipal e grupos de diferimento/tributação regular do IBS/CBS na tributação; descontos, pedido e informações complementares só na nota avulsa; exportação, tomador no exterior, obra, evento, dedução da base, intermediário, destinatário e NFS-e referenciada só na nota avulsa; compra governamental na tributação (o tomador estrangeiro não vai para o cadastro) | Pedido do Iuri: opções do leiaute que a tela não oferecia ou mandava incompletas (imunidade sem o tipo) |
+| 2026-11-15 | Frontend segue os guias do Chrome (Modern Web Guidance): diálogos nativos, popovers, `:user-invalid`, fontes em rem | Pedido do Iuri: usar o que o navegador já faz (foco, Esc, camada superior, acessibilidade) em vez de código próprio |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

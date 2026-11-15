@@ -118,7 +118,7 @@ export function CancelarNotas(props: { emissoes: Emissao[]; fechar: () => void; 
                       <td style={{ minWidth: 200 }}>
                         {!r && rodando && <span style={{ color: "var(--grafite)" }}>aguardando…</span>}
                         {r?.estado === "ok" && <span className="chip chip--cancelada">Cancelada</span>}
-                        {r?.estado === "ok" && r.aviso && <div style={{ fontSize: 12, marginTop: 4 }}>{r.aviso}</div>}
+                        {r?.estado === "ok" && r.aviso && <div style={{ fontSize: "0.75rem", marginTop: 4 }}>{r.aviso}</div>}
                         {r?.estado === "nao_enviada" && <span className="chip chip--nao_enviada">Não enviada</span>}
                         {r?.estado === "erro" && <ResultadoErro erro={r.erro} />}
                       </td>
@@ -169,7 +169,7 @@ export function CancelarNotas(props: { emissoes: Emissao[]; fechar: () => void; 
 function ResultadoErro({ erro }: { erro: unknown }) {
   if (erro instanceof ApiError && erro.sefin) {
     return (
-      <div className="erro-caixa" style={{ padding: "8px 10px", fontSize: 12.5 }}>
+      <div className="erro-caixa" style={{ padding: "8px 10px", fontSize: "0.7812rem" }}>
         <MensagensSefin erro={erro.sefin} />
       </div>
     );

@@ -15,7 +15,7 @@ import {
   type ServicoDetalhe,
 } from "../api";
 import { formatarDocumento, moeda } from "../format";
-import { Spinner } from "../ui";
+import { ehEnter, Spinner } from "../ui";
 
 export function useOpcoes() {
   return useQuery({ queryKey: ["opcoes"], queryFn: () => api.get<Opcoes>("/api/config/opcoes"), staleTime: Infinity });
@@ -117,10 +117,11 @@ export function CampoMunicipio(props: {
           } else if (e.key === "ArrowUp" && opcoes.length) {
             e.preventDefault();
             setDestaque((i) => (i - 1 + opcoes.length) % opcoes.length);
-          } else if (e.key === "Enter" && mostrarLista) {
+          } else if (ehEnter(e) && mostrarLista) {
             e.preventDefault();
             escolher(opcoes[Math.min(destaque, opcoes.length - 1)]);
-          } else if (e.key === "Escape") {
+          } else if (e.key === "Escape" && mostrarLista) {
+            e.preventDefault(); // fecha só a lista, não o diálogo em volta
             setAberto(false);
           }
         }}
@@ -246,6 +247,7 @@ function Texto(props: {
         value={props.valor ?? ""}
         placeholder={props.placeholder}
         aria-invalid={props.erro ? true : undefined}
+        data-aria-invalid-proprio=""
         onChange={(e) => props.onChange(e.target.value)}
       />
       {props.erro ? <small className="campo__erro">{props.erro}</small> : props.ajuda && <small>{props.ajuda}</small>}
@@ -333,6 +335,7 @@ function CampoServico(props: { codigo: string; onChange: (codigo: string) => voi
         aria-expanded={mostrarLista}
         aria-autocomplete="list"
         aria-invalid={erro ? true : undefined}
+        data-aria-invalid-proprio=""
         role="combobox"
         value={aberto ? termo : pendente || rotulo}
         placeholder="Digite o código ou parte da descrição, ex.: contabilidade"
@@ -353,10 +356,11 @@ function CampoServico(props: { codigo: string; onChange: (codigo: string) => voi
           } else if (e.key === "ArrowUp" && opcoes.length) {
             e.preventDefault();
             setDestaque((i) => (i - 1 + opcoes.length) % opcoes.length);
-          } else if (e.key === "Enter" && mostrarLista) {
+          } else if (ehEnter(e) && mostrarLista) {
             e.preventDefault();
             escolher(opcoes[Math.min(destaque, opcoes.length - 1)].codigo);
-          } else if (e.key === "Escape") {
+          } else if (e.key === "Escape" && mostrarLista) {
+            e.preventDefault(); // fecha só a lista, não o diálogo em volta
             setAberto(false);
           }
         }}
@@ -425,6 +429,7 @@ function CampoNbs(props: {
           value={props.valor ?? ""}
           placeholder="9 dígitos"
           aria-invalid={erro ? true : undefined}
+          data-aria-invalid-proprio=""
           onChange={(e) => props.onChange(e.target.value.replace(/\D/g, "").slice(0, 9) || null)}
         />
         {erro ? (
