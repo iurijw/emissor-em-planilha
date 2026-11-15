@@ -224,6 +224,14 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
   endereço em colunas separadas (de qualquer planilha) vão ao cadastro: cliente novo com `origem = "planilha"`,
   existente só nos campos vazios; `pendente_receita` faz a consulta automática da Receita completar quem ficou sem
   endereço (o nome da planilha prevalece).
+- **Relatório de comissões da Shopee** (`AffiliateCommissionReport_*.csv`, conferido com um arquivo real em 15/11/2026,
+  `_comissoes_shopee`): CSV com vírgula, BOM, uma linha por **item** de pedido, valores com ponto decimal e 5 casas,
+  **sem CNPJ, e-mail nem endereço** da loja (só "Nome da loja" e "ID da loja"). Reconhecido pelas colunas "ID do
+  pedido", "Nome da loja" e "Comissão do Item da Marca(R$)"; soma essa coluna por loja (a "Comissão do vendedor(R$)" é
+  do pedido e se repete nos itens), arredonda só no fim, ignora itens com "Status do item do afiliado" diferente de
+  Concluído e lojas sem comissão. O CNPJ é procurado pelo nome (sem acento/caixa) nas linhas da tabela, nas notas já
+  emitidas e no cadastro (`_documentos_pelo_nome`); sem achar, a linha fica sem CNPJ para o usuário preencher.
+  Suposição a conferir: a nota de cada loja é a parte da comissão paga por ela ("Comissão do Item da Marca").
 
 | Rotas | |
 |---|---|

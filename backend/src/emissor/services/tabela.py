@@ -170,10 +170,92 @@ def _somar_por_documento(res: ResultadoImportacao) -> None:
         res.informacoes.append(f"{somadas} linha(s) do mesmo CNPJ foram somadas: uma nota por marca.")
 
 
+# Relatório de comissões da Central do Afiliado ("AffiliateCommissionReport_*.csv", conferido com um arquivo real em
+# 15/11/2026): uma linha por item de pedido, sem CNPJ da loja, valores com ponto decimal e várias casas.
+COLUNAS_COMISSOES_SHOPEE = {
+    "pedido": "id do pedido",
+    "loja": "nome da loja",
+    "id_loja": "id da loja",
+    "comissao_marca": "comissao do item da marca(r$)",
+    "status": "status do item do afiliado",
+}
+STATUS_COMISSAO_VALIDA = "concluido"
+
+
+def _decimal(v) -> Decimal:
+    if v in (None, ""):
+        return Decimal(0)
+    if isinstance(v, int | float | Decimal):
+        return Decimal(str(v))
+    s = str(v).strip().replace("R$", "").replace(" ", "")
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    try:
+        return Decimal(s)
+    except InvalidOperation:
+        return Decimal(0)
+
+
+def _comissoes_shopee(linhas: list[list]) -> ResultadoImportacao | None:
+    """Uma linha por loja com a soma da comissão paga pela loja (a parte da Comissão Extra que é dela).
+
+    Só itens concluídos entram (pendentes e cancelados ainda podem mudar). O relatório não traz o CNPJ: a linha sai sem
+    ele, e a rota de importação procura a loja pelo nome no cadastro e nas notas já emitidas.
+    """
+    cab = [_norm(c).replace(" (r$)", "(r$)") for c in linhas[0]]
+    col = {k: cab.index(v) for k, v in COLUNAS_COMISSOES_SHOPEE.items() if v in cab}
+    if {"pedido", "loja", "comissao_marca"} - set(col):
+        return None
+
+    def cel(row, k):
+        i = col.get(k)
+        return row[i] if i is not None and i < len(row) else None
+
+    lojas: dict[str, dict] = {}
+    fora: dict[str, int] = {}
+    for row in linhas[1:]:
+        nome = str(cel(row, "loja") or "").strip()
+        valor = _decimal(cel(row, "comissao_marca"))
+        if not nome or valor <= 0:
+            continue
+        status = _norm(cel(row, "status") or "")
+        if "status" in col and status != STATUS_COMISSAO_VALIDA:
+            fora[status or "sem situação"] = fora.get(status or "sem situação", 0) + 1
+            continue
+        chave = str(cel(row, "id_loja") or "").strip() or _norm(nome)
+        loja = lojas.setdefault(chave, {"nome": nome, "valor": Decimal(0), "itens": 0})
+        loja["valor"] += valor
+        loja["itens"] += 1
+    res = ResultadoImportacao(reconhecido="shopee_comissoes")
+    for loja in lojas.values():
+        valor = loja["valor"].quantize(Decimal("0.01"))
+        if valor <= 0:
+            continue
+        res.linhas.append(
+            LinhaImportada(nome=loja["nome"], documento="", valor=f"{valor:.2f}", descricao=DESCRICAO_SHOPEE)
+        )
+    total = sum(Decimal(ln.valor) for ln in res.linhas)
+    res.informacoes.append(
+        f"Relatório de comissões da Shopee reconhecido: {len(res.linhas)} loja(s), total R$ {_moeda(total)} "
+        "(comissão paga por cada loja, itens concluídos). Confira a descrição e a tributação da aba antes de emitir."
+    )
+    if fora:
+        partes = ", ".join(f"{n} {s}" for s, n in sorted(fora.items()))
+        res.informacoes.append(f"Itens que ainda não estão concluídos ficaram de fora: {partes}.")
+    return res
+
+
+def _moeda(v: Decimal) -> str:
+    return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def _linhas_para_resultado(linhas: list[list]) -> ResultadoImportacao:
     linhas = [row for row in linhas if any(str(c).strip() for c in row if c is not None)]
     if not linhas:
         raise ImportacaoError("O arquivo está vazio.")
+    comissoes = _comissoes_shopee(linhas)
+    if comissoes is not None:
+        return comissoes
     achado = _achar_cabecalho(linhas)
     shopee = False
     if achado:
@@ -230,9 +312,8 @@ def _linhas_para_resultado(linhas: list[list]) -> ResultadoImportacao:
         total = sum(Decimal(ln.valor or "0") for ln in res.linhas)
         res.informacoes.insert(
             0,
-            f"Relatório da Shopee reconhecido: {len(res.linhas)} marca(s), total R$ "
-            + f"{total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            + ". Confira a descrição e a tributação da aba antes de emitir.",
+            f"Relatório da Shopee reconhecido: {len(res.linhas)} marca(s), total R$ {_moeda(total)}. "
+            "Confira a descrição e a tributação da aba antes de emitir.",
         )
     return res
 

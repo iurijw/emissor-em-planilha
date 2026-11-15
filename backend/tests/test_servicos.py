@@ -155,6 +155,28 @@ def test_importar_relatorio_da_shopee_soma_por_marca():
     assert not res.avisos
 
 
+CAB_COMISSOES = (
+    "ID do pedido,Status do Pedido,Nome da loja,ID da loja,Valor de Compra(R$),Comissão Shopee(R$),"
+    "Comissão do Item da Marca(R$),Comissão do vendedor(R$),Comissão total do pedido(R$),Status do item do afiliado\n"
+)
+# Relatório de comissões (formato do arquivo real de 15/11/2026, com dados fictícios): uma linha por item.
+RELATORIO_COMISSOES = CAB_COMISSOES + (
+    "P1,Concluído,Loja Exemplo Moda,111,65.98,1.9794,2.77116,4.20005,6.17945,Concluído\n"
+    "P1,Concluído,Loja Exemplo Moda,111,30.00,0.9,1.42889,4.20005,6.17945,Concluído\n"  # 2º item do mesmo pedido
+    "P2,Concluído,Casa Teste,222,10.00,0.3,0,0,0.3,Concluído\n"  # sem comissão da loja
+    "P3,Pendente,Loja Exemplo Moda,111,50.00,1.5,2.5,2.5,4.0,Pendente\n"
+)
+
+
+def test_importar_relatorio_de_comissoes_da_shopee():
+    res = tabela.importar("AffiliateCommissionReport_202611151725.csv", ("\ufeff" + RELATORIO_COMISSOES).encode())
+    assert res.reconhecido == "shopee_comissoes"
+    # Soma a comissão de cada item paga pela loja (a do pedido se repete nos itens) e arredonda só no fim.
+    assert [(ln.nome, ln.documento, ln.valor) for ln in res.linhas] == [("Loja Exemplo Moda", "", "4.20")]
+    assert "1 loja(s), total R$ 4,20" in res.informacoes[0]
+    assert "1 pendente" in res.informacoes[1]
+
+
 def test_planilha_com_coluna_valor_e_comissao_nao_vira_shopee():
     res = tabela.importar(
         "t.csv", "Cliente;CNPJ;Valor;Comissão\nA;11222333000181;100;10\nA;11222333000181;50;5\n".encode()
