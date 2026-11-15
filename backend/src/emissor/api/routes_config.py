@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 import logging
@@ -28,12 +29,19 @@ from emissor.nfse.constants import SERIE_API_MAX, SERIE_API_MIN, Ambiente
 from emissor.nfse.documentos import cnpj_valido, formatar_documento
 from emissor.nfse.dps_builder import id_dps
 from emissor.nfse.errors import SefinError
-from emissor.nfse.models import CAMPOS_TRIBUTACAO, ConfigFiscal, normalizar_documento, somente_digitos, tributacao_de
+from emissor.nfse.models import (
+    CAMPOS_TRIBUTACAO,
+    ConfigFiscal,
+    aplicar_tributacao,
+    normalizar_documento,
+    somente_digitos,
+    tributacao_de,
+)
 from emissor.nfse.xml_reader import NFSeDoc, NfseXmlError, extrair_padroes, extrair_tomador
 from emissor.services import certificado as cert_service
 from emissor.services import clientes as cli_service
 from emissor.services import empresas as emp_service
-from emissor.services import parametros, variaveis
+from emissor.services import parametros, regras_prefeitura, variaveis
 from emissor.services import tributacao as trib_service
 from emissor.services.emissao import verificar_prontidao, worker
 
@@ -408,6 +416,42 @@ def conferir_servico(entrada: ConferirServico) -> dict[str, Any]:
         usar_cache=not entrada.forcar,
     )
     return {**c.as_dict(), "ambiente": cfg.amb.descricao}
+
+
+class RegrasPrefeitura(BaseModel):
+    # Campos da tributação como a tela os tem (DadosTributacao); o que faltar vem das configurações.
+    tributacao: dict[str, Any] = {}
+    # Onboarding: município e regime especial ainda não salvos.
+    c_mun_emissor: str | None = None
+    reg_esp_trib: str | None = None
+    forcar: bool = False
+
+
+@router.post("/config/regras-prefeitura")
+def regras_da_prefeitura(entrada: RegrasPrefeitura) -> dict[str, Any]:
+    """O que a prefeitura cadastrou para o serviço (retenções, regimes especiais, alíquotas, benefício): só avisos."""
+    with sessao() as s:
+        cfg = obter_config(s)
+        fiscal = cfg.config_fiscal()
+    c_mun = somente_digitos(entrada.c_mun_emissor) or (fiscal.c_mun_emissor if fiscal else None)
+    if not c_mun or not codes.municipio(c_mun):
+        raise HTTPException(400, "Informe o município do prestador antes de conferir.")
+    if fiscal is None:
+        cert = cert_service.carregar()
+        fiscal = ConfigFiscal(cnpj=(cert.info.cnpj if cert else None) or "", c_mun_emissor=c_mun)
+    base = dataclasses.replace(fiscal, c_mun_emissor=c_mun)
+    if entrada.reg_esp_trib is not None:
+        base = dataclasses.replace(base, reg_esp_trib=entrada.reg_esp_trib or "0")
+    trib = {k: v for k, v in entrada.tributacao.items() if k in CAMPOS_TRIBUTACAO}
+    for k in ("c_trib_nac", "c_loc_prestacao", "n_bm"):
+        if isinstance(trib.get(k), str):
+            trib[k] = somente_digitos(trib[k]) or None
+    try:
+        alvo = aplicar_tributacao(base, trib)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "Tributação inválida.") from exc
+    r = regras_prefeitura.conferir(cfg.amb, alvo, usar_cache=not entrada.forcar)
+    return {**r.as_dict(), "ambiente": cfg.amb.descricao}
 
 
 @router.post("/config/testar-conexao")

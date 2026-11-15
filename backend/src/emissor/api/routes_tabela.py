@@ -21,7 +21,7 @@ from emissor.db import obter_cliente as _cliente_db
 from emissor.nfse import codes
 from emissor.nfse.models import limpar_texto, normalizar_documento, somente_digitos
 from emissor.services import clientes as cli_service
-from emissor.services import parametros
+from emissor.services import parametros, regras_prefeitura
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
 from emissor.services.emissao import aliquotas_iss, validar_linhas, verificar_prontidao
@@ -185,12 +185,17 @@ def validar(entrada: ValidarEntrada) -> dict[str, Any]:
         problemas = verificar_prontidao(s)
         total = sum((float(ln.valor) for ln in linhas if _eh_numero(ln.valor)), 0.0)
         c_mun, servicos = parametros.alvos(s, linhas)
+    ate = time.monotonic() + parametros.ORCAMENTO_VALIDACAO
     return {
         "ambiente": cfg.ambiente,
         "ambiente_descricao": cfg.amb.descricao,
         "problemas": problemas,
         # Avisos de todas as linhas (ex.: serviço que a prefeitura não tem cadastrado); pedem a mesma ciência.
-        "avisos": parametros.avisos(cfg.amb, c_mun, servicos) if not problemas else [],
+        "avisos": parametros.avisos(cfg.amb, c_mun, servicos, ate) if not problemas else [],
+        # O que a prefeitura cadastrou (retenção, regime especial, alíquota, benefício): informa, sem pedir ciência.
+        "regras_prefeitura": regras_prefeitura.avisos(cfg.amb, [(a.origem, a.cfg) for a in servicos if a.cfg], ate)
+        if not problemas
+        else [],
         "linhas": [{"linha_id": v.linha_id, "erros": v.erros, "avisos": v.avisos} for v in res],
         "quantidade": len(linhas),
         "total": f"{total:.2f}",

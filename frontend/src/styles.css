@@ -828,3 +828,25 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 }
 .onb__sair > span { margin-right: auto; }
 .onb__sair strong { color: var(--tinta); font-weight: 650; }
+
+/* ---------- O que a prefeitura cadastrou (parametrização do ADN): só informa ---------- */
+.regras-bloco { margin-top: 16px; border: 1px solid var(--linha); border-radius: var(--raio); background: var(--folha); padding: 12px 14px; }
+.regras-bloco__titulo { margin: 0 0 4px; font-size: 0.8125rem; font-weight: 650; color: var(--tinta); display: flex; gap: 8px; align-items: center; text-wrap: balance; }
+.regras-prefeitura { list-style: none; margin: 0; padding: 0; }
+.regra { display: grid; grid-template-columns: 8.75rem 1fr; gap: 2px 12px; padding: 10px 0; border-top: 1px solid var(--linha); font-size: 0.8125rem; line-height: 1.45; color: var(--tinta); }
+.regra:first-child { border-top: 0; }
+.regra strong { display: block; font-weight: 650; }
+.regra > div { max-width: 72ch; text-wrap: pretty; }
+.regra__tipo { font: 650 0.625rem/1.9 var(--f-ui); font-stretch: 112%; letter-spacing: 0.07em; text-transform: uppercase; color: var(--grafite); display: flex; gap: 6px; align-items: baseline; }
+.regra--aviso .regra__tipo { color: var(--aviso); }
+.regra--aviso .regra__tipo::before { content: ""; inline-size: 0.5rem; block-size: 0.5rem; border-radius: 50%; background: #e2a200; flex: none; translate: 0 -0.05rem; }
+.regra--info .regra__tipo::before { content: ""; inline-size: 0.5rem; block-size: 0.5rem; border-radius: 50%; border: 1px solid var(--linha-forte); flex: none; translate: 0 -0.05rem; }
+.regra__origem { display: block; margin-top: 2px; color: var(--grafite); font-size: 0.75rem; }
+.regras-bloco--emissao { background: var(--aviso-fundo); border-color: #f0d38a; }
+.regras-bloco--emissao > summary { cursor: pointer; font-size: 0.8438rem; font-weight: 650; color: #4d3500; }
+.regras-bloco--emissao > summary small { font-weight: 400; color: var(--aviso); margin-inline-start: 4px; }
+.regras-bloco--emissao[open] > summary { margin-bottom: 6px; }
+.regras-bloco--emissao .regra { border-top-color: #f0d38a; }
+@media (max-width: 560px) {
+  .regra { grid-template-columns: 1fr; }
+}

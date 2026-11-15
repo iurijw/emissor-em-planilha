@@ -34,11 +34,12 @@ def data_dir_isolado(tmp_path, monkeypatch):
     from emissor.services import certificado as cert_service
     from emissor.services import emissao as emissao_service
     from emissor.services import eventos as eventos_service
-    from emissor.services import parametros
+    from emissor.services import parametros, regras_prefeitura
 
     # Sem consulta à prefeitura (ADN) fora dos testes ponta a ponta, que ligam com o ADN simulado.
     monkeypatch.setattr(parametros, "ATIVA", False)
     parametros.limpar_cache()
+    regras_prefeitura.limpar_cache()
     # Sem consulta às versões no GitHub.
     monkeypatch.setattr(atualizacoes, "ATIVA", False)
     atualizacoes.limpar_cache()

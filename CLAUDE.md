@@ -28,6 +28,9 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
   municipal só com 3 dígitos e consulta do serviço na prefeitura (E0312); ver "Código do serviço e tela de tributação".
   A consulta à prefeitura **não foi conferida no ADN real** (o formato da rota não tem documentação oficial): validar
   com um certificado real antes de confiar nela.
+- **F6 (2026-11-15):** avisos do que a prefeitura cadastrou no Sistema Nacional (retenções do ISSQN, regimes especiais,
+  histórico de alíquotas, benefício municipal), lidos da parametrização do ADN com o certificado; ver "Regras da
+  prefeitura". Formato das respostas conferido no ADN real (só leitura); só avisos, nunca bloqueiam.
 - **Leiaute da NT 009 na Produção Restrita (2026-10-22):** desde 20/10/2026 a Produção Restrita usa o pacote
   `esquemas_prod_restrita_20261020` (NT 009). A DPS de homologação sai nesse leiaute (XSD em `nfse/xsd/v1_01_nt009/`)
   e a de produção continua no anterior (`nfse/xsd/v1_01/`) até 30/11/2026. A Produção passa **sozinha** à NT 009 em
@@ -225,6 +228,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/municipios?q=` | busca IBGE |
 | `GET /api/cep/{cep}` | rua, bairro e município pelo CEP (BrasilAPI, ViaCEP de reserva) |
 | `GET /api/servicos?q=`, `GET /api/servicos/{codigo}`, `POST /api/config/conferir-servico` | lista nacional de serviços e consulta do serviço na prefeitura |
+| `POST /api/config/regras-prefeitura` `{tributacao, c_mun_emissor?, reg_esp_trib?, forcar?}` | o que a prefeitura cadastrou para o serviço (avisos) |
 | `GET/POST /api/tributacoes`, `PUT/DELETE /api/tributacoes/{id}` (escrita só admin) | tributações predefinidas |
 | `POST /api/tributacoes/aliquota-iss` `{tributacao_id \| null, p_aliq_iss}` (qualquer usuário, auditado) | alíquota do ISS retido pelo aviso da emissão |
 | `GET/POST /api/abas`, `PUT/DELETE /api/abas/{id}`; `aba_id` em `GET/PUT /api/tabela`, importar e exportar | abas da tabela |
@@ -325,8 +329,8 @@ Pendências conhecidas:
   `vAjusteBC` (e `vCalcDR`/`vCalcReeRepRes` → `vCalcAjusteBCISSQN`/`vCalcAjusteBCIBSCBS` na NFS-e). `indDest`/`dest`
   continuaram no grupo IBSCBS, e `regApIBSCBSSN`, `cAtvSN` e `opSimpNac=4` ainda não estão no XSD. Produção em
   01/12/2026 (troca automática, ver Status); conferir antes o pacote de produção contra `v1_01_nt009`.
-- Consulta do serviço na prefeitura (`/parametrizacao`) só testada contra o ADN simulado; ver "Código do serviço e
-  tela de tributação".
+- Consulta do serviço na prefeitura (`/parametrizacao/.../aliquota`): formato conferido no ADN real em 15/11/2026
+  (serviço `17.19.01.000`); ver "Regras da prefeitura".
 - Frontend sem testes automatizados (verificado manualmente no navegador); backend com testes pytest.
 
 ### Eventos: cancelamento e situação pelo ADN (F6, 2026-10-09)
@@ -494,6 +498,32 @@ digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 d�
   (substitui o "o tomador retém" de 2026-10-12); IBS/CBS com CST e cClassTrib em listas (sugestões do Anexo VIII
   primeiro); valor aproximado dos tributos; "Prévia dos valores da NFS-e" numa nota de exemplo. Nada mudou nos dados
   (`DadosTributacao`), só a tela. A tabela e o resto da nota avulsa ficaram como estavam (escolha do Iuri).
+
+### Regras da prefeitura (2026-11-15)
+
+Pedido do Iuri: avisar como as mensagens informativas do Emissor Nacional ("a prefeitura cadastrou que esse serviço
+pode ser retido para esse tomador, vale conferir na legislação municipal"). Base: Swagger oficial da parametrização do
+ADN (cópia em `/mnt/project-files/ferramentas/checagem-sefin/swagger/`) e respostas reais lidas pela instância `teste`
+em 15/11/2026 (Curitiba, Uberlândia, Ponta Grossa, Londrina; só GET).
+- Rotas (`SefinClient.parametrizacao(caminho)`, mesmo mTLS): `{mun}/{AAAA-MM-DD}/retencoes`,
+  `{mun}/{serviço}/{AAAA-MM-DD}/regimes_especiais`, `{mun}/{serviço}/historicoaliquotas`,
+  `{mun}/{nBM}/{AAAA-MM-DD}/beneficio`. **Serviço sempre `17.19.01.000`**: com 6 dígitos o ADN responde 400 "deve ser
+  composto por nove dígitos" (a consulta da alíquota passou a tentar esse formato primeiro). 404 com corpo = nada
+  cadastrado.
+- Leitura (`services/regras_prefeitura.py`): `tiposRetencao` usa os valores do `tpRetISSQN` (2 tomador, 3
+  intermediário); `artigoSexto.habilitado` = o município aplica a LC 116, art. 6º, § 2º, II (`SUBITENS_ARTIGO_SEXTO`).
+  Nos regimes especiais a chave de cada regime é um número que **muda a cada consulta** (hash) e `situacao` não tem
+  descrição oficial: só se usa "há regime para o serviço" × "não há". No benefício, `tipoBeneficio` não bate com o
+  `tpBM` da NFS-e (alíquota diferenciada veio com 3): a descrição sai de `aliquotaDiferenciada`/`reducaoPercentualBC`.
+- Avisos: retenção cadastrada e tributação sem retenção (com a descrição da prefeitura); retido sem cadastro ou por
+  quem a prefeitura não prevê; regime especial cadastrado e empresa sem regime (ou o contrário); alíquota que mudou no
+  mês ou no anterior; serviço sem incidência; benefício não encontrado, de outro município, fora da vigência, sem o
+  serviço, sem o CNPJ ou com outro percentual de redução. "info" = bate com o cadastro (só na tela de tributação).
+- Tela de tributação: bloco no fim de "Tributação municipal" e "vale desde" na alíquota. Emissão (`/tabela/validar` e
+  `/avulsa/validar`): `regras_prefeitura` (só os avisos, com a tributação de origem), **sem pedir ciência**, dentro do
+  mesmo orçamento de 10 s da conferência do serviço. Cache de 6 h por consulta (5 min para falha), como `parametros`.
+- `sefin_simulada.py` responde as quatro rotas no formato real (`retencoes`, `regimes_especiais`,
+  `historico_aliquotas`, `beneficios`).
 
 ### Opções fiscais que faltavam (2026-11-12, branch `claude/project-thread-mcnzpm`)
 

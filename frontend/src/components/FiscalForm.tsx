@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
   api,
@@ -11,6 +11,7 @@ import {
   type Opcao,
   type Opcoes,
   type Regime,
+  type RegrasPrefeitura as RespostaRegras,
   type Servico,
   type ServicoDetalhe,
 } from "../api";
@@ -496,6 +497,87 @@ function useConferencia(codigo: string, local: string | null, municipioPrestador
   return { ...q, consultarDeNovo: () => (forcar ? q.refetch() : setForcar(true)) };
 }
 
+/**
+ * O que a prefeitura cadastrou para o serviço no Sistema Nacional: retenções, regimes especiais, alíquotas e o
+ * benefício municipal. Só leitura no ADN, com o certificado; o servidor guarda as respostas por algumas horas.
+ */
+function useRegrasPrefeitura(valor: DadosTributacao, municipioPrestador?: string | null) {
+  const n_bm = valor.n_bm && /^\d{14}$/.test(valor.n_bm) ? valor.n_bm : null;
+  const tributacao = {
+    c_trib_nac: valor.c_trib_nac,
+    c_loc_prestacao: valor.c_loc_prestacao,
+    c_pais_prestacao: valor.c_pais_prestacao,
+    trib_issqn: valor.trib_issqn,
+    tp_ret_issqn: valor.tp_ret_issqn,
+    n_bm,
+    p_red_bcbm: n_bm ? valor.p_red_bcbm : null,
+  };
+  return useQuery({
+    queryKey: ["regras-prefeitura", tributacao, municipioPrestador ?? ""],
+    queryFn: () =>
+      api.post<RespostaRegras>("/api/config/regras-prefeitura", {
+        tributacao,
+        c_mun_emissor: municipioPrestador || null,
+      }),
+    enabled: /^\d{6}$/.test(valor.c_trib_nac),
+    placeholderData: keepPreviousData,
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+}
+
+const TIPO_REGRA: Record<string, string> = {
+  retencao: "Retenção",
+  regime_especial: "Regime especial",
+  aliquota: "Alíquota",
+  beneficio: "Benefício",
+};
+
+/** Regras da prefeitura, como as mensagens informativas do Emissor Nacional. Não bloqueiam nada. */
+export function ListaRegrasPrefeitura({ regras, comOrigem }: { regras: RespostaRegras["regras"]; comOrigem?: boolean }) {
+  if (!regras.length) return null;
+  return (
+    <ul className="regras-prefeitura" aria-label="O que a prefeitura cadastrou">
+      {regras.map((r) => (
+        <li key={`${r.tipo}-${r.mensagem}`} className={`regra regra--${r.nivel}`}>
+          <span className="regra__tipo">{TIPO_REGRA[r.tipo] ?? r.tipo}</span>
+          <div>
+            <strong>{r.titulo}</strong>
+            {r.mensagem}
+            {comOrigem && r.origem && <small className="regra__origem">Na {r.origem}.</small>}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RegrasDaPrefeitura({ consulta }: { consulta: ReturnType<typeof useRegrasPrefeitura> }) {
+  const r = consulta.data;
+  if (!r || (!r.regras.length && !(r.mensagem && r.municipio))) return null;
+  return (
+    <div className="regras-bloco" aria-live="polite" aria-busy={consulta.isFetching}>
+      <p className="regras-bloco__titulo">
+        O que a prefeitura de {r.municipio_nome ?? "incidência"} cadastrou para este serviço
+        {consulta.isFetching && <Spinner />}
+      </p>
+      <ListaRegrasPrefeitura regras={r.regras} />
+      {r.mensagem && r.municipio && <p className="dica-grade">{r.mensagem}</p>}
+      {r.regras.some((x) => x.nivel === "aviso") && (
+        <p className="dica-grade">São avisos do cadastro da prefeitura no Sistema Nacional: não impedem a emissão.</p>
+      )}
+    </div>
+  );
+}
+
+/** "5 % desde 30/08/2023 (antes 4 %)" a partir do histórico da prefeitura. */
+function desdeQuando(hist: RespostaRegras["historico_aliquotas"] | undefined, aliquota: string | null): string {
+  const atual = hist?.find((h) => h.aliquota === aliquota && h.inicio && h.inicio <= hoje() && (!h.fim || h.fim >= hoje()));
+  if (!atual?.inicio) return "";
+  const anterior = hist?.find((h) => h.inicio && h.inicio < atual.inicio! && h.aliquota !== atual.aliquota);
+  return ` Vale desde ${dataTela(atual.inicio)}${anterior?.aliquota ? ` (antes ${pctTela(anterior.aliquota)}%)` : ""}.`;
+}
+
 /** Pergunta de Sim/Não como no Emissor Nacional (Não primeiro). */
 /** Explica o asterisco dos campos obrigatórios (classe ``campo--obrigatorio``). */
 export function LegendaObrigatorio() {
@@ -651,6 +733,7 @@ export function CamposTributacao({
   const servico = useServico(valor.c_trib_nac).data;
   const prefeitura = useConferencia(valor.c_trib_nac, valor.c_loc_prestacao, municipioPrestador);
   const conferencia = prefeitura.data;
+  const regrasPrefeitura = useRegrasPrefeitura(valor, municipioPrestador);
   const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
   // Imunidade, exportação e não incidência não têm suspensão nem benefício (E0585/E0533); o tipo de imunidade só
   // existe com imunidade (E0592).
@@ -972,7 +1055,7 @@ export function CamposTributacao({
                 !incide
                   ? "Sem ISSQN nesta operação."
                   : aliquotaPrefeitura
-                    ? `Cadastrada pela prefeitura no Sistema Nacional para ${conferencia?.competencia}. A nota não informa alíquota: a Sefin aplica esta.`
+                    ? `Cadastrada pela prefeitura no Sistema Nacional para ${conferencia?.competencia}.${desdeQuando(regrasPrefeitura.data?.historico_aliquotas, aliquotaPrefeitura)} A nota não informa alíquota: a Sefin aplica esta.`
                     : "A nota não informa alíquota: a Sefin aplica a que a prefeitura cadastrou."
               }
             />
@@ -1061,6 +1144,7 @@ export function CamposTributacao({
             </>
           )}
         </div>
+        <RegrasDaPrefeitura consulta={regrasPrefeitura} />
       </section>
 
       <section>

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -16,7 +17,7 @@ from emissor.api.deps import AdminEmpresa, UsuarioAtual
 from emissor.api.routes_emissoes import obter_lote
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, Tributacao, agora, obter_config, sessao
 from emissor.nfse.models import DadosNota, aplicar_tributacao, normalizar_documento, tributacao_de
-from emissor.services import parametros
+from emissor.services import parametros, regras_prefeitura
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
 from emissor.services.emissao import (
@@ -481,11 +482,16 @@ def validar_nota_avulsa(entrada: AvulsaEntrada) -> dict[str, Any]:
                 f"Tributação: {e}" for e in trib_service.coerencia(nota.tributacao, trib_service.config_base(s))
             ]
         c_mun, servicos = parametros.alvos(s, [linha_avulsa(nota)], nota.tributacao, nota.tributacao_nome)
+    ate = time.monotonic() + parametros.ORCAMENTO_VALIDACAO
     return {
         "ambiente": cfg.ambiente,
         "ambiente_descricao": cfg.amb.descricao,
         "problemas": problemas,
-        "avisos": parametros.avisos(cfg.amb, c_mun, servicos) if not problemas else [],
+        "avisos": parametros.avisos(cfg.amb, c_mun, servicos, ate) if not problemas else [],
+        # O que a prefeitura cadastrou (retenção, regime especial, alíquota, benefício): informa, sem pedir ciência.
+        "regras_prefeitura": regras_prefeitura.avisos(cfg.amb, [(a.origem, a.cfg) for a in servicos if a.cfg], ate)
+        if not problemas
+        else [],
         "linhas": [{"linha_id": 0, "erros": v.erros, "avisos": v.avisos}],
         "quantidade": 1,
         "total": _total(nota.valor),

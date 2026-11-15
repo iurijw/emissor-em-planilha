@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -132,6 +133,13 @@ class SefinSimulada:
         self.fora_do_ar: bool = False  # 503 em tudo
         # (município, cTribNac) que a prefeitura não administra: E0312 na emissão e nada na parametrização.
         self.servicos_nao_administrados: set[tuple[str, str]] = set()
+        # Parametrização do município no ADN (formato conferido no ADN real em 15/11/2026):
+        # município → [(descrição, tiposRetencao, [cTribNac])] das retenções municipais
+        self.retencoes: dict[str, list[tuple[str, list[int], list[str]]]] = {}
+        self.regimes_especiais: set[tuple[str, str]] = set()  # (município, cTribNac) com regime cadastrado
+        # (município, cTribNac) → [(alíquota, início AAAA-MM-DD, fim)] do histórico (sem: só a ALIQ_ISS desde 2025)
+        self.historico_aliquotas: dict[tuple[str, str], list[tuple[float, str, str | None]]] = {}
+        self.beneficios: dict[str, dict] = {}  # nº do benefício → corpo de "beneficio"
 
     # --- infraestrutura ------------------------------------------------------------------------------
     def _representa(self, cert: Certificado, cnpj: str) -> bool:
@@ -532,6 +540,14 @@ class SefinSimulada:
     def _adn_rotas(self, req: httpx.Request, path: str, tp_amb: str, cert: Certificado) -> httpx.Response:
         if m := re.fullmatch(r"/parametrizacao/(\d{7})/([\d.]+)/([\d-]+)/aliquota", path):
             return self._parametrizacao(*m.groups())
+        if m := re.fullmatch(r"/parametrizacao/(\d{7})/([\d.]+)/historicoaliquotas", path):
+            return self._historico(*m.groups())
+        if m := re.fullmatch(r"/parametrizacao/(\d{7})/([\d.]+)/([\d-]+)/regimes_especiais", path):
+            return self._regimes(*m.groups())
+        if m := re.fullmatch(r"/parametrizacao/(\d{7})/([\d-]+)/retencoes", path):
+            return self._retencoes(*m.groups())
+        if m := re.fullmatch(r"/parametrizacao/(\d{7})/(\d+)/([\d-]+)/beneficio", path):
+            return self._beneficio(*m.groups())
         docs = [d for d in self.adn if self.notas[d["ChaveAcesso"]].tp_amb == tp_amb]
         if m := re.fullmatch(r"/contribuintes/DFe/(\d+)", path):
             if req.url.params.get("lote") != "true":
@@ -568,17 +584,125 @@ class SefinSimulada:
             )
         return httpx.Response(404)
 
+    @staticmethod
+    def _servico9(servico: str) -> str | None:
+        """``17.19.01.000`` → ``171901``; outro formato → None (o ADN real responde 400)."""
+        return servico[:8].replace(".", "") if re.fullmatch(r"\d{2}\.\d{2}\.\d{2}\.\d{3}", servico) else None
+
+    @staticmethod
+    def _mal_formada(chave: str) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                chave: None,
+                "mensagem": "Chamada mal formada. O código do serviço deve ser composto por nove dígitos.",
+            },
+        )
+
     def _parametrizacao(self, c_mun: str, servico: str, competencia: str) -> httpx.Response:
-        """Alíquota do serviço no município. Só o formato das bibliotecas de referência (6 dígitos, AAAA-MM-DD)
-        é aceito; o alternativo recebe 400, como um formato que a API real não entendesse."""
-        if not (re.fullmatch(r"\d{6}", servico) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", competencia)):
-            return httpx.Response(400, json={"mensagem": "Parâmetros da consulta inválidos."})
-        if (c_mun, servico) in self.servicos_nao_administrados:
+        """Alíquota do serviço no município, como o ADN real: serviço ``17.19.01.000``, data ``AAAA-MM-DD``."""
+        c_trib = self._servico9(servico)
+        if c_trib is None or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", competencia):
+            return self._mal_formada("aliquotas")
+        if (c_mun, c_trib) in self.servicos_nao_administrados:
             return httpx.Response(
                 404, json={"mensagem": "Nenhuma alíquota encontrada para o serviço.", "aliquotas": None}
             )
-        vigencia = {"Incidencia": "Municipio", "Aliq": float(ALIQ_ISS), "DtIni": "2025-01-01T00:00:00", "DtFim": None}
+        vigencia = {"Incidencia": "SIM", "Aliq": float(ALIQ_ISS), "DtIni": "2025-01-01T00:00:00", "DtFim": None}
         return httpx.Response(200, json={"mensagem": None, "aliquotas": {servico: [vigencia]}})
+
+    def _historico(self, c_mun: str, servico: str) -> httpx.Response:
+        c_trib = self._servico9(servico)
+        if c_trib is None:
+            return self._mal_formada("aliquotas")
+        if (c_mun, c_trib) in self.servicos_nao_administrados:
+            return httpx.Response(404, json={"aliquotas": None, "mensagem": "Alíquotas não encontradas."})
+        hist = self.historico_aliquotas.get((c_mun, c_trib)) or [(float(ALIQ_ISS), "2025-01-01", None)]
+        lista = [
+            {"Incidencia": "SIM", "Aliq": a, "DtIni": f"{i}T00:00:00", "DtFim": f"{f}T00:00:00" if f else None}
+            for a, i, f in hist
+        ]
+        return httpx.Response(
+            200, json={"aliquotas": {servico: lista}, "mensagem": "Histórico de alíquotas recuperadas com sucesso."}
+        )
+
+    def _regimes(self, c_mun: str, servico: str, competencia: str) -> httpx.Response:
+        c_trib = self._servico9(servico)
+        if c_trib is None:
+            return self._mal_formada("regimesEspeciais")
+        if (c_mun, c_trib) not in self.regimes_especiais:
+            return httpx.Response(
+                404, json={"regimesEspeciais": None, "mensagem": "Parâmetros de regimes especiais não encontrados."}
+            )
+        # A chave de cada regime é um número que muda a cada consulta, como no ADN real.
+        regime = {"situacao": 3, "dataInicio": "2025-12-29T00:00:00", "dataFim": None, "observacoes": ""}
+        return httpx.Response(
+            200,
+            json={
+                "regimesEspeciais": {servico: {str(secrets.randbelow(2**31)): [regime]}},
+                "mensagem": "Parâmetros de regimes especiais recuperados com sucesso.",
+            },
+        )
+
+    def _retencoes(self, c_mun: str, competencia: str) -> httpx.Response:
+        casos = self.retencoes.get(c_mun)
+        if not casos:
+            return httpx.Response(
+                404,
+                json={
+                    "retencoes": None,
+                    "mensagem": "Parâmetros de retenções do Artigo Sexto não encontrados para a competência.",
+                },
+            )
+        municipais = [
+            {
+                "descricao": desc,
+                "dataInicioVigencia": "2024-01-01T00:00:00",
+                "dataFimVigencia": None,
+                "tiposRetencao": tipos,
+                "servicos": [
+                    {
+                        "codigoCompleto": f"{c[:2]}.{c[2:4]}.{c[4:6]}.000",
+                        "historico": [{"dataInicioVigencia": "2024-01-01T00:00:00", "dataFimVigencia": None}],
+                    }
+                    for c in servicos
+                ],
+            }
+            for desc, tipos, servicos in casos
+        ]
+        art6 = {
+            "habilitado": True,
+            "historico": [{"dataInicioVigencia": "2024-09-01T00:00:00", "dataFimVigencia": None}],
+        }
+        return httpx.Response(200, json={"retencoes": {"artigoSexto": art6, "retencoesMunicipais": municipais}})
+
+    def _beneficio(self, c_mun: str, numero: str, competencia: str) -> httpx.Response:
+        if len(numero) != 14:
+            return httpx.Response(
+                400,
+                json={
+                    "beneficio": None,
+                    "mensagem": "Chamada mal formada. O número do benefício deve ser composto por 11 dígitos.",
+                },
+            )
+        if not numero.startswith(c_mun):
+            return httpx.Response(
+                400,
+                json={
+                    "beneficio": None,
+                    "mensagem": "Chamada mal formada. O número do benefício não pertence ao município informado.",
+                },
+            )
+        bm = self.beneficios.get(numero)
+        if bm is None:
+            return httpx.Response(
+                404,
+                json={
+                    "beneficio": None,
+                    "mensagem": f"Parâmetros do benefício de número  <{numero}> não encontrados para a competência",
+                },
+            )
+        return httpx.Response(200, json={"beneficio": bm})
 
     @staticmethod
     def _lote(docs: list[dict], tp_amb: str) -> httpx.Response:
