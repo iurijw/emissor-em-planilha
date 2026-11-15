@@ -560,18 +560,9 @@ function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
 
   return (
     <>
-      <h3 className="integracoes__titulo" ref={tituloRef}>Receber cobranças (Asaas)</h3>
-      <p style={{ marginTop: 0, color: "var(--grafite)" }}>
-        Cada cobrança paga no Asaas vira uma nota desta empresa, com o cliente da cobrança como tomador. Aviso repetido
-        não emite outra nota, e estornos não cancelam nada sozinhos.
-      </p>
-      {enderecoLocal() && (
-        <div className="aviso" style={{ marginBottom: 12 }}>
-          O Asaas avisa os pagamentos pela internet. Este sistema está num endereço da rede local, que ele não alcança: os
-          avisos só chegam se o sistema tiver um endereço público (por exemplo, na hospedagem).
-        </div>
-      )}
       {d.conectores.length > 0 && (
+        <>
+      <h3 className="integracoes__titulo" ref={tituloRef}>Receber cobranças (Asaas)</h3>
         <div className="tabela-caixa" style={{ marginBottom: 12 }}>
           <table className="tabela">
             <thead>
@@ -635,13 +626,11 @@ function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
             </tbody>
           </table>
         </div>
-      )}
-      <button
-        className="btn"
-        onClick={() => setForm(formNovo(d))}
-      >
-        Conectar o Asaas
+      <button className="btn" onClick={() => setForm(formNovo(d))}>
+        Conectar outra conta do Asaas
       </button>
+        </>
+      )}
       {!form && !remover && <div style={{ marginTop: 12 }}><ErroCaixa erro={erro} /></div>}
 
       {form && (
@@ -662,6 +651,18 @@ function ReceberCobrancas({ d, pedido }: { d: Integracoes; pedido: number }) {
           }
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {!form.id && enderecoLocal() && (
+              <div className="aviso">
+                O Asaas avisa os pagamentos pela internet. Este sistema está num endereço da rede local, que ele não
+                alcança: os avisos só chegam se o sistema tiver um endereço público (por exemplo, na hospedagem).
+              </div>
+            )}
+            {!form.id && (
+              <p style={{ margin: 0, color: "var(--grafite)" }}>
+                Cada cobrança paga vira uma nota, com o cliente da cobrança como tomador. Aviso repetido não emite outra
+                nota, e estornos não cancelam nada sozinhos.
+              </p>
+            )}
             <label className="campo">
               <span>{form.id ? "Chave da API do Asaas (só para trocar)" : "Chave da API do Asaas"}</span>
               <input
