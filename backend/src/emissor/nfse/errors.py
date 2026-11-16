@@ -156,6 +156,10 @@ _DICAS_CODIGO = {
     "E0840": "A nota já tem um evento que impede o cancelamento (já cancelada, substituída ou bloqueada). "
     "Use “Atualizar situação” para trazer o estado atual do Ambiente Nacional.",
     "E0812": "O CNPJ do autor do cancelamento precisa ser o mesmo do certificado digital carregado.",
+    "E0813": (
+        "O autor do cancelamento precisa ser a empresa que emitiu a nota. Por procuração, confira em Configurações → "
+        'Empresas se o CNPJ da empresa está certo e use "Conferir procuração".'
+    ),
     "E1831": "A nota não foi encontrada no Ambiente Nacional. Confira se ela é deste ambiente (homologação/produção).",
     "E1843": "Data/hora do pedido posterior à da Sefin: confira o relógio do servidor (data, hora e fuso).",
     "E1845": "O ambiente do pedido (homologação/produção) é diferente do ambiente da nota.",

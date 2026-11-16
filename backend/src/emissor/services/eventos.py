@@ -208,8 +208,9 @@ def cancelar(
     if problemas or fiscal is None:
         raise EventoError("Não é possível cancelar: " + " ".join(problemas or ["configuração fiscal ausente."]))
     cert = cert_service.carregar()
-    # O autor do evento é quem assina (E0812): o prestador ou, por procuração, o dono do certificado.
-    autor = (cert.info.cnpj or cert.info.cpf or fiscal.cnpj) if cfg.acesso == "procuracao" else fiscal.cnpj
+    # O autor do cancelamento é sempre o emitente da nota (E0813, planilha "Tipo Eventos"), mesmo por procuração:
+    # o certificado do procurador só assina, como na DPS. Até a 0.17.0 ia o CNPJ do procurador e a Sefin recusava.
+    autor = fiscal.cnpj
     amb = Ambiente(e.ambiente)
     kw = {"dormir": dormir} if dormir else {}
     with bind_context(emissao_id=e.id):

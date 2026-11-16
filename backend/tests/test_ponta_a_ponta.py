@@ -662,7 +662,7 @@ def _fluxo_varias_empresas(api, sim) -> None:
     um.put(f"/api/clientes/{TOMADOR_CPF}", json={"nome": "SO DA EMPRESA UM"})
     assert _como(api, filial["id"]).get(f"/api/clientes/{TOMADOR_CPF}").status_code == 404
 
-    # Cancelamento por procuração: o autor do evento é o escritório (dono do certificado).
+    # Cancelamento por procuração: o autor do evento é a empresa (E0813); o escritório só assina.
     r = p.post(f"/api/emissoes/{np_['id']}/cancelar", json={"c_motivo": "2", "x_motivo": "Serviço não prestado"})
     assert r.status_code == 200, r.text
 

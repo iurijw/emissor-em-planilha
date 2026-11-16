@@ -455,11 +455,17 @@ class SefinSimulada:
         tipo = etree.QName(det).localname[1:]
         if inf.get("Id") != f"PRE{chave}{tipo}" or inf.findtext(f"{N}chNFSe") != chave:
             return rejeitar("SIM-ID", "Id do pedido ou chave diferente da chave da URL.")
-        if (inf.findtext(f"{N}CNPJAutor") or inf.findtext(f"{N}CPFAutor")) != _cnpj_do_certificado(cert):
-            return rejeitar("E0812", "CNPJ do autor do evento diferente do CNPJ do certificado.")
+        autor = inf.findtext(f"{N}CNPJAutor") or inf.findtext(f"{N}CPFAutor")
         prest_nota = (
             etree.fromstring(self.notas[chave].xml).findtext(f".//{N}prest/{N}CNPJ") if chave in self.notas else None
         )
+        # Como a Sefin real (visto em 16/11/2026): o autor do cancelamento é o emitente da nota, mesmo por procuração.
+        if prest_nota and autor != prest_nota:
+            return rejeitar(
+                "E0813", "O CNPJ informado no pedido não corresponde ao autor do pedido de registro de evento."
+            )
+        if not self._representa(cert, autor or ""):
+            return rejeitar("E0812", "CNPJ do autor do evento não é o do certificado nem de quem deu procuração a ele.")
         if prest_nota and not self._representa(cert, prest_nota):
             return rejeitar("SIM-CERT", "O certificado não representa o prestador da nota.")
         if inf.findtext(f"{N}tpAmb") != tp_amb:
