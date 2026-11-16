@@ -332,15 +332,17 @@ class SefinSimulada:
             v_bc -= (v_bc * Decimal(t("valores/trib/tribMun/BM/pRedBCBM")) / 100).quantize(DOIS, ROUND_HALF_UP)
         v_iss = (v_bc * aliq / 100).quantize(DOIS, ROUND_HALF_UP) if tributavel else Decimal(0)
         retido = t("valores/trib/tribMun/tpRetISSQN") in ("2", "3")
+        # Como a Sefin real (nota de 16/11/2026, tpRetPisCofins 3): vTotalRet = IRRF + CP + vRetCSLL (+ ISS retido);
+        # o vPis/vCofins não entram (as Contribuições Sociais - Retidas já os somam). Com tpRetPisCofins 1 a NT 008
+        # soma vRetCSLL + vPis + vCofins (não conferido na Sefin real).
         fed = sum(Decimal(t(f"valores/trib/tribFed/{c}") or 0) for c in ("vRetCP", "vRetIRRF", "vRetCSLL"))
-        pis_ret, cofins_ret, _ = RETENCOES_PIS_COFINS.get(
-            t("valores/trib/tribFed/piscofins/tpRetPisCofins") or "", (0, 0, 0)
-        )
+        tp_ret_pc = t("valores/trib/tribFed/piscofins/tpRetPisCofins") or ""
+        pis_ret, cofins_ret, _ = RETENCOES_PIS_COFINS.get(tp_ret_pc, (0, 0, 0))
         v_pis_cofins = (Decimal(t("valores/trib/tribFed/piscofins/vPis") or 0) if pis_ret else 0) + (
             Decimal(t("valores/trib/tribFed/piscofins/vCofins") or 0) if cofins_ret else 0
         )
-        v_total_ret = fed + (v_iss if retido else 0)
-        v_liq = v_serv - desc_incond - desc_cond - v_total_ret - v_pis_cofins  # E1508
+        v_total_ret = fed + (v_iss if retido else 0) + (v_pis_cofins if tp_ret_pc == "1" else 0)
+        v_liq = v_serv - desc_incond - desc_cond - v_total_ret  # E1508
         c_loc = t("serv/locPrest/cLocPrestacao") or c_mun
         nome_mun = (codes.municipio(c_loc) or ("MUNICIPIO",))[0]
 
@@ -798,7 +800,7 @@ def _regras_tributos(t) -> tuple[str, str] | None:
     csll = t("valores/trib/tribFed/vRetCSLL")
     if tp_ret == "0" and csll is not None:
         return ("E0720", "Com PIS/COFINS/CSLL não retidos não é permitido informar vRetCSLL.")
-    if tp_ret is not None and RETENCOES_PIS_COFINS[tp_ret][2] and csll is None:
+    if tp_ret is not None and tp_ret not in ("0", "2") and csll is None:
         return ("E0724", "É obrigatório informar vRetCSLL para o tipo de retenção informado.")
     for c, cod in (("vRetCP", "E0699"), ("vRetIRRF", "E0700"), ("vRetCSLL", "E0701")):
         v = t(f"valores/trib/tribFed/{c}")

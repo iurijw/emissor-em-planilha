@@ -3,6 +3,13 @@
 A DPS leva o PIS/COFINS com base, alíquota e valor (E0694/E0696: valor = base x alíquota) e as retenções federais
 (IRRF, CSLL e CP) só em R$; a tributação guarda percentuais e o valor de cada nota sai daqui. A alíquota do ISS
 (``pAliq``) só vai quando a Sefin exige (``iss_exige_aliquota``); o valor do ISS é calculado pela Sefin.
+
+``vRetCSLL`` é o campo "Contribuições Sociais - Retidas": a Sefin soma nele o PIS, a COFINS e a CSLL retidos e
+calcula ``vTotalRet``/``vLiq`` só com ``vRetIRRF + vRetCP + vRetCSLL`` (+ ISS retido); o ``vPis``/``vCofins`` do grupo
+``piscofins`` não entram. Visto numa nota real de 16/11/2026 (``tpRetPisCofins`` 3, PIS 0,65%, COFINS 3%, CSLL 1%:
+a Sefin tirou do líquido só a CSLL). A tributação guarda só o percentual da CSLL e o PIS/COFINS retidos são somados
+aqui. Exceção: ``tpRetPisCofins`` 1, que a NT 008 (DANFSe) soma ``vRetCSLL + vPis + vCofins`` — ali o ``vRetCSLL``
+continua só com a CSLL (não conferido na Sefin real).
 """
 
 from __future__ import annotations
@@ -42,18 +49,21 @@ class Tributos:
     v_pis: Decimal | None = None
     v_cofins: Decimal | None = None
     v_ret_irrf: Decimal | None = None
-    v_ret_csll: Decimal | None = None
+    v_csll: Decimal | None = None  # só a CSLL (o percentual da tributação)
+    v_ret_csll: Decimal | None = None  # vRetCSLL: Contribuições Sociais - Retidas (CSLL + PIS/COFINS retidos)
     v_ret_cp: Decimal | None = None
     pis_retido: bool = False
     cofins_retido: bool = False
+    pis_cofins_fora_do_vretcsll: bool = False  # tpRetPisCofins 1 (ver o início do módulo)
 
     @property
     def total_retido(self) -> Decimal:
         partes = [self.v_ret_irrf, self.v_ret_csll, self.v_ret_cp, self.v_iss_retido]
-        if self.pis_retido:
-            partes.append(self.v_pis)
-        if self.cofins_retido:
-            partes.append(self.v_cofins)
+        if self.pis_cofins_fora_do_vretcsll:
+            if self.pis_retido:
+                partes.append(self.v_pis)
+            if self.cofins_retido:
+                partes.append(self.v_cofins)
         return sum((p for p in partes if p), Decimal("0"))
 
 
@@ -104,7 +114,13 @@ def calcular(
             t.v_cofins = _de(valor, t.p_aliq_cofins)
         pis, cofins, _csll = RETENCOES_PIS_COFINS.get(cfg.tp_ret_pis_cofins or "", (False, False, None))
         t.pis_retido, t.cofins_retido = pis, cofins
-    t.v_ret_csll = _de(valor, pct(cfg.p_ret_csll))
+        t.pis_cofins_fora_do_vretcsll = cfg.tp_ret_pis_cofins == "1"
+    t.v_csll = _de(valor, pct(cfg.p_ret_csll))
+    t.v_ret_csll = t.v_csll
+    if not t.pis_cofins_fora_do_vretcsll and (t.pis_retido or t.cofins_retido):
+        retidos = [t.v_csll, t.v_pis if t.pis_retido else None, t.v_cofins if t.cofins_retido else None]
+        if any(v is not None for v in retidos):
+            t.v_ret_csll = sum((v for v in retidos if v), Decimal("0"))
     t.v_ret_irrf = _de(valor, pct(cfg.p_ret_irrf))
     t.v_ret_cp = _de(valor, pct(cfg.p_ret_cp))
     # E0699–E0701: retenção informada tem de ser > 0; um valor que arredonda para zero simplesmente não vai.

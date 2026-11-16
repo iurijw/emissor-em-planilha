@@ -14,7 +14,7 @@ from lxml import etree
 
 from emissor.nfse.codes import C_IND_OP, TP_OPER, TP_OPER_COM_REFERENCIA
 from emissor.nfse.constants import NS_NFSE
-from emissor.nfse.models import ConfigFiscal, Endereco, Tomador
+from emissor.nfse.models import ConfigFiscal, Endereco, Tomador, csll_sem_pis_cofins
 
 _NS = {"n": NS_NFSE}
 
@@ -171,9 +171,25 @@ def _padroes_aliquotas(d: NFSeDoc) -> dict:
         v_serv = Decimal("0")
     for campo, tag in (("p_ret_irrf", "vRetIRRF"), ("p_ret_csll", "vRetCSLL"), ("p_ret_cp", "vRetCP")):
         v = d.dps(f"{tf}/{tag}")
+        if v and campo == "p_ret_csll":
+            # Contribuições Sociais - Retidas somam o PIS/COFINS retidos; a tributação guarda só a CSLL.
+            v = _so_csll(d, Decimal(v))
         if v and v_serv > 0:
             res[campo] = f"{(Decimal(v) * 100 / v_serv).quantize(Decimal('0.01'))}"
     return {k: v for k, v in res.items() if v}
+
+
+def _so_csll(d: NFSeDoc, v_ret_csll: Decimal) -> Decimal | None:
+    pc = "valores/trib/tribFed/piscofins"
+
+    def dec(caminho: str) -> Decimal | None:
+        try:
+            return Decimal(d.dps(caminho)) if d.dps(caminho) else None
+        except InvalidOperation:
+            return None
+
+    csll = csll_sem_pis_cofins(v_ret_csll, d.dps(f"{pc}/tpRetPisCofins"), dec(f"{pc}/vPis"), dec(f"{pc}/vCofins"))
+    return csll or None
 
 
 def _padroes_ibscbs(d: NFSeDoc) -> dict:

@@ -870,8 +870,10 @@ def test_iss_retido_no_simples_e_tributos_federais(api, sim, pfx_bytes, nfse_exe
     tf = "valores/trib/tribFed"
     assert doc.dps("valores/trib/tribMun/pAliq") == "2.50"
     assert (doc.dps(f"{tf}/piscofins/vPis"), doc.dps(f"{tf}/piscofins/vCofins")) == ("6.50", "30.00")
-    assert (doc.dps(f"{tf}/vRetIRRF"), doc.dps(f"{tf}/vRetCSLL"), doc.dps(f"{tf}/vRetCP")) == ("15.00", "10.00", None)
-    assert doc.t("valores/vTotalRet") == "50.00" and doc.t("valores/vLiq") == "913.50"
+    # Contribuições Sociais - Retidas (vRetCSLL) = CSLL 10,00 + PIS 6,50 + COFINS 30,00: é assim que a Sefin tira o
+    # PIS/COFINS retidos do líquido.
+    assert (doc.dps(f"{tf}/vRetIRRF"), doc.dps(f"{tf}/vRetCSLL"), doc.dps(f"{tf}/vRetCP")) == ("15.00", "46.50", None)
+    assert doc.t("valores/vTotalRet") == "86.50" and doc.t("valores/vLiq") == "913.50"
 
     # Retenções que passam do valor da nota bloqueiam a linha antes do envio.
     api.put(f"/api/tributacoes/{t['id']}", json={"nome": "Retido SN", "dados": t["dados"] | {"p_ret_cp": "99"}})

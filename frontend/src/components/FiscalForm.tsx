@@ -779,6 +779,21 @@ export function CamposTributacao({
   const exigeTpOper = exigeTpOperServico || !!valor.ibscbs_tp_ente_gov;
   const retencao = RETENCOES[valor.tp_ret_pis_cofins ?? ""];
   const retemCsll = !!valor.cst_pis_cofins && !!retencao?.[2];
+  // A Sefin tira do líquido o PIS/COFINS retidos só pelo campo Contribuições Sociais - Retidas (vRetCSLL), que soma
+  // CSLL + PIS + COFINS; a tributação guarda só a CSLL e o sistema soma o resto (nfse/tributos.py).
+  const ajudaCsll = (() => {
+    const partes: [string, string | null][] = [["CSLL", valor.p_ret_csll]];
+    if (retencao?.[0]) partes.push(["PIS", valor.p_aliq_pis]);
+    if (retencao?.[1]) partes.push(["COFINS", valor.p_aliq_cofins]);
+    if (partes.length === 1) return "Só o percentual da CSLL retida.";
+    const nomes = partes.map(([n]) => n).join(" + ");
+    const numeros = partes.map(([, p]) => Number(p ?? ""));
+    const fmt = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+    const conta = numeros.every((n) => Number.isFinite(n) && n > 0)
+      ? `: ${numeros.map(fmt).join(" + ")} = ${fmt(numeros.reduce((a, b) => a + b, 0))}`
+      : "";
+    return `Só a CSLL. A nota soma ${nomes} em Contribuições Sociais - Retidas${conta}.`;
+  })();
   const erroTribMun =
     valor.c_trib_mun && !/^\d{3}$/.test(valor.c_trib_mun)
       ? "O código municipal tem só 3 dígitos (ex.: 001). O código nacional vai no campo acima."
@@ -1178,7 +1193,7 @@ export function CamposTributacao({
                 valor={pctTela(valor.p_aliq_pis)}
                 onChange={(v) => set("p_aliq_pis", pctDado(v))}
                 obrigatorio={!!retencao?.[0]}
-                ajuda={retencao?.[0] ? "Retido: sai do valor líquido." : "Sobre o valor do serviço. Vazio = não informar."}
+                ajuda={retencao?.[0] ? "Retido: entra nas Contribuições Sociais - Retidas." : "Sobre o valor do serviço. Vazio = não informar."}
                 num
               />
               <Texto
@@ -1186,7 +1201,7 @@ export function CamposTributacao({
                 valor={pctTela(valor.p_aliq_cofins)}
                 onChange={(v) => set("p_aliq_cofins", pctDado(v))}
                 obrigatorio={!!retencao?.[1]}
-                ajuda={retencao?.[1] ? "Retida: sai do valor líquido." : "Sobre o valor do serviço. Vazio = não informar."}
+                ajuda={retencao?.[1] ? "Retida: entra nas Contribuições Sociais - Retidas." : "Sobre o valor do serviço. Vazio = não informar."}
                 num
               />
             </>
@@ -1200,11 +1215,11 @@ export function CamposTributacao({
           />
           {(retemCsll || valor.p_ret_csll) && (
             <Texto
-              rotulo="Contribuições Sociais - Retidas (%)"
+              rotulo="CSLL retida (%)"
               valor={pctTela(valor.p_ret_csll)}
               onChange={(v) => set("p_ret_csll", pctDado(v))}
               obrigatorio={retemCsll}
-              ajuda="CSLL retida, como pede o tipo de retenção escolhido."
+              ajuda={ajudaCsll}
               num
             />
           )}
@@ -1544,8 +1559,10 @@ function PreviaValores({
   const cofins = valor.cst_pis_cofins ? de(base, valor.p_aliq_cofins) : 0;
   const irrf = de(base, valor.p_ret_irrf);
   const csll = csllRet ? de(base, valor.p_ret_csll) : 0;
+  // Contribuições Sociais - Retidas = CSLL + PIS/COFINS retidos (é o que a Sefin tira do líquido).
+  const contribuicoes = csll + (pisRet ? pis : 0) + (cofinsRet ? cofins : 0);
   const cp = de(base, valor.p_ret_cp);
-  const retidos = (issRetido ? iss ?? 0 : 0) + (pisRet ? pis : 0) + (cofinsRet ? cofins : 0) + irrf + csll + cp;
+  const retidos = (issRetido ? iss ?? 0 : 0) + irrf + contribuicoes + cp;
   const linha = (rotulo: string, v: ReactNode, destaque = false) => (
     <div className={`previa-nfse__linha${destaque ? " previa-nfse__linha--total" : ""}`}>
       <dt>{rotulo}</dt>
@@ -1575,10 +1592,22 @@ function PreviaValores({
       </dl>
       <h4>Tributação federal</h4>
       <dl>
-        {linha(pisRet ? "PIS - Retido" : "PIS - Débito Apuração Própria", reais(pis))}
-        {linha(cofinsRet ? "COFINS - Retida" : "COFINS - Débito Apuração Própria", reais(cofins))}
+        {linha(pisRet ? "PIS - Retido (nas Contribuições Sociais)" : "PIS - Débito Apuração Própria", reais(pis))}
+        {linha(cofinsRet ? "COFINS - Retida (nas Contribuições Sociais)" : "COFINS - Débito Apuração Própria", reais(cofins))}
         {linha("Imposto de Renda Retido na Fonte (IRRF)", reais(irrf))}
-        {linha("Contribuições Sociais - Retidas", reais(csll))}
+        {linha(
+          "Contribuições Sociais - Retidas",
+          (pisRet || cofinsRet) && contribuicoes > 0 ? (
+            <>
+              <small className="previa-nfse__detalhe">
+                {[csllRet && "CSLL", pisRet && "PIS", cofinsRet && "COFINS"].filter(Boolean).join(" + ")}
+              </small>
+              <span className="num">{reais(contribuicoes)}</span>
+            </>
+          ) : (
+            reais(csll)
+          ),
+        )}
         {linha("Contribuição Previdenciária - Retida", reais(cp))}
       </dl>
       <h4>Valor líquido da NFS-e</h4>

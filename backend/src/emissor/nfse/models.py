@@ -142,6 +142,23 @@ RETENCOES_PIS_COFINS: dict[str, tuple[bool, bool, bool | None]] = {
 }
 
 
+def csll_sem_pis_cofins(
+    v_ret_csll: Decimal | None, tp_ret: str | None, v_pis: Decimal | None, v_cofins: Decimal | None
+) -> Decimal | None:
+    """Só a CSLL de um ``vRetCSLL`` (Contribuições Sociais - Retidas), que soma o PIS e a COFINS retidos.
+
+    Com ``tpRetPisCofins`` 1 o ``vRetCSLL`` já é só a CSLL (ver ``nfse/tributos.py``). Notas emitidas por este sistema
+    até a 0.17.0 levavam só a CSLL: quando o ``vRetCSLL`` é menor que o PIS + COFINS retidos, ele fica como está.
+    """
+    if v_ret_csll is None or tp_ret == "1":
+        return v_ret_csll
+    pis, cofins, _ = RETENCOES_PIS_COFINS.get(tp_ret or "", (False, False, None))
+    soma = (v_pis or Decimal("0") if pis else Decimal("0")) + (v_cofins or Decimal("0") if cofins else Decimal("0"))
+    if soma and v_ret_csll >= soma:
+        return v_ret_csll - soma
+    return v_ret_csll
+
+
 def exige_comext(cfg: ConfigFiscal, tomador_no_exterior: bool) -> bool:
     """Grupo de comércio exterior obrigatório (E0330): exportação, prestação ou tomador no exterior."""
     return cfg.trib_issqn == "3" or bool(cfg.c_pais_prestacao) or tomador_no_exterior
