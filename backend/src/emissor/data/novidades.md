@@ -7,6 +7,13 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.17.0 (16/11/2026)
+
+- Integrações: API com tokens e webhooks para ligar o emissor a outros sistemas (Configurações → Integrações).
+- Notas automáticas dos pagamentos do Asaas e da Stripe: a nota sai sozinha quando a cobrança é paga.
+- Importar na tabela o relatório de comissões da Shopee, uma linha por loja.
+- Corrigido: uma nota avulsa na fila impedia emitir a próxima.
+
 ## 0.16.0 (15/11/2026)
 
 - Avisos do que a prefeitura cadastrou no Sistema Nacional para o serviço: retenção do ISS, regime especial, mudança de alíquota e benefício municipal.
