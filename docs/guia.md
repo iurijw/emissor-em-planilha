@@ -260,7 +260,8 @@ moeda ficam com erro (emita pela nota avulsa), e chave de teste da Stripe só em
 
 ## Configuração
 
-Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker, edite `docker-compose.yaml`):
+Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker, copie `.env.example` para `.env` e
+preencha: cada variável está explicada lá):
 
 | Variável | Padrão | Para quê |
 |---|---|---|
@@ -271,6 +272,8 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
 | `EMISSOR_FONT_DIR` | | Pasta extra com Arial/Microsoft Sans Serif para o DANFSe |
 | `EMISSOR_SECRET_KEY` | _(arquivo `data/secret.key`)_ | Chave que criptografa o certificado e os segredos de 2FA; defina para guardá-la fora de `data/` |
 | `EMISSOR_CONVITE_INICIAL` | _(gerado em `data/primeiro-acesso.txt`)_ | Código para criar o primeiro administrador (hospedagem) |
+| `EMISSOR_PUBLICO` | | `1` em servidor aberto na internet: webhooks só para `https` fora da rede interna e primeiro acesso sempre com código |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | IP ou faixa do proxy HTTPS de quem se aceita o IP real do visitante (variável do uvicorn) |
 | `EMISSOR_URL_PUBLICA` | | Endereço do sistema (ex.: `https://emissor.empresa.com.br`), usado nos links do `emissor-admin` e do e-mail de recuperação de senha |
 | `EMISSOR_SMTP_HOST` | | Servidor SMTP para o "Esqueci minha senha" (sem ele, e sem `EMISSOR_URL_PUBLICA`, a opção não aparece) |
 | `EMISSOR_SMTP_PORTA` | `587` (`465` com `ssl`) | Porta do SMTP |
@@ -281,6 +284,7 @@ Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker,
 | `EMISSOR_SUSPENSO` | | `1` deixa o sistema só para consulta e download (assinatura da hospedagem suspensa) |
 | `EMISSOR_URL_ASSINATURA` | | Link para regularizar a assinatura, mostrado quando suspenso |
 | `EMISSOR_LIMITE_EMPRESAS` | _(sem limite; 1 na hospedagem)_ | Quantas empresas a instalação pode ter |
+| `EMISSOR_API_LIMITE_MINUTO`, `EMISSOR_API_LIMITE_NOTAS_DIA` | `60`, `1000` | Limites por token da API de integração |
 | `EMISSOR_ASSINATURA_API` | | Só na hospedagem: endereço do painel para o aceite da cobrança no fim do teste grátis |
 
 ## Segurança

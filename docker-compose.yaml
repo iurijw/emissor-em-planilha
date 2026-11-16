@@ -21,13 +21,9 @@ services:
       # DANFSe com as fontes Arial/Microsoft Sans Serif do Windows (opcional; sem elas
       # o PDF usa Liberation Sans, de mesmas medidas). Descomente as duas linhas:
       # - C:/Windows/Fonts:/fontes-windows:ro
+    # Configuração no arquivo .env (copie de .env.example). Sem ele, valem os padrões.
+    env_file:
+      - path: .env
+        required: false
     environment:
       TZ: America/Sao_Paulo
-      # EMISSOR_FONT_DIR: /fontes-windows
-      # Restringe o acesso a uma faixa da rede (CIDRs separados por vírgula; vazio = todos).
-      # No Docker Desktop (Windows/macOS) todos os acessos chegam com o IP interno do Docker:
-      # nesse caso, restrinja pelo firewall do computador.
-      EMISSOR_IPS_PERMITIDOS: ""
-      # Chave que criptografa o certificado (padrão: arquivo data/secret.key). Para guardá-la fora de ./data,
-      # copie o conteúdo de data/secret.key para cá (ou para um arquivo .env) e só então apague o arquivo.
-      # EMISSOR_SECRET_KEY: ""

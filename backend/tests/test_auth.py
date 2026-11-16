@@ -91,6 +91,15 @@ def test_primeiro_acesso_pelo_proprio_servidor_dispensa_codigo():
         assert c.get("/api/auth/sessao", headers=h).json()["primeiro_acesso_sem_codigo"] is False
 
 
+def test_servidor_publico_sempre_pede_codigo_no_primeiro_acesso(monkeypatch):
+    monkeypatch.setenv("EMISSOR_PUBLICO", "1")
+    local = {"client": ("127.0.0.1", 5000), "base_url": "http://127.0.0.1:8000"}
+    with TestClient(create_app(iniciar_worker=False), **local) as c:
+        assert c.get("/api/auth/sessao").json()["primeiro_acesso_sem_codigo"] is False
+        r = c.post("/api/auth/primeiro-acesso", json={"email": ADMIN_EMAIL, "senha": ADMIN_SENHA})
+        assert r.status_code == 403, r.text
+
+
 def test_convite_inicial_pela_variavel(client, monkeypatch):
     monkeypatch.setenv("EMISSOR_CONVITE_INICIAL", "token-da-hospedagem")
     corpo = {"email": ADMIN_EMAIL, "senha": ADMIN_SENHA}

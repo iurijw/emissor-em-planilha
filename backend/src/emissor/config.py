@@ -28,6 +28,17 @@ DB_FILE = DATA_DIR / "emissor.db"
 TIMEZONE = "America/Sao_Paulo"
 
 
+def servidor_publico() -> bool:
+    """Instalação exposta na internet: a nossa hospedagem (``FLY_APP_NAME``) ou ``EMISSOR_PUBLICO=1``.
+
+    Liga as proteções de servidor público (webhook só https e fora da rede interna; primeiro acesso sempre com
+    código), sem os ajustes próprios da hospedagem (limite de empresas, atualizações pelo painel).
+    """
+    if os.environ.get("FLY_APP_NAME"):
+        return True
+    return os.environ.get("EMISSOR_PUBLICO", "").strip().lower() in ("1", "true", "sim", "yes")
+
+
 def ensure_dirs() -> None:
     for d in (DATA_DIR, LOG_DIR, SEFIN_LOG_DIR, XML_DIR, PDF_DIR):
         d.mkdir(parents=True, exist_ok=True)
