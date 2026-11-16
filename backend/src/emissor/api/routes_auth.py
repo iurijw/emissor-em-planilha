@@ -38,7 +38,7 @@ def _gravar_cookie(request: Request, response: Response, token: str) -> None:
 
 def _acesso_local(request: Request) -> bool:
     """Acesso pelo próprio servidor, sem proxy na frente: dispensa o código de primeiro acesso."""
-    if os.environ.get("EMISSOR_CONVITE_INICIAL", "").strip() or os.environ.get("FLY_APP_NAME"):
+    if os.environ.get("EMISSOR_CONVITE_INICIAL", "").strip() or config.servidor_publico():
         return False
     if any(h in request.headers for h in ("x-forwarded-for", "forwarded", "x-real-ip", "fly-client-ip")):
         return False

@@ -6,8 +6,8 @@
   ele) e ``X-Emissor-Assinatura: t=<unix>,v1=<hex>``, onde ``v1 = HMAC-SHA256(segredo, f"{t}.{corpo}")``.
 - Resposta 2xx = entregue. Qualquer outra coisa (ou sem resposta em ``TIMEOUT``) tenta de novo depois de
   ``ESPERAS`` (1 min a 24 h); esgotadas as tentativas, a entrega fica ``falhou`` (dá para reenviar pela tela).
-- Redirecionamentos não são seguidos. Na hospedagem (``FLY_APP_NAME``) só ``https`` e nunca endereços da rede
-  interna (conferido no cadastro e a cada entrega), para um webhook não servir de ponte para dentro da máquina.
+- Redirecionamentos não são seguidos. Na hospedagem (``FLY_APP_NAME``) ou com ``EMISSOR_PUBLICO=1`` só ``https`` e
+  nunca endereços da rede interna (conferido no cadastro e a cada entrega), para um webhook não servir de ponte para dentro da máquina.
   Na instalação própria ``http`` e a rede local valem (o sistema integrado costuma estar no mesmo escritório).
 """
 
@@ -18,7 +18,6 @@ import hmac
 import ipaddress
 import json
 import logging
-import os
 import secrets
 import socket
 import threading
@@ -60,7 +59,7 @@ class WebhookError(Exception):
 
 
 def _hospedagem() -> bool:
-    return bool(os.environ.get("FLY_APP_NAME"))
+    return config.servidor_publico()
 
 
 def _endereco_proibido(ip: str) -> bool:

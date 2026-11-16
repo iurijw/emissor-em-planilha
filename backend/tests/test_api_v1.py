@@ -65,6 +65,18 @@ def test_hospedagem_so_aceita_https_fora_da_rede_interna(monkeypatch):
         webhooks.conferir_url("https://u:s@erp.exemplo.com.br/hook")
 
 
+def test_servidor_publico_fora_da_hospedagem_tambem_protege_o_webhook(monkeypatch):
+    monkeypatch.delenv("FLY_APP_NAME", raising=False)
+    monkeypatch.setenv("EMISSOR_PUBLICO", "1")
+    with pytest.raises(webhooks.WebhookError, match="https"):
+        webhooks.conferir_url("http://192.168.0.10/hook")
+    monkeypatch.setattr(webhooks.socket, "getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("10.0.0.5", 443))])
+    with pytest.raises(webhooks.WebhookError, match="rede interna"):
+        webhooks.conferir_url("https://interno.exemplo.com.br/hook")
+    monkeypatch.setenv("EMISSOR_PUBLICO", "0")
+    assert webhooks.conferir_url("http://192.168.0.10/hook") == "http://192.168.0.10/hook"
+
+
 def test_entrega_que_falha_tenta_de_novo_e_desiste():
     respostas = iter([httpx.Response(500, text="fora do ar")] * 10)
     ent = webhooks.Entregador(transport=httpx.MockTransport(lambda r: next(respostas)))
