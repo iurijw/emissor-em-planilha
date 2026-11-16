@@ -451,7 +451,12 @@ mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliqu
 - **`pAliq` do ISS só vai quando a Sefin exige** (`iss_exige_aliquota`): ME/EPP (`opSimpNac 3`) com ISS pelo Simples
   (`regApTribSN 1`) e ISS retido — E0621, faixa 1,80–5,00%. Nos demais casos a alíquota é a do município e informá-la
   rejeita (E0617/E0625/E0635); município de incidência fora do Sistema Nacional não é tratado.
-- PIS/COFINS podem ir só informados (sem retenção); só os retidos (`tpRetPisCofins`) saem do líquido. IRRF/CSLL/CP só
+- PIS/COFINS podem ir só informados (sem retenção); só os retidos (`tpRetPisCofins`) saem do líquido.
+  **`vRetCSLL` = "Contribuições Sociais - Retidas" = CSLL + PIS + COFINS retidos** (2026-11-16): a Sefin calcula
+  `vTotalRet`/`vLiq` só com IRRF + CP + `vRetCSLL` (+ ISS retido) e ignora o `vPis`/`vCofins` do `piscofins` (nota real
+  com `tpRetPisCofins` 3 saiu com o líquido errado na 0.17.0). A tributação guarda só o % da CSLL (a tela avisa e mostra
+  a soma) e `tributos.calcular` soma o PIS/COFINS retidos; `csll_sem_pis_cofins` separa de volta (onboarding,
+  planilha). Exceção: `tpRetPisCofins` 1, que a NT 008 soma `vRetCSLL + vPis + vCofins` (não conferido na Sefin real). IRRF/CSLL/CP só
   existem como valor retido (sempre descontados). CSLL obrigatória/proibida conforme `RETENCOES_PIS_COFINS` (E0720/E0724;
   "1" exige CSLL pela regra literal da E0724).
 - Totais aproximados: não optante → `pTotTrib` (fed/est/mun, E0713); ME/EPP → `pTotTribSN` obrigatório (E0712); MEI →
@@ -1015,4 +1020,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-15 | Conector do Asaas: aviso gravado e respondido na hora, nota feita em segundo plano com a cobrança como referência externa; estorno não cancela sozinho; sandbox só em homologação | Pedido do Iuri (primeiro conector); o Asaas repete avisos e pausa a fila se demorarem; cancelar nota é decisão da pessoa |
 | 2026-11-15 | Conector da Stripe: webhook criado pelo emissor quando há endereço público, corpo assinado conferido, nota por fatura paga ou Checkout pago sem fatura | Pedido do Iuri; a fatura cobre assinaturas e o Checkout com fatura, então um pagamento nunca vira duas notas |
 | 2026-11-15 | Frontend segue os guias do Chrome (Modern Web Guidance): diálogos nativos, popovers, `:user-invalid`, fontes em rem | Pedido do Iuri: usar o que o navegador já faz (foco, Esc, camada superior, acessibilidade) em vez de código próprio |
+| 2026-11-16 | PIS/COFINS retidos somados à CSLL em `vRetCSLL` (Contribuições Sociais - Retidas); o campo da tela é só o % da CSLL | Pedido do Iuri: a Sefin só tira do líquido o que vai no `vRetCSLL` e uma nota real saiu com o líquido maior que a prévia |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

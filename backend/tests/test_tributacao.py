@@ -254,6 +254,40 @@ def test_dps_com_aliquotas_e_retencoes(dps_input):
     assert mei.findtext(".//n:indTotTrib", namespaces=ns) == "0" and validar_dps(mei) == []
 
 
+def test_contribuicoes_sociais_somam_pis_cofins_e_csll(config_fiscal):
+    """vRetCSLL é "Contribuições Sociais - Retidas": a Sefin só tira do líquido o que vai nele (nota real de 16/11/2026)."""
+    from dataclasses import replace
+    from decimal import Decimal
+
+    from emissor.nfse.models import csll_sem_pis_cofins
+    from emissor.nfse.tributos import calcular
+
+    base = replace(config_fiscal, cst_pis_cofins="01", p_aliq_pis="0.65", p_aliq_cofins="3.00", p_ret_irrf="1.50")
+    # O caso da nota real: R$ 50.023,16, CSLL 1% + PIS 0,65% + COFINS 3% = 4,65% nas contribuições sociais.
+    t, erros = calcular(replace(base, tp_ret_pis_cofins="3", p_ret_csll="1"), Decimal("50023.16"))
+    assert erros == []
+    assert (t.v_csll, t.v_pis, t.v_cofins) == (Decimal("500.23"), Decimal("325.15"), Decimal("1500.69"))
+    assert t.v_ret_csll == Decimal("2326.07")
+    assert t.total_retido == Decimal("750.35") + Decimal("2326.07")
+    # Só PIS/COFINS retidos (CSLL não): as contribuições sociais levam os dois, sem percentual de CSLL.
+    t, _ = calcular(replace(base, tp_ret_pis_cofins="4"), Decimal("1000"))
+    assert (t.v_csll, t.v_ret_csll) == (None, Decimal("36.50"))
+    t, _ = calcular(replace(base, tp_ret_pis_cofins="9", p_ret_csll="1"), Decimal("1000"))
+    assert t.v_ret_csll == Decimal("16.50")  # CSLL 10,00 + PIS 6,50 (COFINS não retida)
+    # Não retidos: nada nas contribuições sociais.
+    t, _ = calcular(replace(base, tp_ret_pis_cofins="2"), Decimal("1000"))
+    assert t.v_ret_csll is None and t.total_retido == Decimal("15.00")
+    # tpRetPisCofins 1: a NT 008 soma vRetCSLL + vPis + vCofins, então o vRetCSLL fica só com a CSLL.
+    t, _ = calcular(replace(base, tp_ret_pis_cofins="1", p_ret_csll="1"), Decimal("1000"))
+    assert t.v_ret_csll == Decimal("10.00") and t.total_retido == Decimal("61.50")
+
+    d = Decimal
+    assert csll_sem_pis_cofins(d("46.50"), "3", d("6.50"), d("30.00")) == d("10.00")
+    assert csll_sem_pis_cofins(d("10.00"), "3", d("6.50"), d("30.00")) == d("10.00")  # nota antiga: só a CSLL
+    assert csll_sem_pis_cofins(d("36.50"), "4", d("6.50"), d("30.00")) == d("0")
+    assert csll_sem_pis_cofins(d("10.00"), "1", d("6.50"), d("30.00")) == d("10.00")
+
+
 def test_cst_pis_cofins_tem_todos_os_codigos_do_xsd(dps_input):
     import re
     from dataclasses import replace

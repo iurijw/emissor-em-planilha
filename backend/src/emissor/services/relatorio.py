@@ -19,7 +19,7 @@ from openpyxl.utils import get_column_letter
 from emissor.db import Emissao
 from emissor.nfse import codes
 from emissor.nfse.documentos import formatar_documento
-from emissor.nfse.models import RETENCOES_PIS_COFINS
+from emissor.nfse.models import RETENCOES_PIS_COFINS, csll_sem_pis_cofins
 from emissor.nfse.xml_reader import NFSeDoc, NfseXmlError
 from emissor.services import arquivos
 from emissor.services.tabela import _texto_csv
@@ -81,10 +81,12 @@ def _linha(e: Emissao, doc: NFSeDoc) -> LinhaRelatorio:
     pc = "valores/trib/tribFed/piscofins"
     pis_ret, cofins_ret, _ = RETENCOES_PIS_COFINS.get(d(f"{pc}/tpRetPisCofins") or "", (False, False, None))
     irrf = _dec(d("valores/trib/tribFed/vRetIRRF")) or ZERO
-    csll = _dec(d("valores/trib/tribFed/vRetCSLL")) or ZERO
     inss = _dec(d("valores/trib/tribFed/vRetCP")) or ZERO
     pis = (_dec(d(f"{pc}/vPis")) or ZERO) if pis_ret else ZERO
     cofins = (_dec(d(f"{pc}/vCofins")) or ZERO) if cofins_ret else ZERO
+    # vRetCSLL = Contribuições Sociais - Retidas (CSLL + PIS/COFINS retidos); a coluna CSLL mostra só a CSLL.
+    tp_ret = d(f"{pc}/tpRetPisCofins")
+    csll = csll_sem_pis_cofins(_dec(d("valores/trib/tribFed/vRetCSLL")), tp_ret, pis, cofins) or ZERO
     valor = doc.valor_servico
     iss = _dec(v("valores/vISSQN"))
     iss_retido = tp_ret_iss in ("2", "3")
