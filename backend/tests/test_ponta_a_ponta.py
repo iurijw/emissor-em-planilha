@@ -354,6 +354,9 @@ def _fluxo_api_v1(api, sim) -> None:
     assert ok(api.post("/api/v1/notas", json=nota, headers=hp), 409).json()["ambiente_token"] == "producao"
     ok(api.get("/api/v1/notas", headers=hp), 403)
     ok(api.delete(f"/api/integracoes/tokens/{prod['id']}"))
+    ok(api.delete(f"/api/integracoes/tokens/{prod['id']}?excluir=true"))
+    assert prod["id"] not in [t["id"] for t in ok(api.get("/api/integracoes")).json()["tokens"]]
+    ok(api.delete(f"/api/integracoes/tokens/{prod['id']}?excluir=true"), 404)
     ok(api.get("/api/v1/empresa", headers=hp), 401)
     webhooks.definir_entregador(None)
 

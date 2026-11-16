@@ -49,8 +49,12 @@ def criar_token(entrada: TokenEntrada, admin: AdminEmpresa) -> dict[str, Any]:
 
 
 @router.delete("/tokens/{token_id}")
-def revogar_token(token_id: int, admin: AdminEmpresa) -> dict[str, bool]:
-    tokens_api.revogar(admin.empresa_id, token_id, admin)
+def revogar_token(token_id: int, admin: AdminEmpresa, excluir: bool = False) -> dict[str, bool]:
+    """Revoga o token (continua na lista, apagado) ou, com ``?excluir=true``, tira ele da lista."""
+    if excluir:
+        tokens_api.excluir(admin.empresa_id, token_id, admin)
+    else:
+        tokens_api.revogar(admin.empresa_id, token_id, admin)
     return {"ok": True}
 
 

@@ -119,7 +119,7 @@ export function SecaoIntegracoes() {
   const [novoToken, setNovoToken] = useState<{ nome: string; escopos: string[]; ambiente: string } | null>(null);
   const [novoWebhook, setNovoWebhook] = useState<{ url: string; eventos: string[]; ambiente: string; descricao: string } | null>(null);
   const [segredo, setSegredo] = useState<{ titulo: string; valor: string; texto: string } | null>(null);
-  const [revogar, setRevogar] = useState<TokenApi | null>(null);
+  const [revogar, setRevogar] = useState<(TokenApi & { excluir?: boolean }) | null>(null);
   const [entregas, setEntregas] = useState<WebhookApi | null>(null);
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -180,12 +180,13 @@ export function SecaoIntegracoes() {
                       <td>{AMBIENTE[t.ambiente]}</td>
                       <td>{t.escopos.join(", ")}</td>
                       <td>{quando(t.ultimo_uso)}</td>
-                      <td className="dir">
+                      <td className="dir" style={{ whiteSpace: "nowrap" }}>
                         {t.ativo ? (
                           <button className="btn btn--pequeno btn--fantasma" onClick={() => setRevogar(t)}>Revogar</button>
                         ) : (
                           <span style={{ color: "var(--grafite)" }}>revogado</span>
-                        )}
+                        )}{" "}
+                        <button className="btn btn--pequeno btn--fantasma" onClick={() => setRevogar({ ...t, excluir: true })}>Excluir</button>
                       </td>
                     </tr>
                   ))}
@@ -404,7 +405,7 @@ export function SecaoIntegracoes() {
 
       {revogar && (
         <Dialogo
-          titulo={`Revogar o token “${revogar.nome}”?`}
+          titulo={`${revogar.excluir ? "Excluir" : "Revogar"} o token “${revogar.nome}”?`}
           fechar={() => setRevogar(null)}
           rodape={
             <>
@@ -414,19 +415,25 @@ export function SecaoIntegracoes() {
                 disabled={ocupado}
                 onClick={() =>
                   executar(async () => {
-                    await api.del(`/api/integracoes/tokens/${revogar.id}`);
+                    await api.del(`/api/integracoes/tokens/${revogar.id}${revogar.excluir ? "?excluir=true" : ""}`);
                     setRevogar(null);
-                    toast("Token revogado.");
+                    toast(revogar.excluir ? "Token excluído." : "Token revogado.");
                   })
                 }
               >
-                Revogar token
+                {revogar.excluir ? "Excluir token" : "Revogar token"}
               </button>
             </>
           }
         >
-          <p style={{ marginTop: 0 }}>O sistema que usa este token deixa de conseguir emitir e consultar na hora. Notas já emitidas não mudam.</p>
-          <ErroCaixa erro={erro} titulo="Não foi possível revogar" />
+          <p style={{ marginTop: 0 }}>
+            {revogar.excluir && !revogar.ativo
+              ? "O token sai da lista. Ele já não funcionava; notas já emitidas não mudam."
+              : revogar.excluir
+                ? "O token sai da lista e o sistema que o usa deixa de conseguir emitir e consultar na hora. Notas já emitidas não mudam."
+                : "O sistema que usa este token deixa de conseguir emitir e consultar na hora. O token continua na lista, apagado, até você excluí-lo. Notas já emitidas não mudam."}
+          </p>
+          <ErroCaixa erro={erro} titulo={revogar.excluir ? "Não foi possível excluir" : "Não foi possível revogar"} />
         </Dialogo>
       )}
 

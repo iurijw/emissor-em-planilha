@@ -140,6 +140,17 @@ def revogar(empresa_id: int, token_id: int, acesso: auth.Acesso | None) -> None:
     auth.auditar("token_api_revogado", f"“{t.nome}” (emp_{t.prefixo})", acesso)
 
 
+def excluir(empresa_id: int, token_id: int, acesso: auth.Acesso | None) -> None:
+    """Apaga o token da lista (ativo ou já revogado): deixa de funcionar na hora, como na revogação."""
+    with sessao() as s:
+        t = s.get(TokenApi, token_id)
+        if t is None or t.empresa_id != empresa_id:
+            raise TokenError("Token não encontrado.", 404)
+        s.delete(t)
+        s.commit()
+    auth.auditar("token_api_excluido", f"“{t.nome}” (emp_{t.prefixo})", acesso)
+
+
 def resolver(token: str | None, ip: str | None = None) -> auth.Acesso | None:
     """Acesso do token (com a empresa e o ambiente dele) ou None se não existe, foi revogado ou a empresa está inativa."""
     if not token or len(token) > 200 or not token.startswith("emp_"):
