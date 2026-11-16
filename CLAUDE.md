@@ -306,6 +306,16 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
   (`instalarValidacaoAcessivel`; campos com aria-invalid próprio levam `data-aria-invalid-proprio`); `ehEnter` ignora o
   Enter de composição de IME; fontes em `rem` + `<meta name="text-scale">`; `color-scheme`, `accent-color`,
   `font-size-adjust: from-font`, `text-wrap`; tela de emissão (grade) carregada à parte, depois do login.
+- **Modo escuro** (2026-11-16, `src/tema.ts`): segue o sistema; Minha conta → Aparência fixa Automático/Claro/Escuro
+  **neste navegador** (`localStorage` `esquema-de-cor`, sem ir ao servidor). A escolha fica em
+  `<meta name="color-scheme">` (script inline no `index.html` antes de desenhar) e o `styles.css` copia para a
+  propriedade (`:root:has(> head > meta[content=dark])`). Cada cor é um token `light-dark(claro, escuro)` no topo do
+  `styles.css` (cor nova → token, nunca hex solto nas regras; `light-dark()` só aceita cor, então sombras usam tokens de
+  cor). O escuro não é o claro invertido: superfícies azul-ardósia, azul da marca nos preenchimentos e `--azul-texto`
+  claro para texto, e `--contraste` (faixa/botão/selo de produção) vira quase branco para continuar o mais forte da
+  tela. A grade (canvas) tem `TEMA_CLARO`/`TEMA_ESCURO` em `Emitir.tsx` escolhidos por `useEscuro()`. A logo da tela é
+  o componente `Logo` (`ui.tsx`), com o canto dobrado em `--logo-canto`; o favicon continua o arquivo. A página
+  "ligando o sistema" do `sw.js` segue a mesma escolha. O DANFSe não muda.
 - **Aviso "ligando o sistema"** (`public/sw.js`, 2026-10-13): service worker registrado só no build de produção em
   HTTPS/localhost. Se a abertura da página não responde em 1,2 s (ou volta 5xx/sem conexão), mostra uma página própria
   que consulta `/api/saude` e recarrega sozinha. Não guarda nada do app (a página sempre vem do servidor); 60 s depois
@@ -1022,4 +1032,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-15 | Frontend segue os guias do Chrome (Modern Web Guidance): diálogos nativos, popovers, `:user-invalid`, fontes em rem | Pedido do Iuri: usar o que o navegador já faz (foco, Esc, camada superior, acessibilidade) em vez de código próprio |
 | 2026-11-16 | PIS/COFINS retidos somados à CSLL em `vRetCSLL` (Contribuições Sociais - Retidas); o campo da tela é só o % da CSLL | Pedido do Iuri: a Sefin só tira do líquido o que vai no `vRetCSLL` e uma nota real saiu com o líquido maior que a prévia |
 | 2026-11-16 | `.env.example` comentado (o compose lê `.env` se existir) e `EMISSOR_PUBLICO=1`, que liga as proteções de servidor público (webhook só https fora da rede interna, primeiro acesso sempre com código) sem o limite de empresas da hospedagem; IP real atrás de proxy pelo `FORWARDED_ALLOW_IPS` do uvicorn | Pedido do Iuri: quem hospedar o app por conta própria precisa saber o que configurar; antes essas proteções só valiam com `FLY_APP_NAME` |
+| 2026-11-16 | Modo escuro seguindo o sistema, com escolha Automático/Claro/Escuro por navegador em Minha conta; produção em claro sobre escuro | Pedido do Iuri; guias do Chrome (escolha numa tela de ajustes, não um botão fixo no topo); o aviso de produção precisa continuar o mais forte também no escuro |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

@@ -9,7 +9,7 @@ import { Usuarios } from "./pages/Usuarios";
 import { Configuracoes } from "./pages/Configuracoes";
 import { Emissoes } from "./pages/Emissoes";
 import { Onboarding } from "./pages/Onboarding";
-import { ErroCaixa, Spinner } from "./ui";
+import { ErroCaixa, Logo, Spinner } from "./ui";
 import { FaixaAssinatura, useAssinatura } from "./components/Assinatura";
 import { Atualizacoes } from "./components/Atualizacoes";
 import { nomeEmpresa, SeletorEmpresa } from "./components/Empresas";
@@ -179,7 +179,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
       <FaixaAssinatura />
       <header className="topo">
         <a className="marca" href="#/emitir">
-          <img src="/logo.svg" alt="" />
+          <Logo />
           <span>Emissor em Planilha</span>
         </a>
         <nav className="nav" aria-label="Seções">

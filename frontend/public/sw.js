@@ -75,14 +75,19 @@ const HTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<script>try { document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("esquema-de-cor") || "light dark"; } catch (e) {}</script>
 <title>Ligando… · Emissor em Planilha</title>
 <style>
   :root {
-    --preto: #020202; --tinta: #0b1014; --grafite: #56656f; --azul: #0098d7; --azul-texto: #0079ad;
-    --papel: #f9fdfe; --linha: #d6e4eb;
+    color-scheme: light dark;
+    --preto: #020202; --tinta: light-dark(#0b1014, #e3ebef); --grafite: light-dark(#56656f, #a0afb8); --azul: #0098d7;
+    --azul-texto: light-dark(#0079ad, #5cc6f0); --papel: light-dark(#f9fdfe, #0a1115); --logo-canto: light-dark(#020202, #e3ebef); --linha: light-dark(#d6e4eb, #233139);
     --f-ui: "Archivo Variable", "Archivo", "Segoe UI", system-ui, sans-serif;
     --f-num: "Martian Mono Variable", "Martian Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   }
+  :root:has(> head > meta[name="color-scheme"][content="light"]) { color-scheme: light; }
+  :root:has(> head > meta[name="color-scheme"][content="dark"]) { color-scheme: dark; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
@@ -98,12 +103,12 @@ const HTML = `<!doctype html>
   h1 em { font-style: normal; color: var(--azul); }
   p { font-size: 16px; line-height: 1.55; color: var(--grafite); margin: 0 0 28px; }
   .fita { display: flex; gap: 3px; height: 34px; }
-  .fita i { flex: 1; border-radius: 2px; background: #e3ecf0; transition: background .3s; }
+  .fita i { flex: 1; border-radius: 2px; background: light-dark(#e3ecf0, #26343c); transition: background .3s; }
   .fita i.on { background: var(--azul); }
-  .fita i.vez { background: repeating-linear-gradient(-45deg, #9fd8f0 0 4px, #c9eaf8 4px 8px); background-size: 11.3px 11.3px; animation: corre .8s linear infinite; }
+  .fita i.vez { background: repeating-linear-gradient(-45deg, light-dark(#9fd8f0, #2b6d8c) 0 4px, light-dark(#c9eaf8, #123a4e) 4px 8px); background-size: 11.3px 11.3px; animation: corre .8s linear infinite; }
   .legenda { display: flex; justify-content: space-between; margin-top: 10px; font-size: 13px; color: var(--grafite); }
   .legenda b { font-family: var(--f-num); font-weight: 500; color: var(--tinta); }
-  .demora { display: none; margin-top: 28px; padding: 12px 14px; border-left: 3px solid #8a5a00; background: #fff5db; color: #5c3c00; font-size: 14px; line-height: 1.5; }
+  .demora { display: none; margin-top: 28px; padding: 12px 14px; border-left: 3px solid light-dark(#8a5a00, #f0bb55); background: light-dark(#fff5db, #2d230c); color: light-dark(#5c3c00, #f6dc9c); font-size: 14px; line-height: 1.5; }
   .demora.ver { display: block; }
   button { font: inherit; font-weight: 600; color: var(--azul-texto); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
   @keyframes corre { to { background-position: 28.28px 0; } }
@@ -115,7 +120,7 @@ const HTML = `<!doctype html>
 <main>
   <div class="cartao">
     <div class="marca">
-      <svg viewBox="0 0 64 64" aria-hidden="true"><defs><mask id="g"><rect width="64" height="64" fill="#fff"/><rect x="12" y="26" width="10" height="8" rx="1"/><rect x="26" y="26" width="26" height="8" rx="1"/><rect x="12" y="38" width="10" height="8" rx="1"/><rect x="26" y="38" width="26" height="8" rx="1"/><rect x="12" y="50" width="10" height="8" rx="1"/><rect x="26" y="50" width="26" height="8" rx="1"/></mask></defs><g mask="url(#g)"><polygon points="7,2 41,2 57,18 57,62 7,62" fill="#0098D7"/><polygon points="41,2 41,18 57,18" fill="#020202"/></g></svg>
+      <svg viewBox="0 0 64 64" aria-hidden="true"><defs><mask id="g"><rect width="64" height="64" fill="#fff"/><rect x="12" y="26" width="10" height="8" rx="1"/><rect x="26" y="26" width="26" height="8" rx="1"/><rect x="12" y="38" width="10" height="8" rx="1"/><rect x="26" y="38" width="26" height="8" rx="1"/><rect x="12" y="50" width="10" height="8" rx="1"/><rect x="26" y="50" width="26" height="8" rx="1"/></mask></defs><g mask="url(#g)"><polygon points="7,2 41,2 57,18 57,62 7,62" fill="#0098D7"/><polygon points="41,2 41,18 57,18" style="fill: var(--logo-canto)"/></g></svg>
       Emissor em Planilha
     </div>
     <h1>Ligando o seu <em>emissor</em>…</h1>

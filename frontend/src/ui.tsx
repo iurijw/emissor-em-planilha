@@ -384,3 +384,29 @@ export async function copiar(texto: string): Promise<void> {
   document.execCommand("copy");
   area.remove();
 }
+
+// ---------------- Logo ----------------
+/** A logo (public/logo.svg) desenhada na página, para o canto dobrado acompanhar o tema (preto no claro, claro no
+ *  escuro, onde o preto sumiria no fundo). O favicon continua sendo o arquivo. */
+export function Logo({ tamanho = 30 }: { tamanho?: number }) {
+  const mascara = `logo-grade-${useId().replace(/:/g, "")}`;
+  return (
+    <svg className="logo" viewBox="0 0 64 64" width={tamanho} height={tamanho} aria-hidden="true">
+      <defs>
+        <mask id={mascara}>
+          <rect width="64" height="64" fill="#fff" />
+          {[26, 38, 50].map((y) => (
+            <g key={y}>
+              <rect x="12" y={y} width="10" height="8" rx="1" fill="#000" />
+              <rect x="26" y={y} width="26" height="8" rx="1" fill="#000" />
+            </g>
+          ))}
+        </mask>
+      </defs>
+      <g mask={`url(#${mascara})`}>
+        <polygon points="7,2 41,2 57,18 57,62 7,62" fill="#0098D7" />
+        <polygon points="41,2 41,18 57,18" style={{ fill: "var(--logo-canto)" }} />
+      </g>
+    </svg>
+  );
+}
