@@ -608,9 +608,9 @@ até o Iuri pedir (`empresas.limite()`: `EMISSOR_LIMITE_EMPRESAS`, senão 1 com 
   certificado de procurador serve a várias empresas. Trocar o certificado de uma empresa que divide o do procurador
   cria um registro próprio. Certificados enviados que não viraram empresa em 60 min são apagados.
 - **Procuração:** a DPS leva o CNPJ da empresa em `prest`; assinatura e mTLS com o certificado do procurador (e-CNPJ
-  ou e-CPF); no cancelamento `CNPJAutor`/`CPFAutor` = dono do certificado; a distribuição do ADN usa `cnpjConsulta` =
-  CNPJ da empresa (sem procuração → E2245, que o "Conferir procuração" mostra). **Não conferido na Sefin/ADN reais**
-  (procuração para a NFS-e por API vale desde 01/11/2026): validar em Produção Restrita antes de oferecer.
+  ou e-CPF); no cancelamento `CNPJAutor` = CNPJ da empresa (com o do procurador a Sefin recusa com E0813, visto em produção em 16/11/2026; o certificado só assina); a distribuição do ADN usa `cnpjConsulta` =
+  CNPJ da empresa (sem procuração → E2245, que o "Conferir procuração" mostra). Emissão por procuração conferida em produção (16/11/2026, numa
+  instalação própria); o cancelamento com o `CNPJAutor` da empresa ainda falta conferir (procuração por API desde 01/11/2026).
 - **Clientes:** por empresa (PK `documento` + `empresa_id`); opção da instalação `instancia.compartilhar_clientes`
   junta tudo na empresa 0 (cliente repetido: vale o da empresa escolhida, campos vazios completados pelos outros) e,
   ao desligar, copia o cadastro para cada empresa.
