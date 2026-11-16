@@ -40,7 +40,7 @@ from emissor.nfse.eventos import (
     enviar_cancelamento,
     preparar_cancelamento,
 )
-from emissor.services import arquivos
+from emissor.services import arquivos, webhooks
 from emissor.services import certificado as cert_service
 from emissor.services import emissao as emissao_service
 from emissor.services.emissao import ClientFactory, LoteError, verificar_prontidao
@@ -121,6 +121,7 @@ def registrar_evento(xml: bytes, origem: str) -> Registro:
     if mudou:
         log.warning("NFS-e nº %s agora está %s", e.numero_nfse, nova, extra={"chave": chave, "origem": origem})
         _regerar_pdf(e)
+        webhooks.notificar_emissao(e.id, f"nota.{nova}")
     return Registro(ev, novo, mudou)
 
 
@@ -246,6 +247,7 @@ def cancelar(
             s.add(reg)
             s.commit()
         _regerar_pdf(_carregar_emissao(e.id))
+        webhooks.notificar_emissao(e.id, "nota.cancelada")
     aviso = "O cancelamento já estava registrado na Sefin; situação atualizada." if resultado.recuperado else None
     return ResultadoCancelamento(_carregar_emissao(e.id), aviso)
 

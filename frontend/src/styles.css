@@ -850,3 +850,47 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 @media (max-width: 560px) {
   .regra { grid-template-columns: 1fr; }
 }
+
+/* ---------- Integrações (tokens da API e webhooks) ---------- */
+.integracoes__titulo { font-size: 0.9375rem; margin: 22px 0 10px; }
+.integracoes__titulo:first-of-type { margin-top: 8px; }
+.integracoes__opcoes { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.integracoes__opcoes legend { font-weight: 600; font-size: 0.8125rem; margin-bottom: 8px; padding: 0; }
+.segredo-api {
+  display: block; padding: 10px 12px; background: var(--papel); border: 1px solid var(--linha-forte);
+  border-radius: var(--raio); overflow-wrap: anywhere; user-select: all; font-size: 0.8125rem;
+}
+.linha--apagada td { color: var(--grafite-claro); }
+
+/* ---------- Catálogo de integrações (Configurações → Integrações) ---------- */
+.catalogo-integracoes {
+  list-style: none; margin: 4px 0 20px; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13.5rem), 1fr)); gap: 12px;
+}
+.integracao {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px; background: var(--folha);
+  border: 1px solid var(--linha); border-radius: 8px;
+}
+.integracao--conectado { border-color: var(--azul); box-shadow: inset 0 0 0 1px var(--azul); }
+.integracao--breve { background: var(--papel); }
+.integracao--breve .logo-marca { filter: grayscale(0.6); opacity: 0.75; }
+.integracao__corpo { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.integracao__linha { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 37.5rem) {
+  .catalogo-integracoes { gap: 8px; }
+  .integracao { flex-direction: row; align-items: flex-start; gap: 12px; padding: 12px; }
+}
+.integracao__titulo { margin: 0; font-size: 0.9375rem; font-stretch: 108%; }
+.integracao__texto { margin: 0; font-size: 0.8125rem; color: var(--grafite); text-wrap: pretty; flex: 1; }
+.integracao__acao { align-self: flex-start; margin-top: 6px; }
+.integracao__selo {
+  font: 600 0.6875rem/1 var(--f-ui); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+  padding: 4px 7px; border-radius: 999px; border: 1px solid var(--linha-forte); color: var(--grafite);
+}
+.integracao__selo--conectado { background: var(--azul); border-color: var(--azul); color: #fff; }
+.integracao__selo--disponivel { background: var(--azul-fundo); border-color: transparent; color: var(--azul-texto); }
+.logo-marca {
+  display: inline-grid; place-items: center; flex: none; border-radius: 10px; color: #fff;
+}
+.logo-marca--api { background: var(--tinta); font: 600 0.8125rem/1 var(--f-num); }
+.logo-marca__nome { font: 800 0.6875rem/1 var(--f-ui); letter-spacing: -0.01em; }

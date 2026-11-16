@@ -59,7 +59,7 @@ from emissor.nfse.models import (
 )
 from emissor.nfse.tributos import calcular as calcular_tributos
 from emissor.nfse.xml_reader import NFSeDoc
-from emissor.services import arquivos, variaveis
+from emissor.services import arquivos, variaveis, webhooks
 from emissor.services import certificado as cert_service
 from emissor.services import tributacao as trib_service
 from emissor.services.clientes import para_tomador
@@ -224,9 +224,14 @@ def validar_linhas(
                         f"neste mês ({e.dh_emissao:%d/%m/%Y})."
                     )
                     break
-        em_andamento = s.exec(
-            select(Emissao).where(Emissao.linha_id == ln.id, Emissao.status.in_(["pendente", "processando"]))
-        ).first()
+        # Nota avulsa (linha transitória, sem id): ``linha_id == None`` viraria IS NULL e qualquer avulsa na fila
+        # bloquearia a próxima (duas cobranças pagas seguidas, duas chamadas da API).
+        em_andamento = (
+            ln.id is not None
+            and s.exec(
+                select(Emissao).where(Emissao.linha_id == ln.id, Emissao.status.in_(["pendente", "processando"]))
+            ).first()
+        )
         if em_andamento:
             v.erros.append("Esta linha já está em uma emissão em andamento.")
         res.append(v)
@@ -457,34 +462,102 @@ def validar_avulsa(s: Session, n: NotaAvulsa, ambiente: Ambiente) -> ValidacaoLi
 
 def criar_avulsa(n: NotaAvulsa) -> Lote:
     """Uma nota só, fora da tabela, emitida como um lote de 1 (mesma fila e mesmas garantias)."""
-    with sessao() as s:
+    return criar_avulsas([n])
+
+
+class ReferenciaEmUso(LoteError):
+    """``referencia_externa`` que já tem nota válida (ou em andamento) neste ambiente: ``existentes`` = ref → id."""
+
+    def __init__(self, existentes: dict[str, int]):
+        super().__init__(
+            "Já existe nota com esta referência externa: " + ", ".join(existentes),
+            [{"referencia_externa": r, "nota_id": i} for r, i in existentes.items()],
+        )
+        self.existentes = existentes
+
+
+# Situações em que a referência externa pode ser usada de novo (a nota não existe na Sefin).
+REFERENCIA_LIVRE = ("rejeitada", "nao_enviada")
+_lock_referencias = threading.Lock()
+
+
+def notas_da_referencia(s: Session, referencias: list[str], ambiente: str) -> dict[str, int]:
+    """Referências que já têm nota que conta (autorizada, na fila, com erro de comunicação ou cancelada)."""
+    if not referencias:
+        return {}
+    q = (
+        select(Emissao)
+        .where(
+            Emissao.referencia_externa.in_(referencias),  # type: ignore[union-attr]
+            Emissao.ambiente == ambiente,
+            Emissao.status.not_in(REFERENCIA_LIVRE),  # type: ignore[union-attr]
+        )
+        .order_by(Emissao.id)
+    )
+    return {e.referencia_externa: e.id for e in s.exec(q)}
+
+
+def criar_avulsas(
+    notas: list[NotaAvulsa],
+    *,
+    referencias: list[str | None] | None = None,
+    origem: str | None = None,
+) -> Lote:
+    """Notas fora da tabela (nota avulsa, API) num lote só. Todas são conferidas antes; uma com erro recusa o lote.
+
+    ``referencias`` (uma por nota, pode ser None) é a ``referencia_externa`` de cada uma: com nota que conta no mesmo
+    ambiente, ``ReferenciaEmUso`` (quem integra repete o pedido sem gerar nota em duplicidade).
+    """
+    if not notas:
+        raise LoteError("Envie ao menos uma nota.")
+    referencias = referencias or [None] * len(notas)
+    with _lock_referencias, sessao() as s:
         problemas = verificar_prontidao(s)
         if problemas:
             raise LoteError("Não é possível emitir: " + " ".join(problemas))
         cfg = obter_config(s)
-        v = validar_avulsa(s, n, cfg.amb)
-        if v.erros:
-            raise LoteError("A nota tem erros. Corrija antes de emitir.", v.erros)
-        ln = linha_avulsa(n)
-        _exigir_aliquotas(aliquotas_iss(s, [ln], n.tributacao, n.tributacao_id))
-        lote = _gravar_lote(
-            s,
-            cfg.ambiente,
-            [(None, ln.nome, ln.documento, ln.valor, ln.descricao, n.tributacao_nome, n.tributacao)],
-            nota=n.nota,
-        )
+        refs = [r for r in referencias if r]
+        if len(refs) != len(set(refs)):
+            raise LoteError("A mesma referência externa aparece mais de uma vez no lote.")
+        existentes = notas_da_referencia(s, refs, cfg.ambiente)
+        if existentes:
+            raise ReferenciaEmUso(existentes)
+        itens, extras, erros = [], [], []
+        for i, n in enumerate(notas):
+            v = validar_avulsa(s, n, cfg.amb)
+            if v.erros:
+                erros.append({"indice": i, "referencia_externa": referencias[i], "erros": v.erros})
+                continue
+            ln = linha_avulsa(n)
+            try:
+                _exigir_aliquotas(aliquotas_iss(s, [ln], n.tributacao, n.tributacao_id))
+            except LoteError as exc:
+                erros.append({"indice": i, "referencia_externa": referencias[i], "erros": [exc.mensagem]})
+                continue
+            itens.append((None, ln.nome, ln.documento, ln.valor, ln.descricao, n.tributacao_nome, n.tributacao))
+            extras.append({"nota": n.nota, "referencia_externa": referencias[i], "origem": origem})
+        if erros:
+            if len(notas) == 1:
+                raise LoteError("A nota tem erros. Corrija antes de emitir.", erros[0]["erros"])
+            raise LoteError(f"{len(erros)} nota(s) com erro. Corrija antes de emitir.", erros)
+        lote = _gravar_lote(s, cfg.ambiente, itens, extras=extras)
     worker().enfileirar(lote.id)
     return lote
 
 
-def _gravar_lote(s: Session, ambiente: str, itens: list[tuple], nota: DadosNota | None = None) -> Lote:
+def _gravar_lote(
+    s: Session, ambiente: str, itens: list[tuple], nota: DadosNota | None = None, extras: list[dict] | None = None
+) -> Lote:
     """Grava o lote e uma emissão por item ``(linha_id, nome, documento, valor, descricao, trib_nome, trib)``.
 
+    ``extras`` (um por item): ``nota`` (DadosNota), ``referencia_externa`` e ``origem``.
     A tributação é copiada para a emissão: mudar a tributação depois não altera notas já na fila.
     """
     lote = Lote(id=uuid.uuid4().hex[:12], ambiente=ambiente, total=len(itens))
     s.add(lote)
-    for linha_id, nome, documento, valor, descricao, trib_nome, trib in itens:
+    for i, (linha_id, nome, documento, valor, descricao, trib_nome, trib) in enumerate(itens):
+        extra = extras[i] if extras else {}
+        dados_nota = extra.get("nota", nota)
         doc = normalizar_documento(documento) or ""
         cli = obter_cliente(s, doc)
         s.add(
@@ -498,7 +571,9 @@ def _gravar_lote(s: Session, ambiente: str, itens: list[tuple], nota: DadosNota 
                 descricao=descricao.strip(),
                 tributacao_nome=trib_nome if trib else None,
                 tributacao_json=trib_service.dumps(trib) if trib else None,
-                nota_json=trib_service.dumps(nota.para_dict()) if nota and not nota.vazia else None,
+                nota_json=trib_service.dumps(dados_nota.para_dict()) if dados_nota and not dados_nota.vazia else None,
+                referencia_externa=extra.get("referencia_externa"),
+                origem=extra.get("origem"),
             )
         )
     s.commit()
@@ -705,6 +780,7 @@ class EmissionWorker:
             _vincular_linha(s, reg)
             s.commit()
         log.warning("emissão %s: %s", status, err, extra={"erro": err.as_dict()})
+        webhooks.notificar_emissao(e.id, "nota.rejeitada" if status == "rejeitada" else "nota.erro")
         if err.tipo == TipoErro.AUTENTICACAO:
             raise _Interromper(f"Certificado recusado pela Sefin: {err.resumo}")
         if isinstance(err, NumeracaoEmUso):  # os próximos números provavelmente também já foram usados
@@ -739,6 +815,7 @@ class EmissionWorker:
             s.add(lote)
             s.commit()
         log.info("lote finalizado", extra={"lote_id": lote_id, "status": lote.status})
+        webhooks.notificar_lote(lote_id)
 
 
 def _vincular_linha(s: Session, e: Emissao) -> None:
@@ -779,6 +856,7 @@ def finalizar_autorizada(emissao_id: int, r: ResultadoEmissao) -> Emissao:
         "NFS-e registrada",
         extra={"chave": r.chave_acesso, "numero": doc.numero, "recuperada": r.recuperada, "xml": str(xml_path)},
     )
+    webhooks.notificar_emissao(emissao_id, "nota.autorizada")
     return e
 
 

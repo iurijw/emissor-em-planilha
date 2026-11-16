@@ -18,12 +18,15 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from emissor import auth, config, empresas
+from emissor import auth, config, empresas, tokens_api
 from emissor.api import (
+    routes_api_v1,
     routes_auth,
     routes_config,
     routes_emissoes,
     routes_empresas,
+    routes_entrada,
+    routes_integracoes,
     routes_tabela,
     routes_tributacao,
 )
@@ -32,7 +35,8 @@ from emissor.db import EmpresaInexistente, engine
 from emissor.logging_setup import bind_context, setup_logging
 from emissor.nfse.certificate import CertificadoError
 from emissor.nfse.errors import SefinError, TipoErro
-from emissor.services.emissao import LoteError, worker
+from emissor.services import conectores, webhooks
+from emissor.services.emissao import LoteError, ReferenciaEmUso, worker
 from emissor.services.tabela import ImportacaoError
 from emissor.services.tributacao import TributacaoError
 
@@ -40,8 +44,35 @@ log = logging.getLogger("emissor.api")
 
 FRONTEND_DIST = config.REPO_ROOT / "frontend" / "dist"
 
+# Documentação da API de integração: aberta (não tem dado nenhum), para quem vai integrar ler antes do token.
+V1_PUBLICAS = ("/api/v1/openapi.json", "/api/v1/docs")
+
 # Rotas que funcionam sem empresa (usuário sem acesso a nenhuma ainda vê a conta, sai e lê as atualizações).
 SEM_EMPRESA = ("/api/auth/", "/api/saude", "/api/logs/cliente", "/api/atualizacoes", "/api/assinatura", "/api/empresas")
+
+
+DESCRICAO_API_V1 = """
+Emita, consulte e cancele NFS-e a partir de outro sistema (cobrança, ERP, loja).
+
+**Acesso:** crie um token em *Configurações → Integrações* (só o administrador da empresa) e envie
+`Authorization: Bearer emp_...` em toda requisição. Cada token é de uma empresa e de um ambiente (produção ou
+homologação) e tem permissões próprias.
+
+**Sem nota em duplicidade:** envie `referencia_externa` (ou o cabeçalho `Idempotency-Key`) com o identificador da
+nota no seu sistema. Repetir o pedido devolve a nota já criada (`repetida: true`) em vez de emitir outra; a
+referência só fica livre de novo se a nota for recusada.
+
+**Emissão assíncrona:** `POST /notas` responde 202 com a nota `pendente`; ela é enviada à Sefin pela mesma fila da
+tela. Acompanhe por `GET /notas/{id}` ou receba o evento num webhook (`nota.autorizada`, `nota.rejeitada`...).
+
+**Webhooks:** cada entrega leva `X-Emissor-Assinatura: t=<unix>,v1=<hex>`, com `v1 = HMAC-SHA256(segredo,
+"<t>.<corpo>")`; confira a assinatura e recuse `t` antigo. Respostas fora de 2xx são repetidas por até 24 h.
+
+**Cobranças do Asaas:** em *Configurações → Integrações → Receber cobranças* o administrador liga o Asaas: cada
+pagamento recebido vira uma nota, sem programar nada (a nota leva `referencia_externa` = id da cobrança).
+
+**Limites:** 60 requisições por minuto e 1.000 notas por dia por token (ajustáveis na instalação própria).
+"""
 
 
 def _redes_permitidas() -> list[ipaddress._BaseNetwork]:
@@ -58,6 +89,8 @@ async def lifespan(app: FastAPI):
     auth.anunciar_primeiro_acesso()
     if app.state.iniciar_worker:
         worker().iniciar()
+        webhooks.entregador().iniciar()
+        conectores.processador().iniciar()
     log.info("servidor iniciado", extra={"versao": config.VER_APLIC, "data_dir": str(config.DATA_DIR)})
     yield
 
@@ -89,29 +122,49 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
                 return JSONResponse({"mensagem": f"Acesso não permitido a partir de {ip}."}, status_code=403)
         caminho = request.url.path
         protegido = caminho.startswith("/api") or caminho == "/docs"
+        # API de integração: só token (Authorization: Bearer), nunca o cookie da tela; por isso também sem o
+        # risco de CSRF (o navegador não manda o token sozinho) e sem X-Empresa (o token é de uma empresa só).
+        api_v1 = caminho.startswith("/api/v1/") and caminho not in V1_PUBLICAS
         # CSRF: além do cookie SameSite=Lax, recusa escrita vinda de outra origem (outro site ou subdomínio).
-        if protegido and request.method not in ("GET", "HEAD", "OPTIONS"):
+        if protegido and not api_v1 and request.method not in ("GET", "HEAD", "OPTIONS"):
             origem = request.headers.get("origin")
             if origem and urlsplit(origem).netloc != request.headers.get("host"):
                 log.warning("requisição de outra origem recusada", extra={"origem": origem, "path": caminho})
                 return JSONResponse({"mensagem": "Requisição de outra origem recusada."}, status_code=403)
         request.state.acesso = None
-        if protegido and request.cookies.get(auth.COOKIE):
+        empresas.definir(None)
+        if api_v1:
+            autorizacao = request.headers.get("authorization", "")
+            bearer = autorizacao[7:].strip() if autorizacao[:7].lower() == "bearer " else ""
+            if bearer:
+                acesso = await run_in_threadpool(tokens_api.resolver, bearer, ip_cliente(request))
+                if acesso is None:
+                    log.warning("token da API recusado", extra={"path": caminho, "ip": ip})
+                    return JSONResponse({"mensagem": "Token inválido ou revogado.", "login": True}, status_code=401)
+                espera = tokens_api.excedeu_limite(acesso.token_id)
+                if espera is not None:
+                    return JSONResponse(
+                        {"mensagem": f"Limite de {tokens_api.LIMITE_POR_MINUTO} requisições por minuto atingido."},
+                        status_code=429,
+                        headers={"Retry-After": str(round(espera))},
+                    )
+                request.state.acesso = acesso
+                empresas.definir(acesso.empresa_id)
+        elif protegido and request.cookies.get(auth.COOKIE):
             request.state.acesso = await run_in_threadpool(
                 auth.resolver_sessao, request.cookies.get(auth.COOKIE), ip_cliente(request)
             )
-        empresas.definir(None)
-        acesso = request.state.acesso
-        if acesso is not None:
-            pedida = request.headers.get("x-empresa") or request.query_params.get("empresa")
-            try:
-                eid, papel = await run_in_threadpool(empresas.resolver, acesso.usuario_id, acesso.admin, pedida)
-            except empresas.EmpresaNegada as e:
-                if not caminho.startswith(SEM_EMPRESA):
-                    return JSONResponse({"mensagem": e.mensagem, "sem_empresa": True}, status_code=e.status)
-                eid, papel = None, None
-            request.state.acesso = replace(acesso, empresa_id=eid, papel_empresa=papel)
-            empresas.definir(eid)
+            acesso = request.state.acesso
+            if acesso is not None:
+                pedida = request.headers.get("x-empresa") or request.query_params.get("empresa")
+                try:
+                    eid, papel = await run_in_threadpool(empresas.resolver, acesso.usuario_id, acesso.admin, pedida)
+                except empresas.EmpresaNegada as e:
+                    if not caminho.startswith(SEM_EMPRESA):
+                        return JSONResponse({"mensagem": e.mensagem, "sem_empresa": True}, status_code=e.status)
+                    eid, papel = None, None
+                request.state.acesso = replace(acesso, empresa_id=eid, papel_empresa=papel)
+                empresas.definir(eid)
         usuario = request.state.acesso.email if request.state.acesso else None
         inicio = time.perf_counter()
         with bind_context(request_id=rid, usuario=usuario):
@@ -161,7 +214,20 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
 
     @app.exception_handler(LoteError)
     async def _lote(_req: Request, exc: LoteError):
-        return JSONResponse({"mensagem": exc.mensagem, "detalhes": exc.detalhes}, status_code=400)
+        status = 409 if isinstance(exc, ReferenciaEmUso) else 400
+        return JSONResponse({"mensagem": exc.mensagem, "detalhes": exc.detalhes}, status_code=status)
+
+    @app.exception_handler(tokens_api.TokenError)
+    async def _token(_req: Request, exc: tokens_api.TokenError):
+        return JSONResponse({"mensagem": exc.mensagem}, status_code=exc.status)
+
+    @app.exception_handler(webhooks.WebhookError)
+    async def _webhook(_req: Request, exc: webhooks.WebhookError):
+        return JSONResponse({"mensagem": exc.mensagem}, status_code=exc.status)
+
+    @app.exception_handler(conectores.ConectorError)
+    async def _conector(_req: Request, exc: conectores.ConectorError):
+        return JSONResponse({"mensagem": exc.mensagem}, status_code=exc.status)
 
     @app.exception_handler(TributacaoError)
     async def _tributacao(_req: Request, exc: TributacaoError):
@@ -194,6 +260,27 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     app.include_router(routes_tributacao.router, prefix="/api", dependencies=logado)
     app.include_router(routes_emissoes.router, prefix="/api", dependencies=logado)
     app.include_router(routes_empresas.router, prefix="/api", dependencies=logado)
+    app.include_router(routes_integracoes.router, prefix="/api", dependencies=logado)
+    app.include_router(routes_entrada.router, prefix="/api")
+    app.include_router(routes_api_v1.router, prefix="/api")
+
+    @app.get("/api/v1/openapi.json", include_in_schema=False)
+    async def openapi_v1():
+        if not hasattr(app.state, "openapi_v1"):
+            doc = FastAPI(title="Emissor em Planilha — API de integração", version="1", description=DESCRICAO_API_V1)
+            doc.include_router(routes_api_v1.router, prefix="/api")
+            app.state.openapi_v1 = doc.openapi()
+            app.state.openapi_v1["components"].setdefault("securitySchemes", {})["token"] = {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "Token criado em Configurações → Integrações (emp_...).",
+            }
+            app.state.openapi_v1["security"] = [{"token": []}]
+        return app.state.openapi_v1
+
+    @app.get("/api/v1/docs", include_in_schema=False)
+    async def docs_v1():
+        return get_swagger_ui_html(openapi_url="/api/v1/openapi.json", title="Emissor em Planilha — API de integração")
 
     @app.get("/api/openapi.json", include_in_schema=False, dependencies=logado)
     async def openapi():

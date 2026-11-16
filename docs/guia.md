@@ -216,6 +216,48 @@ está aberta naquela aba do navegador e troca de empresa. Os clientes são de ca
 entre todas (opção no fim de Configurações → Empresas). Em **Usuários**, o administrador do sistema escolhe quais
 empresas cada usuário acessa e com qual papel. Na versão hospedada a opção ainda não está disponível.
 
+## Integração com outros sistemas (API)
+
+Outro sistema (cobrança, ERP, loja) pode emitir, consultar e cancelar notas sem passar pela tela:
+
+1. Em **Configurações → Integrações (API)**, o administrador cria um **token**: escolhe o nome, o ambiente
+   (homologação ou produção) e as permissões. O token aparece uma vez só; copie para o outro sistema.
+2. O outro sistema chama `https://<seu endereço>/api/v1/...` com o cabeçalho `Authorization: Bearer <token>`.
+   A documentação completa, com exemplos, fica em `/api/v1/docs`.
+3. Para receber um aviso quando a nota sai (ou é recusada, cancelada), cadastre um **webhook** na mesma tela. Cada
+   aviso chega assinado com o segredo mostrado no cadastro.
+
+Envie sempre a `referencia_externa` (por exemplo, o número da cobrança): repetir o mesmo pedido não emite a nota de
+novo. Na rede local sem HTTPS o token passa sem criptografia; use a API só entre máquinas do escritório.
+
+### Notas automáticas das cobranças do Asaas
+
+Em **Configurações → Integrações → Receber cobranças**, o administrador clica em **Conectar o Asaas**, cola a chave da
+API do Asaas (Integrações → Chaves de API, no Asaas) e escolhe o ambiente da NFS-e, a tributação, a descrição da nota
+(`{cobranca}` traz a descrição da cobrança; as variáveis da tabela, como `{mes}`, também valem) e quando emitir
+(pagamento recebido ou confirmado). O sistema mostra uma URL e um token: no Asaas, crie um webhook em
+Integrações → Webhooks com essa URL, o token em "Token de autenticação" e o evento `PAYMENT_RECEIVED` (e
+`PAYMENT_CONFIRMED`, se escolheu emitir na confirmação).
+
+Cada cobrança paga vira uma nota para o cliente da cobrança (CPF/CNPJ e endereço vêm do Asaas e entram no cadastro de
+clientes). A mesma cobrança nunca gera duas notas, e um estorno não cancela a nota sozinho. Em **Avisos** dá para ver o
+que chegou e processar de novo um aviso com erro (por exemplo, depois de completar o CPF/CNPJ do cliente no Asaas). O
+Asaas precisa alcançar o sistema pela internet: numa instalação só na rede local os avisos não chegam.
+
+### Notas automáticas dos pagamentos da Stripe
+
+No cartão **Stripe** de **Configurações → Integrações**, clique em **Conectar**, cole uma chave da API da Stripe
+(Desenvolvedores → Chaves de API; prefira uma chave restrita com leitura em Customers, Invoices e Checkout Sessions e
+escrita em Webhook Endpoints) e escolha o ambiente da NFS-e, a tributação e a descrição (`{cobranca}` traz a descrição
+da fatura ou dos itens do Checkout). Na hospedagem o webhook é criado na Stripe sozinho. Numa instalação própria sem
+`EMISSOR_URL_PUBLICA`, o sistema mostra a URL: crie um destino em Desenvolvedores → Webhooks com os eventos
+`invoice.paid`, `checkout.session.completed` e `checkout.session.async_payment_succeeded` e cole o segredo
+(`whsec_...`) no conector.
+
+Cada fatura paga (assinaturas e faturas avulsas) e cada Checkout ou Payment Link pago vira uma nota. O CPF/CNPJ vem do
+Tax ID do cliente (`br_cpf` ou `br_cnpj`, que o Checkout pode pedir) ou do metadata `cpf_cnpj`. Pagamentos em outra
+moeda ficam com erro (emita pela nota avulsa), e chave de teste da Stripe só emite em homologação.
+
 ## Configuração
 
 Variáveis de ambiente (no `iniciar.bat`, descomente as linhas `set`; no Docker, edite `docker-compose.yaml`):
