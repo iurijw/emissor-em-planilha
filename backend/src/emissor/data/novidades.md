@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.17.1 (16/11/2026)
+
+- Corrigido: o cancelamento de notas emitidas por procuração era recusado pela Sefin (E0813).
+- Retenções: a nota soma CSLL, PIS e COFINS retidos em "Contribuições Sociais - Retidas", e o valor líquido sai igual ao da Sefin. O campo da tributação pede só a CSLL.
+
 ## 0.17.0 (16/11/2026)
 
 - Integrações: API com tokens e webhooks para ligar o emissor a outros sistemas (Configurações → Integrações).
