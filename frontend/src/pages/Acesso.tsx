@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, type Sessao } from "../api";
-import { ErroCaixa, Spinner } from "../ui";
+import { ErroCaixa, Logo, Spinner } from "../ui";
 
 export const SENHA_MIN = 10;
 
@@ -12,7 +12,7 @@ function Moldura({ titulo, subtitulo, children }: { titulo: string; subtitulo?: 
     <div className="acesso">
       <div className="acesso__cartao">
         <div className="marca acesso__marca">
-          <img src="/logo.svg" alt="" />
+          <Logo />
           <span>Emissor em Planilha</span>
         </div>
         <h1 className="titulo">{titulo}</h1>

@@ -8,7 +8,11 @@
     <!-- O tamanho de texto do sistema (celular) vale aqui: as fontes estão em rem. -->
     <meta name="text-scale" content="scale" />
     <meta name="theme-color" content="#f9fdfe" />
-    <meta name="color-scheme" content="light" />
+    <!-- Claro e escuro, seguindo o sistema; a escolha de "Minha conta → Aparência" vem do localStorage antes de desenhar. -->
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try { document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("esquema-de-cor") || "light dark"; } catch (e) {}
+    </script>
     <title>Emissor em Planilha</title>
   </head>
   <body>

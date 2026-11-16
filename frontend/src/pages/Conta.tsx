@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, type Sessao, type UsuarioSessao } from "../api";
 import { copiar, Dialogo, ErroCaixa, Spinner, useToast } from "../ui";
+import { escolherEsquema, useEsquema, type Esquema } from "../tema";
 import { SENHA_MIN } from "./Acesso";
 
 type Conta = UsuarioSessao & { codigos_recuperacao_restantes: number };
@@ -29,10 +30,42 @@ export function MinhaConta() {
         <>
           <DoisFatores conta={conta.data} />
           <TrocarSenha />
+          <Aparencia />
           {conta.data.papel === "admin" && urlAssinatura && <Assinatura url={urlAssinatura} />}
         </>
       )}
     </div>
+  );
+}
+
+const ESQUEMAS: { valor: Esquema; rotulo: string; texto: string }[] = [
+  { valor: "auto", rotulo: "Automático", texto: "Igual ao computador ou celular" },
+  { valor: "claro", rotulo: "Claro", texto: "Sempre claro" },
+  { valor: "escuro", rotulo: "Escuro", texto: "Sempre escuro" },
+];
+
+/** Claro ou escuro: vale só neste navegador (fica guardado nele), por isso não vai para o servidor. */
+function Aparencia() {
+  const atual = useEsquema();
+  return (
+    <section className="folha">
+      <h2 className="secao-titulo">Aparência</h2>
+      <fieldset className="esquemas">
+        <legend className="acesso__dica">Tema da tela neste navegador. As notas em PDF não mudam.</legend>
+        {ESQUEMAS.map((e) => (
+          <label key={e.valor} className="esquema" data-esquema={e.valor}>
+            <input type="radio" name="esquema" value={e.valor} checked={atual === e.valor} onChange={() => escolherEsquema(e.valor)} />
+            <span className="esquema__amostra" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <strong>{e.rotulo}</strong>
+            <span className="esquema__texto">{e.texto}</span>
+          </label>
+        ))}
+      </fieldset>
+    </section>
   );
 }
 

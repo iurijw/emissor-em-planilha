@@ -24,6 +24,7 @@ import { EditorNomeCliente } from "../components/EditorNomeCliente";
 import { NotaAvulsa } from "../components/NotaAvulsa";
 import { BotaoVariaveis } from "../components/Variaveis";
 import { AmbChip, Dialogo, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
+import { useEscuro } from "../tema";
 import { EmissaoFluxo } from "./EmissaoFluxo";
 import { ZonaArquivo } from "./Onboarding";
 
@@ -35,9 +36,26 @@ let seqChave = 0;
 const novaChave = () => `l${++seqChave}`;
 const vazia = (): LinhaLocal => ({ chave: novaChave(), nome: "", documento: "", valor: "", descricao: "" });
 
-const tema: Partial<Theme> = {
+// A grade é desenhada em canvas: as cores não vêm do CSS, então há uma paleta para cada tema (as mesmas de styles.css).
+const CORES_CLARO = {
+  azulTexto: "#0079AD", grafite: "#56656F", grafiteClaro: "#8795A0", erro: "#C62F24", erroFundo: "#FDECEA", aviso: "#8A5A00",
+};
+const CORES_ESCURO = {
+  azulTexto: "#5CC6F0", grafite: "#A0AFB8", grafiteClaro: "#74848E", erro: "#FF8A7E", erroFundo: "#34140F", aviso: "#F0BB55",
+};
+type Cores = typeof CORES_CLARO;
+const TEMA_BASE: Partial<Theme> = {
   accentColor: "#0098D7",
   accentFg: "#FFFFFF",
+  fontFamily: "'Archivo Variable', 'Segoe UI', sans-serif",
+  baseFontStyle: "13px",
+  headerFontStyle: "600 12px",
+  editorFontSize: "13px",
+  cellHorizontalPadding: 10,
+  lineHeight: 1.4,
+};
+const TEMA_CLARO: Partial<Theme> = {
+  ...TEMA_BASE,
   accentLight: "rgba(0, 152, 215, 0.13)",
   textDark: "#0B1014",
   textMedium: "#56656F",
@@ -50,15 +68,31 @@ const tema: Partial<Theme> = {
   horizontalBorderColor: "#E8F0F4",
   bgCell: "#FFFFFF",
   bgBubble: "#EEF3F6",
-  fontFamily: "'Archivo Variable', 'Segoe UI', sans-serif",
-  baseFontStyle: "13px",
-  headerFontStyle: "600 12px",
-  editorFontSize: "13px",
-  cellHorizontalPadding: 10,
-  lineHeight: 1.4,
+};
+const TEMA_ESCURO: Partial<Theme> = {
+  ...TEMA_BASE,
+  accentLight: "rgba(0, 152, 215, 0.24)",
+  textDark: "#E3EBEF",
+  textMedium: "#A0AFB8",
+  textLight: "#74848E",
+  textHeader: "#A0AFB8",
+  textBubble: "#E3EBEF",
+  bgIconHeader: "#A0AFB8",
+  fgIconHeader: "#0A1115",
+  bgHeader: "#0D151A",
+  bgHeaderHasFocus: "#0D2633",
+  bgHeaderHovered: "#18232A",
+  borderColor: "#233139",
+  horizontalBorderColor: "#1B262D",
+  bgCell: "#111A20",
+  bgCellMedium: "#0D151A",
+  bgBubble: "#1C2830",
+  bgBubbleSelected: "#26343C",
+  bgSearchResult: "#2D230C",
+  drilldownBorder: "rgba(0, 0, 0, 0)",
+  linkColor: "#5CC6F0",
 };
 const MONO = "'Martian Mono Variable', Consolas, monospace";
-const ERRO: Partial<Theme> = { bgCell: "#FDECEA", textDark: "#C62F24" };
 
 type ColId = "nome" | "documento" | "valor" | "descricao" | "situacao";
 const COLUNAS: (GridColumn & { id: ColId })[] = [
@@ -126,23 +160,23 @@ const mesmaLinha = (a: LinhaLocal | undefined, b: LinhaLocal | undefined) => !!a
 const mesmoConteudo = (a: LinhaLocal[], b: LinhaLocal[]) => a.length === b.length && a.every((l, i) => mesmaLinha(l, b[i]));
 const plural = (n: number, um: string, varios: string) => (n === 1 ? um : `${n} ${varios}`);
 
-function situacaoTexto(ln: LinhaLocal, cli: Cliente | undefined): { texto: string; tema?: Partial<Theme> } {
+function situacaoTexto(ln: LinhaLocal, cli: Cliente | undefined, cor: Cores = CORES_CLARO): { texto: string; tema?: Partial<Theme> } {
   const e = ln.ultima_emissao;
   if (e) {
     const amb = e.ambiente === "2" ? " (homolog.)" : "";
     if (e.status === "autorizada")
-      return { texto: `✓ Nº ${e.numero_nfse} · ${new Date(e.dh_emissao || "").toLocaleDateString("pt-BR")}${amb}`, tema: { textDark: "#0079AD" } };
+      return { texto: `✓ Nº ${e.numero_nfse} · ${new Date(e.dh_emissao || "").toLocaleDateString("pt-BR")}${amb}`, tema: { textDark: cor.azulTexto } };
     if (e.status === "cancelada" || e.status === "substituida")
-      return { texto: `Nº ${e.numero_nfse} ${STATUS_ROTULO[e.status].toLowerCase()}${amb} — ver detalhe`, tema: { textDark: "#56656F" } };
+      return { texto: `Nº ${e.numero_nfse} ${STATUS_ROTULO[e.status].toLowerCase()}${amb} — ver detalhe`, tema: { textDark: cor.grafite } };
     const cod = e.erro?.mensagens?.[0]?.codigo;
     return {
       texto: `${STATUS_ROTULO[e.status]}${cod ? ` · ${cod}` : ""}${amb} — ver detalhe`,
-      tema: ["rejeitada", "erro"].includes(e.status) ? { textDark: "#C62F24" } : undefined,
+      tema: ["rejeitada", "erro"].includes(e.status) ? { textDark: cor.erro } : undefined,
     };
   }
-  if (ln.documento && !documentoValido(ln.documento)) return { texto: "CNPJ/CPF inválido", tema: { textDark: "#C62F24" } };
-  if (ln.documento.length === 14 && !cli) return { texto: "Sem cadastro", tema: { textDark: "#8795A0" } };
-  if (cli && !cli.endereco_completo) return { texto: "Cadastro sem endereço", tema: { textDark: "#8A5A00" } };
+  if (ln.documento && !documentoValido(ln.documento)) return { texto: "CNPJ/CPF inválido", tema: { textDark: cor.erro } };
+  if (ln.documento.length === 14 && !cli) return { texto: "Sem cadastro", tema: { textDark: cor.grafiteClaro } };
+  if (cli && !cli.endereco_completo) return { texto: "Cadastro sem endereço", tema: { textDark: cor.aviso } };
   return { texto: "" };
 }
 
@@ -391,13 +425,16 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   }, [linhas, carregado, clientes, clientesQ.data, salvando, alterar, qc, toast]);
 
   // ---- conteúdo da grade ----
+  const escuro = useEscuro();
+  const cores = escuro ? CORES_ESCURO : CORES_CLARO;
+  const erroCelula = useMemo<Partial<Theme>>(() => ({ bgCell: cores.erroFundo, textDark: cores.erro }), [cores]);
   const getCellContent = useCallback(
     ([col, row]: Item): GridCell => {
       const ln = linhas[row];
       const id = COLUNAS[col].id;
       if (!ln) return { kind: GridCellKind.Text, data: "", displayData: "", allowOverlay: false };
       if (id === "situacao") {
-        const s = situacaoTexto(ln, clientes.get(ln.documento));
+        const s = situacaoTexto(ln, clientes.get(ln.documento), cores);
         return { kind: GridCellKind.Text, data: s.texto, displayData: s.texto, allowOverlay: false, readonly: true, themeOverride: s.tema, cursor: ln.ultima_emissao ? "pointer" : undefined };
       }
       if (id === "documento") {
@@ -408,7 +445,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
           displayData: formatarDocumento(ln.documento),
           copyData: formatarDocumento(ln.documento),
           allowOverlay: true,
-          themeOverride: { fontFamily: MONO, baseFontStyle: "12px", ...(invalido ? ERRO : {}) },
+          themeOverride: { fontFamily: MONO, baseFontStyle: "12px", ...(invalido ? erroCelula : {}) },
         };
       }
       if (id === "valor") {
@@ -420,13 +457,13 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
           copyData: ln.valor ? ln.valor.replace(".", ",") : "",
           allowOverlay: true,
           contentAlign: "right",
-          themeOverride: { fontFamily: MONO, baseFontStyle: "12px", ...(ln.valor !== "" && !numero ? ERRO : {}) },
+          themeOverride: { fontFamily: MONO, baseFontStyle: "12px", ...(ln.valor !== "" && !numero ? erroCelula : {}) },
         };
       }
       const texto = id === "nome" ? ln.nome : ln.descricao;
       return { kind: GridCellKind.Text, data: texto, displayData: texto, allowOverlay: true };
     },
-    [linhas, clientes],
+    [linhas, clientes, cores, erroCelula],
   );
 
   // Seleção atual sempre fresca para os callbacks da grade.
@@ -747,7 +784,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
           <DataEditor
             key={fontes}
             ref={grade}
-            theme={tema}
+            theme={escuro ? TEMA_ESCURO : TEMA_CLARO}
             columns={colunas}
             onHeaderClicked={onHeaderClicked}
             rows={linhas.length}

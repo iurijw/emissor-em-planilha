@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { api, type CertificadoInfo, type Cliente, type Fiscal, type Linha, type Status } from "../api";
 import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
-import { ehEnter, ErroCaixa, Spinner } from "../ui";
+import { ehEnter, ErroCaixa, Logo, Spinner } from "../ui";
 import { nomeEmpresa, SairDaEmpresaNova } from "../components/Empresas";
 
 const PASSOS = ["Certificado digital", "Notas anteriores", "Dados da empresa", "Tributação padrão", "Ambiente e numeração", "Revisão"];
@@ -160,7 +160,7 @@ export function Onboarding({ status }: { status: Status }) {
     <div className="onb">
       <aside className="onb__lado">
         <div className="marca">
-          <img src="/logo.svg" alt="" style={{ background: "#fff", borderRadius: 6, padding: 2 }} />
+          <Logo />
           <span>Emissor em Planilha</span>
         </div>
         <ol className="onb__passos">
