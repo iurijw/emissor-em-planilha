@@ -268,6 +268,17 @@ def test_origem_diferente_recusada(admin):
     assert r.status_code == 200, r.text
 
 
+def test_whatsapp_suporte(client, monkeypatch):
+    # Sem a variável (instalação própria) o botão não aparece; a sessão sai mesmo sem login (tela de entrada).
+    assert client.get("/api/auth/sessao").json()["whatsapp_suporte"] is None
+    monkeypatch.setenv("EMISSOR_WHATSAPP_SUPORTE", "(41) 99999-0000")
+    assert client.get("/api/auth/sessao").json()["whatsapp_suporte"] == "5541999990000"
+    monkeypatch.setenv("EMISSOR_WHATSAPP_SUPORTE", "+55 41 3333-0000")
+    assert auth.whatsapp_suporte() == "554133330000"
+    monkeypatch.setenv("EMISSOR_WHATSAPP_SUPORTE", "123")
+    assert auth.whatsapp_suporte() is None
+
+
 def test_suspensao(admin, monkeypatch):
     monkeypatch.setenv("EMISSOR_SUSPENSO", "1")
     monkeypatch.setenv("EMISSOR_URL_ASSINATURA", "https://billing.exemplo/portal")

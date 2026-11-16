@@ -29,6 +29,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import struct
 import threading
@@ -965,3 +966,11 @@ def suspenso() -> bool:
 
 def url_assinatura() -> str | None:
     return os.environ.get("EMISSOR_URL_ASSINATURA", "").strip() or None
+
+
+def whatsapp_suporte() -> str | None:
+    """Hospedagem: número do WhatsApp do suporte (só dígitos, com o 55); sem a variável o botão não aparece."""
+    numero = re.sub(r"\D", "", os.environ.get("EMISSOR_WHATSAPP_SUPORTE", ""))
+    if len(numero) in (10, 11):  # DDD + número, sem o código do país
+        numero = "55" + numero
+    return numero if 12 <= len(numero) <= 15 else None

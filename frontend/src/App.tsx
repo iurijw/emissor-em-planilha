@@ -12,6 +12,7 @@ import { Onboarding } from "./pages/Onboarding";
 import { ErroCaixa, Logo, Spinner } from "./ui";
 import { FaixaAssinatura, useAssinatura } from "./components/Assinatura";
 import { Atualizacoes } from "./components/Atualizacoes";
+import { BotaoSuporte, LinkSuporte } from "./components/Suporte";
 import { nomeEmpresa, SeletorEmpresa } from "./components/Empresas";
 
 // A tela de emissão traz a grade (Glide Data Grid, a maior parte do código): fica num arquivo à parte, baixado
@@ -161,6 +162,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
           <SeletorEmpresa admin={false} />
           <MenuUsuario usuario={usuario} urlAssinatura={sessao.url_assinatura} />
         </p>
+        <LinkSuporte status={s} usuario={usuario} />
       </div>
     );
   }
@@ -202,6 +204,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </span>
           )}
         </div>
+        <BotaoSuporte status={s} usuario={usuario} />
         <Atualizacoes />
         <MenuUsuario usuario={usuario} urlAssinatura={sessao.url_assinatura} />
       </header>

@@ -902,6 +902,11 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   espera o `/api/saude` voltar sem suspensão para recarregar. Desde a 0.9.0 vale para **qualquer** suspensão
   (`situacao` `suspensa`, com `motivo` `pagamento`/`encerrada`): "Pagar e reativar" / "Continuar e assinar"; com o
   cartão recusado o painel devolve `pagar_url` (fatura ou Checkout do Stripe) e a tela espera o pagamento na outra aba. Tudo na auditoria (`assinatura_*`).
+- **Suporte pelo WhatsApp** (2026-11-16, `components/Suporte.tsx`): com `EMISSOR_WHATSAPP_SUPORTE` (número com DDD; o
+  55 é acrescentado; `auth.whatsapp_suporte`, devolvido em `/api/auth/sessao`), ícone no topo (ao lado das
+  atualizações) e link nas telas de entrada e na configuração inicial, abrindo `wa.me` com uma mensagem que diz o
+  endereço da instância, a empresa e o usuário. Sem a variável (instalação própria) nada aparece. O painel da
+  hospedagem define a variável.
 - Hospedagem: com `EMISSOR_URL_ASSINATURA`, o administrador vê o link "Assinatura" no topo e a seção "Assinatura" em
   Minha conta (portal do Stripe: cartão, faturas, cancelamento); sem a variável (instalação própria) nada aparece.
 
