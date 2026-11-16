@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.18.0 (16/11/2026)
+
+- Modo escuro: segue o tema do computador, ou escolha Claro ou Escuro em Minha conta → Aparência.
+- Para quem instala por conta própria: as configurações do servidor ficam explicadas no arquivo `.env.example`.
+
 ## 0.17.1 (16/11/2026)
 
 - Corrigido: o cancelamento de notas emitidas por procuração era recusado pela Sefin (E0813).
