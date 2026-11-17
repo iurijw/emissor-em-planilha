@@ -880,6 +880,21 @@ def test_iss_retido_no_simples_e_tributos_federais(api, sim, pfx_bytes, nfse_exe
     erros = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["linhas"][0]["erros"]
     assert any("passam do valor" in e for e in erros)
 
+    # Sem somar: o tomador retém só parte, e as contribuições sociais levam o percentual digitado.
+    t = next(x for x in api.get("/api/tributacoes").json()["itens"] if x["nome"] == "Retido SN")
+    r = api.put(
+        f"/api/tributacoes/{t['id']}",
+        json={
+            "nome": "Retido SN",
+            "dados": t["dados"]
+            | {"somar_contrib_sociais": False, "p_ret_contrib_sociais": "1", "p_ret_cp": None, "p_aliq_iss": "2.5"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    ids2 = _linhas(api, [{"nome": "X", "documento": TOMADOR_CNPJ, "valor": "1000", "descricao": "outro"}], aba["id"])
+    doc = _conferir_nota(api, sim, _emitir(api, ids2)["emissoes"][0], documento=TOMADOR_CNPJ, valor="1000.00")
+    assert doc.dps(f"{tf}/vRetCSLL") == "10.00" and doc.t("valores/vLiq") == "950.00"
+
 
 def test_padroes_com_iss_retido_e_prestador_nao_optante(api, sim, pfx_bytes, nfse_exemplo_bytes):
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)

@@ -8,7 +8,8 @@ A DPS leva o PIS/COFINS com base, alíquota e valor (E0694/E0696: valor = base x
 calcula ``vTotalRet``/``vLiq`` só com ``vRetIRRF + vRetCP + vRetCSLL`` (+ ISS retido); o ``vPis``/``vCofins`` do grupo
 ``piscofins`` não entram. Visto numa nota real de 16/11/2026 (``tpRetPisCofins`` 3, PIS 0,65%, COFINS 3%, CSLL 1%:
 a Sefin tirou do líquido só a CSLL). A tributação guarda só o percentual da CSLL e o PIS/COFINS retidos são somados
-aqui. Exceção: ``tpRetPisCofins`` 1, que a NT 008 (DANFSe) soma ``vRetCSLL + vPis + vCofins`` — ali o ``vRetCSLL``
+aqui, salvo quando a tributação desliga a soma (``somar_contrib_sociais``) e informa o percentual retido de fato
+(``p_ret_contrib_sociais``): o tomador pode reter só parte. Exceção: ``tpRetPisCofins`` 1, que a NT 008 (DANFSe) soma ``vRetCSLL + vPis + vCofins`` — ali o ``vRetCSLL``
 continua só com a CSLL (não conferido na Sefin real).
 """
 
@@ -17,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
-from emissor.nfse.models import RETENCOES_PIS_COFINS, ConfigFiscal, iss_exige_aliquota
+from emissor.nfse.models import RETENCOES_PIS_COFINS, ConfigFiscal, contrib_sociais_digitadas, iss_exige_aliquota
 
 CENTAVO = Decimal("0.01")
 ALIQ_ISS_MIN = Decimal("1.80")  # E0621/E0628: mínimo para ISS retido de ME/EPP com ISS pelo Simples
@@ -117,7 +118,9 @@ def calcular(
         t.pis_cofins_fora_do_vretcsll = cfg.tp_ret_pis_cofins == "1"
     t.v_csll = _de(valor, pct(cfg.p_ret_csll))
     t.v_ret_csll = t.v_csll
-    if not t.pis_cofins_fora_do_vretcsll and (t.pis_retido or t.cofins_retido):
+    if contrib_sociais_digitadas(cfg):
+        t.v_ret_csll = _de(valor, pct(cfg.p_ret_contrib_sociais))
+    elif not t.pis_cofins_fora_do_vretcsll and (t.pis_retido or t.cofins_retido):
         retidos = [t.v_csll, t.v_pis if t.pis_retido else None, t.v_cofins if t.cofins_retido else None]
         if any(v is not None for v in retidos):
             t.v_ret_csll = sum((v for v in retidos if v), Decimal("0"))

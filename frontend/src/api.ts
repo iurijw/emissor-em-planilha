@@ -239,6 +239,9 @@ export interface Fiscal {
   p_aliq_cofins: string | null;
   p_ret_irrf: string | null;
   p_ret_csll: string | null;
+  /** Contribuições Sociais - Retidas = CSLL + PIS + COFINS retidos (padrão; ausente = true). Com false, vale o % digitado. */
+  somar_contrib_sociais?: boolean;
+  p_ret_contrib_sociais?: string | null;
   p_ret_cp: string | null;
   p_tot_trib_fed: string | null;
   p_tot_trib_est: string | null;
@@ -307,6 +310,8 @@ export const CAMPOS_TRIBUTACAO = [
   "p_aliq_cofins",
   "p_ret_irrf",
   "p_ret_csll",
+  "somar_contrib_sociais",
+  "p_ret_contrib_sociais",
   "p_ret_cp",
   "p_tot_trib_fed",
   "p_tot_trib_est",

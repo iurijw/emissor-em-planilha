@@ -779,20 +779,32 @@ export function CamposTributacao({
   const exigeTpOper = exigeTpOperServico || !!valor.ibscbs_tp_ente_gov;
   const retencao = RETENCOES[valor.tp_ret_pis_cofins ?? ""];
   const retemCsll = !!valor.cst_pis_cofins && !!retencao?.[2];
-  // A Sefin tira do líquido o PIS/COFINS retidos só pelo campo Contribuições Sociais - Retidas (vRetCSLL), que soma
-  // CSLL + PIS + COFINS; a tributação guarda só a CSLL e o sistema soma o resto (nfse/tributos.py).
-  const ajudaCsll = (() => {
-    const partes: [string, string | null][] = [["CSLL", valor.p_ret_csll]];
+  // A Sefin tira do líquido o PIS/COFINS retidos só pelo campo Contribuições Sociais - Retidas (vRetCSLL). Por padrão o
+  // sistema soma CSLL + PIS + COFINS retidos (nfse/tributos.py); como no Emissor Nacional, dá para digitar outro valor
+  // quando o tomador retém só parte (isenção, decisão judicial...). Com tpRetPisCofins 1 o vRetCSLL é só a CSLL.
+  const somaPossivel = !!valor.cst_pis_cofins && valor.tp_ret_pis_cofins !== "1" && (!!retencao?.[0] || !!retencao?.[1]);
+  const somarContrib = valor.somar_contrib_sociais !== false;
+  const contribDigitadas = somaPossivel && !somarContrib;
+  const partesContrib = (() => {
+    const partes: [string, string | null | undefined][] = [];
+    if (retencao?.[2] || valor.p_ret_csll) partes.push(["CSLL", valor.p_ret_csll]);
     if (retencao?.[0]) partes.push(["PIS", valor.p_aliq_pis]);
     if (retencao?.[1]) partes.push(["COFINS", valor.p_aliq_cofins]);
-    if (partes.length === 1) return "Só o percentual da CSLL retida.";
-    const nomes = partes.map(([n]) => n).join(" + ");
     const numeros = partes.map(([, p]) => Number(p ?? ""));
-    const fmt = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
-    const conta = numeros.every((n) => Number.isFinite(n) && n > 0)
-      ? `: ${numeros.map(fmt).join(" + ")} = ${fmt(numeros.reduce((a, b) => a + b, 0))}`
-      : "";
-    return `Só a CSLL. A nota soma ${nomes} em Contribuições Sociais - Retidas${conta}.`;
+    const completo = numeros.every((n) => Number.isFinite(n) && n > 0);
+    return { partes, numeros, soma: completo ? numeros.reduce((a, b) => a + b, 0) : null };
+  })();
+  const fmtPct = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+  const somaContribTexto = partesContrib.soma === null ? null : fmtPct(partesContrib.soma);
+  const contaContrib = partesContrib.partes
+    .map(([n], i) => (Number.isFinite(partesContrib.numeros[i]) && partesContrib.numeros[i] > 0 ? `${n} ${fmtPct(partesContrib.numeros[i])}` : n))
+    .join(" + ");
+  const ajudaContribDigitadas = (() => {
+    const digitado = Number(valor.p_ret_contrib_sociais ?? "");
+    if (!somaContribTexto) return "Percentual do valor do serviço retido de fato pelo tomador.";
+    if (Number.isFinite(digitado) && digitado > 0 && Math.abs(digitado - (partesContrib.soma ?? 0)) > 0.0001)
+      return `Diferente da soma (${contaContrib} = ${somaContribTexto}): confira com o que o tomador reteve.`;
+    return `A soma seria ${somaContribTexto} (${contaContrib}).`;
   })();
   const erroTribMun =
     valor.c_trib_mun && !/^\d{3}$/.test(valor.c_trib_mun)
@@ -1213,15 +1225,56 @@ export function CamposTributacao({
             ajuda="Imposto de renda retido pelo tomador. Vazio = sem retenção."
             num
           />
-          {(retemCsll || valor.p_ret_csll) && (
+          {(retemCsll || valor.p_ret_csll) && !contribDigitadas && (
             <Texto
               rotulo="CSLL retida (%)"
               valor={pctTela(valor.p_ret_csll)}
               onChange={(v) => set("p_ret_csll", pctDado(v))}
               obrigatorio={retemCsll}
-              ajuda={ajudaCsll}
+              ajuda={somaPossivel ? "Só a CSLL retida." : "Só o percentual da CSLL retida."}
               num
             />
+          )}
+          {somaPossivel && (
+            <>
+              <Pergunta
+                texto="Somar PIS, COFINS e CSLL retidos nas Contribuições Sociais - Retidas?"
+                sim={somarContrib}
+                onChange={(sim) =>
+                  onChange({
+                    ...valor,
+                    somar_contrib_sociais: sim,
+                    // Ao passar a digitar, começa pela soma (o caso comum é mudar só um pouco).
+                    p_ret_contrib_sociais:
+                      !sim && !valor.p_ret_contrib_sociais && partesContrib.soma !== null
+                        ? partesContrib.soma.toFixed(2)
+                        : valor.p_ret_contrib_sociais ?? null,
+                  })
+                }
+                ajuda={
+                  somarContrib
+                    ? "É o que a nota leva quando o tomador retém tudo."
+                    : "O tomador reteve outro valor (isenção, decisão judicial, retenção parcial): a nota leva o percentual abaixo."
+                }
+              />
+              {somarContrib ? (
+                <Mostrado
+                  rotulo="Contribuições Sociais - Retidas (%)"
+                  valor={somaContribTexto ?? "—"}
+                  ajuda={contaContrib}
+                  num
+                />
+              ) : (
+                <Texto
+                  rotulo="Contribuições Sociais - Retidas (%)"
+                  valor={pctTela(valor.p_ret_contrib_sociais ?? null)}
+                  onChange={(v) => set("p_ret_contrib_sociais", pctDado(v))}
+                  obrigatorio
+                  ajuda={ajudaContribDigitadas}
+                  num
+                />
+              )}
+            </>
           )}
           <Texto
             rotulo="Contribuição Previdenciária - Retida (%)"
@@ -1559,8 +1612,12 @@ function PreviaValores({
   const cofins = valor.cst_pis_cofins ? de(base, valor.p_aliq_cofins) : 0;
   const irrf = de(base, valor.p_ret_irrf);
   const csll = csllRet ? de(base, valor.p_ret_csll) : 0;
-  // Contribuições Sociais - Retidas = CSLL + PIS/COFINS retidos (é o que a Sefin tira do líquido).
-  const contribuicoes = csll + (pisRet ? pis : 0) + (cofinsRet ? cofins : 0);
+  // Contribuições Sociais - Retidas = CSLL + PIS/COFINS retidos (é o que a Sefin tira do líquido), ou o % digitado.
+  const digitadas =
+    valor.somar_contrib_sociais === false && valor.tp_ret_pis_cofins !== "1" && (pisRet || cofinsRet);
+  const contribuicoes = digitadas
+    ? de(base, valor.p_ret_contrib_sociais ?? null)
+    : csll + (pisRet ? pis : 0) + (cofinsRet ? cofins : 0);
   const cp = de(base, valor.p_ret_cp);
   const retidos = (issRetido ? iss ?? 0 : 0) + irrf + contribuicoes + cp;
   const linha = (rotulo: string, v: ReactNode, destaque = false) => (
@@ -1600,7 +1657,9 @@ function PreviaValores({
           (pisRet || cofinsRet) && contribuicoes > 0 ? (
             <>
               <small className="previa-nfse__detalhe">
-                {[csllRet && "CSLL", pisRet && "PIS", cofinsRet && "COFINS"].filter(Boolean).join(" + ")}
+                {digitadas
+                  ? "percentual digitado"
+                  : [csllRet && "CSLL", pisRet && "PIS", cofinsRet && "COFINS"].filter(Boolean).join(" + ")}
               </small>
               <span className="num">{reais(contribuicoes)}</span>
             </>

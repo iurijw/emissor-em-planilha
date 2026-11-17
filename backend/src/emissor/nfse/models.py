@@ -77,7 +77,11 @@ class ConfigFiscal:
     p_aliq_pis: str | None = None  # pAliqPis (base = valor do serviço)
     p_aliq_cofins: str | None = None  # pAliqCofins
     p_ret_irrf: str | None = None  # vRetIRRF = valor x %
-    p_ret_csll: str | None = None  # vRetCSLL
+    p_ret_csll: str | None = None  # vRetCSLL (só a CSLL; o PIS/COFINS retidos são somados, ver nfse/tributos.py)
+    # Contribuições Sociais - Retidas (vRetCSLL) com PIS/COFINS retidos: True = CSLL + PIS + COFINS (padrão); False =
+    # o percentual digitado em p_ret_contrib_sociais (o tomador pode reter só parte, ex.: isenção ou decisão judicial).
+    somar_contrib_sociais: bool = True
+    p_ret_contrib_sociais: str | None = None
     p_ret_cp: str | None = None  # vRetCP (INSS)
     # Total aproximado dos tributos (Lei 12.741) para não optante do Simples (pTotTrib)
     p_tot_trib_fed: str | None = None
@@ -116,6 +120,7 @@ CAMPOS_PERCENTUAIS = (
     "p_aliq_cofins",
     "p_ret_irrf",
     "p_ret_csll",
+    "p_ret_contrib_sociais",
     "p_ret_cp",
     "p_tot_trib_fed",
     "p_tot_trib_est",
@@ -140,6 +145,17 @@ RETENCOES_PIS_COFINS: dict[str, tuple[bool, bool, bool | None]] = {
     "8": (False, False, True),
     "9": (True, False, True),
 }
+
+
+def contrib_sociais_digitadas(cfg: ConfigFiscal) -> bool:
+    """Contribuições Sociais - Retidas pelo percentual digitado (e não CSLL + PIS + COFINS retidos).
+
+    Só vale com PIS ou COFINS retidos e ``tpRetPisCofins`` diferente de 1 (ali o ``vRetCSLL`` é só a CSLL).
+    """
+    if cfg.somar_contrib_sociais is not False or not cfg.cst_pis_cofins or cfg.tp_ret_pis_cofins == "1":
+        return False
+    pis, cofins, _ = RETENCOES_PIS_COFINS.get(cfg.tp_ret_pis_cofins or "", (False, False, None))
+    return pis or cofins
 
 
 def csll_sem_pis_cofins(
@@ -206,6 +222,8 @@ CAMPOS_TRIBUTACAO = (
     "p_aliq_cofins",
     "p_ret_irrf",
     "p_ret_csll",
+    "somar_contrib_sociais",
+    "p_ret_contrib_sociais",
     "p_ret_cp",
     "p_tot_trib_fed",
     "p_tot_trib_est",
@@ -235,6 +253,8 @@ def aplicar_tributacao(cfg: ConfigFiscal, tributacao: dict | None) -> ConfigFisc
     if not tributacao:
         return cfg
     novos = {k: v for k, v in tributacao.items() if k in CAMPOS_TRIBUTACAO}
+    # Tributações gravadas antes da opção somavam sempre (e não herdam a escolha das configurações).
+    novos["somar_contrib_sociais"] = novos.get("somar_contrib_sociais") is not False
     if "p_tot_trib_sn" in novos:
         p = novos["p_tot_trib_sn"]
         novos["p_tot_trib_sn"] = Decimal(str(p)) if p not in (None, "") else None

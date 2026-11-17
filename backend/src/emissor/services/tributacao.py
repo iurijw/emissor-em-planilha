@@ -76,8 +76,9 @@ def normalizar(d: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         if isinstance(v, str):
             v = v.strip() or None
         dados[k] = v
-    if "ibscbs" in dados:
-        dados["ibscbs"] = _bool(dados["ibscbs"])
+    for campo in ("ibscbs", "somar_contrib_sociais"):
+        if campo in dados:
+            dados[campo] = _bool(dados[campo]) if dados[campo] is not None else campo == "somar_contrib_sociais"
     for campo in (
         "c_trib_nac",
         "c_nbs",
@@ -171,6 +172,7 @@ _ROTULOS = {
     "p_aliq_cofins": "Alíquota da COFINS",
     "p_ret_irrf": "IRRF retido",
     "p_ret_csll": "CSLL retida",
+    "p_ret_contrib_sociais": "Contribuições sociais retidas",
     "p_ret_cp": "INSS (CP) retido",
     "p_tot_trib_fed": "Tributos aproximados federais",
     "p_tot_trib_est": "Tributos aproximados estaduais",
@@ -306,9 +308,16 @@ def _coerencia_retencoes(t: dict[str, Any]) -> list[str]:
             erros.append("PIS retido: informe a alíquota do PIS.")
         if cofins and pct(t.get("p_aliq_cofins")) is None:
             erros.append("COFINS retida: informe a alíquota da COFINS.")
-        if csll and not pct(t.get("p_ret_csll")):
+        digitadas = t.get("somar_contrib_sociais") is False and tp_ret != "1" and (pis or cofins)
+        if digitadas:
+            if not pct(t.get("p_ret_contrib_sociais")):
+                erros.append(
+                    "Contribuições Sociais - Retidas: informe o percentual retido de fato ou volte a somar PIS, "
+                    "COFINS e CSLL."
+                )
+        elif csll and not pct(t.get("p_ret_csll")):
             erros.append("CSLL retida: informe o percentual da CSLL retida.")
-        if csll is False and pct(t.get("p_ret_csll")):
+        if not digitadas and csll is False and pct(t.get("p_ret_csll")):
             erros.append(
                 "A retenção escolhida em PIS/COFINS diz que a CSLL não é retida, mas há percentual de CSLL retida "
                 "(E0720). Escolha uma opção com CSLL retida ou apague o percentual."
