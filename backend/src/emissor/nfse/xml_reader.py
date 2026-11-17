@@ -14,7 +14,7 @@ from lxml import etree
 
 from emissor.nfse.codes import C_IND_OP, TP_OPER, TP_OPER_COM_REFERENCIA
 from emissor.nfse.constants import NS_NFSE
-from emissor.nfse.models import ConfigFiscal, Endereco, Tomador, csll_sem_pis_cofins
+from emissor.nfse.models import RETENCOES_PIS_COFINS, ConfigFiscal, Endereco, Tomador, csll_sem_pis_cofins
 
 _NS = {"n": NS_NFSE}
 
@@ -169,14 +169,58 @@ def _padroes_aliquotas(d: NFSeDoc) -> dict:
         v_serv = Decimal(d.dps("valores/vServPrest/vServ") or "0")
     except InvalidOperation:
         v_serv = Decimal("0")
+    digitadas = False
     for campo, tag in (("p_ret_irrf", "vRetIRRF"), ("p_ret_csll", "vRetCSLL"), ("p_ret_cp", "vRetCP")):
         v = d.dps(f"{tf}/{tag}")
         if v and campo == "p_ret_csll":
-            # Contribuições Sociais - Retidas somam o PIS/COFINS retidos; a tributação guarda só a CSLL.
-            v = _so_csll(d, Decimal(v))
+            # Contribuições Sociais - Retidas somam o PIS/COFINS retidos; a tributação guarda só a CSLL. Menor que
+            # PIS + COFINS retidos = o tomador reteve só parte (valor digitado no Emissor Nacional, por exemplo).
+            if _contrib_digitadas(d, Decimal(v)):
+                digitadas = True
+                campo = "p_ret_contrib_sociais"
+            else:
+                v = _so_csll(d, Decimal(v))
         if v and v_serv > 0:
             res[campo] = f"{(Decimal(v) * 100 / v_serv).quantize(Decimal('0.01'))}"
-    return {k: v for k, v in res.items() if v}
+    res = {k: v for k, v in res.items() if v}
+    if digitadas:
+        res["somar_contrib_sociais"] = False
+    return res
+
+
+def _dec(d: NFSeDoc, caminho: str) -> Decimal | None:
+    try:
+        return Decimal(d.dps(caminho)) if d.dps(caminho) else None
+    except InvalidOperation:
+        return None
+
+
+def _contrib_digitadas(d: NFSeDoc, v_ret_csll: Decimal) -> bool:
+    """``vRetCSLL`` menor que o PIS + COFINS retidos: não é a soma, é o valor que o tomador reteve de fato.
+
+    Exceção: notas deste sistema até a 0.17.0, que levavam só a CSLL no ``vRetCSLL``.
+    """
+    pc = "valores/trib/tribFed/piscofins"
+    tp_ret = d.dps(f"{pc}/tpRetPisCofins")
+    if tp_ret in (None, "1"):
+        return False
+    pis, cofins, _ = RETENCOES_PIS_COFINS.get(tp_ret, (False, False, None))
+    soma = ((_dec(d, f"{pc}/vPis") or Decimal("0")) if pis else Decimal("0")) + (
+        (_dec(d, f"{pc}/vCofins") or Decimal("0")) if cofins else Decimal("0")
+    )
+    if not soma or v_ret_csll >= soma:
+        return False
+    return not _deste_sistema_ate_0_17_0(d.dps("verAplic") or "")
+
+
+def _deste_sistema_ate_0_17_0(ver_aplic: str) -> bool:
+    if not ver_aplic.startswith("EmPlanilha_"):
+        return False
+    try:
+        versao = tuple(int(x) for x in ver_aplic.removeprefix("EmPlanilha_").split(".")[:3])
+    except ValueError:
+        return False
+    return versao < (0, 17, 1)
 
 
 def _so_csll(d: NFSeDoc, v_ret_csll: Decimal) -> Decimal | None:
