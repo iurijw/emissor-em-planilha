@@ -300,6 +300,7 @@ export function usePopover() {
       const r = botao.getBoundingClientRect();
       el.style.setProperty("--ancora-baixo", `${Math.round(r.bottom)}px`);
       el.style.setProperty("--ancora-direita", `${Math.round(window.innerWidth - r.right)}px`);
+      el.style.setProperty("--ancora-esquerda", `${Math.round(r.left)}px`);
     };
     const depois = (e: Event) => setAberto((e as ToggleEvent).newState === "open");
     el.addEventListener("beforetoggle", antes);

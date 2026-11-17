@@ -21,6 +21,7 @@ from emissor.db import Emissao, EventoNFSe, Lote, sessao
 from emissor.nfse.models import normalizar_documento
 from emissor.services import arquivos
 from emissor.services import eventos as eventos_service
+from emissor.services import historico as historico_service
 from emissor.services import relatorio as relatorio_service
 from emissor.services.emissao import criar_lote, verificar_na_sefin, worker
 
@@ -221,6 +222,16 @@ def baixar_zip_filtradas(
 @router.get("/emissoes/{emissao_id}")
 def detalhe(emissao_id: int) -> dict[str, Any]:
     return _detalhe(_emissao(emissao_id))
+
+
+@router.get("/emissoes/{emissao_id}/copia")
+def copiar(emissao_id: int) -> dict[str, Any]:
+    """Dados da nota para começar uma nota avulsa igual (tomador, valor, descrição, tributação e dados da nota)."""
+    with sessao() as s:
+        e = s.get(Emissao, emissao_id)
+        if e is None:
+            raise HTTPException(404, "Emissão não encontrada.")
+        return historico_service.copia(s, e)
 
 
 @router.post("/emissoes/{emissao_id}/verificar")

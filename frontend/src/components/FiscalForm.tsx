@@ -4,6 +4,7 @@ import {
   api,
   ApiError,
   type ConferenciaServico,
+  type Arredondavel,
   type DadosTributacao,
   type Fiscal,
   issExigeAliquota,
@@ -238,7 +239,16 @@ function Texto(props: {
   largo?: boolean;
   placeholder?: string;
   obrigatorio?: boolean;
+  /** Abaixo da ajuda, fora do rótulo (ex.: a opção de arredondar). */
+  depois?: ReactNode;
 }) {
+  if (props.depois)
+    return (
+      <div className={`campo-com-opcao${props.largo ? " largo" : ""}`}>
+        <Texto {...props} depois={undefined} largo={false} />
+        {props.depois}
+      </div>
+    );
   return (
     <label className={`campo${props.largo ? " largo" : ""}${props.erro ? " campo--erro" : ""}${props.obrigatorio ? " campo--obrigatorio" : ""}`}>
       <span>{props.rotulo}</span>
@@ -735,6 +745,19 @@ export function CamposTributacao({
   const conferencia = prefeitura.data;
   const regrasPrefeitura = useRegrasPrefeitura(valor, municipioPrestador);
   const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
+  // "Arredondar os centavos sempre para cima", por tributo: só aparece com o percentual preenchido.
+  const arredondar = (chave: Arredondavel, percentual: string | null | undefined) =>
+    percentual ? (
+      <ArredondarCima
+        marcado={(valor.arredondar_cima ?? []).includes(chave)}
+        onChange={(sim) => {
+          const atuais = new Set(valor.arredondar_cima ?? []);
+          if (sim) atuais.add(chave);
+          else atuais.delete(chave);
+          set("arredondar_cima", ORDEM_ARREDONDAVEIS.filter((c) => atuais.has(c)));
+        }}
+      />
+    ) : undefined;
   // Imunidade, exportação e não incidência não têm suspensão nem benefício (E0585/E0533); o tipo de imunidade só
   // existe com imunidade (E0592).
   const mudarTribIssqn = (trib: string) =>
@@ -1207,6 +1230,7 @@ export function CamposTributacao({
                 obrigatorio={!!retencao?.[0]}
                 ajuda={retencao?.[0] ? "Retido: entra nas Contribuições Sociais - Retidas." : "Sobre o valor do serviço. Vazio = não informar."}
                 num
+                depois={retencao?.[0] && !contribDigitadas ? arredondar("pis", valor.p_aliq_pis) : undefined}
               />
               <Texto
                 rotulo="Alíquota da COFINS (%)"
@@ -1215,6 +1239,7 @@ export function CamposTributacao({
                 obrigatorio={!!retencao?.[1]}
                 ajuda={retencao?.[1] ? "Retida: entra nas Contribuições Sociais - Retidas." : "Sobre o valor do serviço. Vazio = não informar."}
                 num
+                depois={retencao?.[1] && !contribDigitadas ? arredondar("cofins", valor.p_aliq_cofins) : undefined}
               />
             </>
           )}
@@ -1224,6 +1249,7 @@ export function CamposTributacao({
             onChange={(v) => set("p_ret_irrf", pctDado(v))}
             ajuda="Imposto de renda retido pelo tomador. Vazio = sem retenção."
             num
+            depois={arredondar("irrf", valor.p_ret_irrf)}
           />
           {(retemCsll || valor.p_ret_csll) && !contribDigitadas && (
             <Texto
@@ -1233,6 +1259,7 @@ export function CamposTributacao({
               obrigatorio={retemCsll}
               ajuda={somaPossivel ? "Só a CSLL retida." : "Só o percentual da CSLL retida."}
               num
+              depois={arredondar("csll", valor.p_ret_csll)}
             />
           )}
           {somaPossivel && (
@@ -1272,6 +1299,7 @@ export function CamposTributacao({
                   obrigatorio
                   ajuda={ajudaContribDigitadas}
                   num
+                  depois={arredondar("contrib", valor.p_ret_contrib_sociais)}
                 />
               )}
             </>
@@ -1282,6 +1310,7 @@ export function CamposTributacao({
             onChange={(v) => set("p_ret_cp", pctDado(v))}
             ajuda="INSS retido pelo tomador. Vazio = sem retenção."
             num
+            depois={arredondar("cp", valor.p_ret_cp)}
           />
         </div>
         <p className="dica-grade">
@@ -1523,9 +1552,37 @@ const pctDado = (v: string) => v.replace(/[^\d,.]/g, "").replace(",", ".") || nu
 const hoje = () => new Date().toLocaleDateString("sv-SE"); // AAAA-MM-DD no fuso do navegador
 const dataTela = (iso: string) => iso.split("-").reverse().join("/");
 
-function de(base: number, p: string | null): number {
+/**
+ * ``base`` x ``p``% em reais, no centavo. Comum: meio para cima. ``cima``: qualquer fração de centavo sobe
+ * (70,771 → 70,78; 70,770 fica 70,77), como em nfse/tributos.py. ``base * n`` já é o valor em centavos; o toFixed
+ * tira o ruído do ponto flutuante (70,77 não pode virar 70,7700000001 e subir).
+ */
+function de(base: number, p: string | null, cima = false): number {
   const n = Number(p ?? "");
-  return p && Number.isFinite(n) ? Math.round(base * n) / 100 : 0;
+  if (!p || !Number.isFinite(n)) return 0;
+  const centavos = Number((base * n).toFixed(6));
+  return (cima ? Math.ceil(centavos) : Math.round(centavos)) / 100;
+}
+
+const ORDEM_ARREDONDAVEIS: Arredondavel[] = ["pis", "cofins", "irrf", "csll", "contrib", "cp"];
+
+/** Caixa "Arredondar os centavos sempre para cima" embaixo de um percentual, com o exemplo quando marcada. */
+function ArredondarCima({ marcado, onChange }: { marcado: boolean; onChange: (sim: boolean) => void }) {
+  return (
+    <div className="arredondar">
+      <label className="arredondar__opcao">
+        <input type="checkbox" checked={marcado} onChange={(e) => onChange(e.target.checked)} />
+        <span>Arredondar os centavos sempre para cima</span>
+      </label>
+      {marcado && (
+        <p className="arredondar__exemplo">
+          <span className="num">R$ 70,771</span> vira <b className="num">R$ 70,78</b>
+          <span className="arredondar__comum"> (no comum, R$ 70,77)</span>. Conta exata, como{" "}
+          <span className="num">R$ 70,770</span>, fica <span className="num">R$ 70,77</span>.
+        </p>
+      )}
+    </div>
+  );
 }
 
 // tpRetPisCofins → [PIS, COFINS, CSLL] retidos (igual a RETENCOES_PIS_COFINS no backend).
@@ -1608,17 +1665,45 @@ function PreviaValores({
   const [pisRet, cofinsRet, csllRet] = (valor.cst_pis_cofins && RETENCOES[valor.tp_ret_pis_cofins ?? ""]) || [false, false, false];
   const issRetido = incide && ["2", "3"].includes(valor.tp_ret_issqn);
   const iss = aliquotaIss ? de(baseIss, aliquotaIss) : null;
+  const cima = new Set(valor.arredondar_cima ?? []);
+  // Valor com "arredondar para cima" e o que seria no comum (a prévia mostra os dois quando diferem).
+  const calc = (p: string | null | undefined, chave: Arredondavel) => ({
+    v: de(base, p ?? null, cima.has(chave)),
+    comum: de(base, p ?? null),
+  });
+  // vPis/vCofins da nota ficam base x alíquota (a Sefin confere a conta); o arredondamento vale para a parte retida.
   const pis = valor.cst_pis_cofins ? de(base, valor.p_aliq_pis) : 0;
   const cofins = valor.cst_pis_cofins ? de(base, valor.p_aliq_cofins) : 0;
-  const irrf = de(base, valor.p_ret_irrf);
-  const csll = csllRet ? de(base, valor.p_ret_csll) : 0;
+  const pisRetido = calc(valor.p_aliq_pis, "pis");
+  const cofinsRetida = calc(valor.p_aliq_cofins, "cofins");
+  const irrfC = calc(valor.p_ret_irrf, "irrf");
+  const irrf = irrfC.v;
+  const csllC = csllRet ? calc(valor.p_ret_csll, "csll") : { v: 0, comum: 0 };
+  const csll = csllC.v;
   // Contribuições Sociais - Retidas = CSLL + PIS/COFINS retidos (é o que a Sefin tira do líquido), ou o % digitado.
   const digitadas =
     valor.somar_contrib_sociais === false && valor.tp_ret_pis_cofins !== "1" && (pisRet || cofinsRet);
-  const contribuicoes = digitadas
-    ? de(base, valor.p_ret_contrib_sociais ?? null)
-    : csll + (pisRet ? pis : 0) + (cofinsRet ? cofins : 0);
-  const cp = de(base, valor.p_ret_cp);
+  const contribC = digitadas
+    ? calc(valor.p_ret_contrib_sociais, "contrib")
+    : {
+        v: csll + (pisRet && valor.cst_pis_cofins ? pisRetido.v : 0) + (cofinsRet && valor.cst_pis_cofins ? cofinsRetida.v : 0),
+        comum: csllC.comum + (pisRet ? pis : 0) + (cofinsRet ? cofins : 0),
+      };
+  const contribuicoes = contribC.v;
+  const cpC = calc(valor.p_ret_cp, "cp");
+  const cp = cpC.v;
+  // "R$ 70,78" + "arredondado para cima; no comum, R$ 70,77": a demonstração com os números desta nota.
+  const comArredondamento = (r: { v: number; comum: number }) =>
+    r.v !== r.comum ? (
+      <>
+        <small className="previa-nfse__detalhe previa-nfse__detalhe--cima" title="Arredondado para cima">
+          ↑ no comum, {reais(r.comum)}
+        </small>
+        <span className="num">{reais(r.v)}</span>
+      </>
+    ) : (
+      reais(r.v)
+    );
   const retidos = (issRetido ? iss ?? 0 : 0) + irrf + contribuicoes + cp;
   const linha = (rotulo: string, v: ReactNode, destaque = false) => (
     <div className={`previa-nfse__linha${destaque ? " previa-nfse__linha--total" : ""}`}>
@@ -1651,7 +1736,7 @@ function PreviaValores({
       <dl>
         {linha(pisRet ? "PIS - Retido (nas Contribuições Sociais)" : "PIS - Débito Apuração Própria", reais(pis))}
         {linha(cofinsRet ? "COFINS - Retida (nas Contribuições Sociais)" : "COFINS - Débito Apuração Própria", reais(cofins))}
-        {linha("Imposto de Renda Retido na Fonte (IRRF)", reais(irrf))}
+        {linha("Imposto de Renda Retido na Fonte (IRRF)", comArredondamento(irrfC))}
         {linha(
           "Contribuições Sociais - Retidas",
           (pisRet || cofinsRet) && contribuicoes > 0 ? (
@@ -1660,14 +1745,15 @@ function PreviaValores({
                 {digitadas
                   ? "percentual digitado"
                   : [csllRet && "CSLL", pisRet && "PIS", cofinsRet && "COFINS"].filter(Boolean).join(" + ")}
+                {contribC.v !== contribC.comum && `, ↑ no comum, ${reais(contribC.comum)}`}
               </small>
               <span className="num">{reais(contribuicoes)}</span>
             </>
           ) : (
-            reais(csll)
+            comArredondamento(csllC)
           ),
         )}
-        {linha("Contribuição Previdenciária - Retida", reais(cp))}
+        {linha("Contribuição Previdenciária - Retida", comArredondamento(cpC))}
       </dl>
       <h4>Valor líquido da NFS-e</h4>
       <dl>

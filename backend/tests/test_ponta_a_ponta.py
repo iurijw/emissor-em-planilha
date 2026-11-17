@@ -1262,6 +1262,14 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     segredo = ok(api.post("/api/auth/2fa/iniciar", json={"senha": nova})).json()["segredo"]
     ok(api.post("/api/auth/2fa/ativar", json={"codigo": auth.totp_agora(segredo)}))
     ok(api.post("/api/auth/2fa/desativar", json={"senha": nova, "codigo": "000000"}), 400)
+    # Preferências de tela: só as chaves conhecidas, com o tipo certo; voltam na sessão.
+    colunas = ["valor", "nome", "documento", "descricao", "situacao"]
+    prefs = ok(
+        api.put("/api/auth/preferencias", json={"aviso_2fa_dispensado": True, "colunas_tabela": colunas, "x": 1})
+    )
+    assert prefs.json() == {"aviso_2fa_dispensado": True, "colunas_tabela": colunas}
+    ok(api.put("/api/auth/preferencias", json={"colunas_tabela": ["nome"]}))  # incompleta: ignorada
+    assert ok(api.get("/api/auth/sessao")).json()["preferencias"]["colunas_tabela"] == colunas
 
     # Usuários e convite
     convite = ok(api.post("/api/usuarios", json={"email": "op@exemplo.com.br", "nome": "Op"})).json()
@@ -1362,6 +1370,10 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     assert len(itens) == 2
     eid = itens[0]["id"]
     ok(api.get(f"/api/emissoes/{eid}"))
+    copia = ok(api.get(f"/api/emissoes/{eid}/copia")).json()
+    assert copia["valor"] and copia["tributacao"]["tipo"] in ("padrao", "predefinida", "propria")
+    hist = ok(api.get("/api/avulsa/historico", params={"documento": TOMADOR_CPF})).json()
+    assert any(d["texto"] == "x" and d["do_tomador"] for d in hist["descricoes"])
     ok(api.get(f"/api/emissoes/{eid}/xml"))
     ok(api.get(f"/api/emissoes/{eid}/pdf"))
     ok(api.post(f"/api/emissoes/{eid}/verificar"), 400)  # só para resultado incerto

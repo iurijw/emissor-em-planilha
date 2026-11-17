@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, dadosTributacao, type Cliente, type DadosTributacao } from "../api";
+import { api, ApiError, dadosTributacao, type Cliente, type CopiaNota, type DadosTributacao, type EscolhaTributacaoHistorico } from "../api";
 import { documentoValido, formatarDocumento, moeda, parseValor, soDocumento } from "../format";
 import { BotaoVariaveis, PreviaDescricao } from "./Variaveis";
 import { EmissaoFluxo, type CorpoAvulsa } from "../pages/EmissaoFluxo";
@@ -26,6 +26,7 @@ import {
   type DadosObra,
 } from "./ObraEvento";
 import { EnderecoTomador, enderecoCompleto, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
+import { BotaoHistorico, HistoricoAvulsa } from "./HistoricoAvulsa";
 
 type Escolha = "padrao" | "propria" | number;
 
@@ -39,32 +40,75 @@ export function pareceNome(texto: string): boolean {
   return /\s/.test(t) || /[À-ÿ]/.test(t) || !/\d/.test(t);
 }
 
+/** Valor gravado ("10.00") como a tela mostra ("10,00"). */
+const valorTela = (v: unknown) => (v === null || v === undefined || v === "" ? "" : String(v).replace(".", ","));
+const texto = (v: unknown) => (typeof v === "string" ? v : "");
+
+/** Dados da nota copiada (descontos, pedido, informações complementares) no formato do formulário. */
+function dadosNotaDaCopia(n: Record<string, unknown>): DadosNota {
+  const emReais = n.ajuste_bc_v != null && n.ajuste_bc_v !== "";
+  return {
+    v_desc_incond: valorTela(n.v_desc_incond),
+    v_desc_cond: valorTela(n.v_desc_cond),
+    x_ped: texto(n.x_ped),
+    itens_pedido: Array.isArray(n.itens_pedido) ? n.itens_pedido.join(", ") : "",
+    x_inf_comp: texto(n.x_inf_comp),
+    ajuste_bc: valorTela(emReais ? n.ajuste_bc_v : n.ajuste_bc_p),
+    ajuste_em_reais: emReais,
+  };
+}
+
+/** Intermediário/destinatário gravado na nota → formulário (endereço nacional). */
+function pessoaDaCopia(d: unknown): DadosPessoa {
+  if (!d || typeof d !== "object") return pessoaVazia;
+  const p = d as Record<string, string | undefined>;
+  return {
+    documento: p.documento ?? "",
+    nome: p.nome ?? "",
+    im: p.im ?? "",
+    email: p.email ?? "",
+    endereco: {
+      logradouro: p.logradouro ?? null,
+      numero: p.numero ?? null,
+      complemento: p.complemento ?? null,
+      bairro: p.bairro ?? null,
+      cep: p.cep ?? null,
+      c_mun: p.c_mun ?? null,
+    },
+  };
+}
+
 /** Consulta na Receita de um CNPJ digitado sem cadastro (o servidor cadastra o cliente com o endereço). */
 type Consulta = { documento: string; estado: "buscando" | "falhou"; erro?: string };
 
 /** Uma nota só, fora da tabela: cliente, valor, descrição e a tributação (padrão, predefinida ou só desta nota). */
-export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boolean }) {
+export function NotaAvulsa({ fechar, admin, copia }: { fechar: () => void; admin: boolean; copia?: CopiaNota }) {
   const qc = useQueryClient();
   const trib = useTributacoes();
   const clientesQ = useQuery({ queryKey: ["clientes"], queryFn: () => api.get<Cliente[]>("/api/clientes") });
-  const [nome, setNome] = useState("");
+  const n = copia?.nota ?? {};
+  const [nome, setNome] = useState(copia && !n.tomador_exterior ? copia.nome : "");
   // Texto do campo CNPJ/CPF como digitado; o documento sai dele quando não é um nome.
-  const [docTexto, setDocTexto] = useState("");
+  const [docTexto, setDocTexto] = useState(copia?.documento ? formatarDocumento(copia.documento) : "");
   const [focoDoc, setFocoDoc] = useState(false);
   const docEhNome = pareceNome(docTexto);
   const documento = docEhNome ? "" : soDocumento(docTexto);
   const setDocumento = (d: string) => setDocTexto(formatarDocumento(d));
-  const [valor, setValor] = useState("");
-  const [descricao, setDescricao] = useState("");
-  const [dadosNota, setDadosNota] = useState<DadosNota>(dadosNotaVazios);
-  const [noExterior, setNoExterior] = useState(false);
-  const [exterior, setExterior] = useState<DadosExterior>(exteriorVazio);
-  const [comex, setComex] = useState({ v_serv_moeda: "", n_di: "", n_re: "" });
+  const [valor, setValor] = useState(copia ? valorTela(copia.valor) : "");
+  const [descricao, setDescricao] = useState(copia?.descricao ?? "");
+  const [dadosNota, setDadosNota] = useState<DadosNota>(copia ? dadosNotaDaCopia(n) : dadosNotaVazios);
+  const [noExterior, setNoExterior] = useState(!!n.tomador_exterior);
+  const [exterior, setExterior] = useState<DadosExterior>(
+    n.tomador_exterior ? { ...exteriorVazio, ...(n.tomador_exterior as Partial<DadosExterior>) } : exteriorVazio,
+  );
+  const [comex, setComex] = useState({ v_serv_moeda: valorTela(n.v_serv_moeda), n_di: texto(n.n_di), n_re: texto(n.n_re) });
   const [obra, setObra] = useState<DadosObra>(obraVazia);
   const [evento, setEvento] = useState<DadosEvento>(eventoVazio);
-  const [interm, setInterm] = useState<DadosPessoa>(pessoaVazia);
-  const [outroDest, setOutroDest] = useState(false);
-  const [dest, setDest] = useState<DadosPessoa>(pessoaVazia);
+  const [interm, setInterm] = useState<DadosPessoa>(pessoaDaCopia(n.intermediario));
+  const [outroDest, setOutroDest] = useState(!!n.destinatario);
+  const [dest, setDest] = useState<DadosPessoa>(pessoaDaCopia(n.destinatario));
+  const [historico, setHistorico] = useState<"descricoes" | "tributacoes" | null>(null);
+  const [avisoTributacao, setAvisoTributacao] = useState<string | null>(null);
   const [refs, setRefs] = useState("");
   const [escolha, setEscolha] = useState<Escolha>("padrao");
   const [propria, setPropria] = useState<DadosTributacao | null>(null);
@@ -187,8 +231,35 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
 
   function escolherTributacao(e: Escolha) {
     setEscolha(e);
+    setAvisoTributacao(null);
     if (e === "propria" && !propria && trib.data?.padrao) setPropria(dadosTributacao(trib.data.padrao));
   }
+
+  // Tributação de uma nota anterior (cópia ou histórico): a padrão, a predefinida que ainda existe igual, ou os campos
+  // como estavam na nota em "Só para esta nota".
+  function usarTributacao(t: EscolhaTributacaoHistorico) {
+    const existe = t.tipo === "predefinida" && trib.data?.itens.some((x) => x.id === t.tributacao_id);
+    if (t.tipo === "padrao") escolherTributacao("padrao");
+    else if (existe) escolherTributacao(t.tributacao_id!);
+    else if (t.dados && trib.data?.padrao) {
+      setPropria(dadosTributacao({ ...trib.data.padrao, ...t.dados }));
+      setEscolha("propria");
+      setAvisoTributacao(
+        t.nome === "Só desta nota"
+          ? "A tributação veio como estava na nota anterior. Confira antes de emitir."
+          : `A tributação “${t.nome}” mudou ou foi excluída depois daquela nota: veio como estava na nota. Confira antes de emitir.`,
+      );
+    }
+  }
+
+  // Nota copiada: aplica a tributação quando a lista de tributações chega.
+  const tributacaoCopiada = useRef(false);
+  useEffect(() => {
+    if (!copia || tributacaoCopiada.current || !trib.data) return;
+    tributacaoCopiada.current = true;
+    usarTributacao(copia.tributacao);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trib.data]);
 
   async function abrirConferencia() {
     // Endereço mexido aqui: grava no cadastro antes, porque a nota usa o endereço do cadastro. Tomador novo com nome
@@ -270,9 +341,19 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
         }
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-          <p style={{ margin: 0, color: "var(--grafite)" }}>
-            Emite uma nota sem mexer na tabela. Ela usa a mesma numeração e aparece na aba Emissões.
-          </p>
+          {copia ? (
+            <div className="info-caixa copia-nota">
+              <strong>Cópia da {copia.numero_nfse ? `NFS-e nº ${copia.numero_nfse}` : "nota"}, para emitir uma nota nova.</strong>
+              <span>
+                Tomador, valor, descrição e tributação vieram dela. Confira e mude o que precisar; a nota anterior continua como está.
+                {!!(n.obra || n.evento) && " Os dados da obra ou do evento não são copiados: preencha de novo."}
+              </span>
+            </div>
+          ) : (
+            <p style={{ margin: 0, color: "var(--grafite)" }}>
+              Emite uma nota sem mexer na tabela. Ela usa a mesma numeração e aparece na aba Emissões.
+            </p>
+          )}
           <LegendaObrigatorio />
           <section>
             <h3 className="secao-titulo">Tomador</h3>
@@ -422,15 +503,18 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
                   )}
                 </>
               )}
-              <label className="campo largo campo--obrigatorio">
-                <span>Descrição do serviço</span>
-                <textarea rows={4} value={descricao} maxLength={2000} onChange={(e) => setDescricao(e.target.value)} />
+              <div className="campo largo campo--obrigatorio">
+                <span className="rotulo-com-acao">
+                  <label htmlFor="avulsa-descricao">Descrição do serviço</label>
+                  <BotaoHistorico titulo="Descrições usadas antes" onClick={() => setHistorico("descricoes")} />
+                </span>
+                <textarea id="avulsa-descricao" rows={4} value={descricao} maxLength={2000} onChange={(e) => setDescricao(e.target.value)} />
                 <PreviaDescricao texto={descricao} />
                 <small>
                   Aceita variáveis como <span className="num">{"{mes}"}</span> e <span className="num">{"{ano}"}</span>.{" "}
                   <BotaoVariaveis className="btn-texto" />
                 </small>
-              </label>
+              </div>
               <div className="largo">
                 <DadosDaNota valor={dadosNota} onChange={setDadosNota} />
               </div>
@@ -438,7 +522,11 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
           </section>
 
           <section>
-            <h3 className="secao-titulo">Tributação</h3>
+            <h3 className="secao-titulo">
+              Tributação
+              <BotaoHistorico titulo="Tributações usadas antes" onClick={() => setHistorico("tributacoes")} />
+            </h3>
+            {avisoTributacao && <p className="aviso" style={{ margin: "0 0 12px" }}>{avisoTributacao}</p>}
             <div className="escolha-tributacao" role="radiogroup" aria-label="Tributação da nota">
               {opcoes.map((o) => (
                 <button
@@ -521,6 +609,16 @@ export function NotaAvulsa({ fechar, admin }: { fechar: () => void; admin: boole
           )}
         </div>
       </Gaveta>
+      {historico && (
+        <HistoricoAvulsa
+          aba={historico}
+          documento={noExterior ? "" : documento}
+          nomeTomador={nome || cadastro?.nome || ""}
+          usarDescricao={setDescricao}
+          usarTributacao={usarTributacao}
+          fechar={() => setHistorico(null)}
+        />
+      )}
       {conferir && (
         <EmissaoFluxo
           linhaIds={[]}

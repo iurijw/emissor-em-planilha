@@ -549,3 +549,50 @@ def test_nota_avulsa_com_intermediario(api, sefin, pfx_bytes, nfse_exemplo_bytes
     linha = api.get(f"/api/tabela?aba_id={aba['id']}").json()["linhas"][0]
     val = api.post("/api/tabela/validar", json={"linha_ids": [linha["id"]]}).json()
     assert any("nota avulsa" in e for e in val["linhas"][0]["erros"])
+
+
+def test_arredondar_sempre_para_cima(config_fiscal):
+    """Retenção com "arredondar para cima": qualquer fração de centavo sobe (70,771 → 70,78; 70,770 fica 70,77)."""
+    from decimal import Decimal
+
+    from emissor.nfse.models import aplicar_tributacao, tributacao_de
+    from emissor.nfse.tributos import calcular
+    from emissor.services.tributacao import normalizar
+
+    # 1,5% de R$ 4.718,07 = 70,77105: o comum dá 70,77; para cima, 70,78.
+    irrf = replace(config_fiscal, p_ret_irrf="1.50")
+    assert calcular(irrf, Decimal("4718.07"))[0].v_ret_irrf == Decimal("70.77")
+    assert calcular(replace(irrf, arredondar_cima=["irrf"]), Decimal("4718.07"))[0].v_ret_irrf == Decimal("70.78")
+    # Conta exata (1,5% de R$ 4.718,00 = 70,77): não há o que arredondar.
+    assert calcular(replace(irrf, arredondar_cima=["irrf"]), Decimal("4718.00"))[0].v_ret_irrf == Decimal("70.77")
+    # Mesmo bem abaixo da metade do centavo (1% de 100,01 = 1,0001) sobe.
+    cp = replace(config_fiscal, p_ret_cp="1", arredondar_cima=["cp"])
+    assert calcular(cp, Decimal("100.01"))[0].v_ret_cp == Decimal("1.01")
+
+    # PIS/COFINS retidos: sobe a parte que entra nas Contribuições Sociais; vPis/vCofins seguem base x alíquota
+    # (E0694/E0696). R$ 1.000,10: CSLL 1% = 10,001; PIS 0,65% = 6,50065; COFINS 3% = 30,003.
+    base = replace(
+        config_fiscal,
+        cst_pis_cofins="01",
+        p_aliq_pis="0.65",
+        p_aliq_cofins="3.00",
+        tp_ret_pis_cofins="3",
+        p_ret_csll="1",
+    )
+    t, _ = calcular(base, Decimal("1000.10"))
+    assert (t.v_pis, t.v_cofins, t.v_ret_csll) == (Decimal("6.50"), Decimal("30.00"), Decimal("46.50"))
+    t, _ = calcular(replace(base, arredondar_cima=["pis", "cofins", "csll"]), Decimal("1000.10"))
+    assert (t.v_pis, t.v_cofins) == (Decimal("6.50"), Decimal("30.00"))
+    assert (t.v_csll, t.v_ret_csll) == (Decimal("10.01"), Decimal("46.53"))  # 10,01 + 6,51 + 30,01
+    t, _ = calcular(replace(base, arredondar_cima=["cofins"]), Decimal("1000.10"))
+    assert t.v_ret_csll == Decimal("46.51")
+    # Digitadas: a chave "contrib".
+    manual = replace(base, somar_contrib_sociais=False, p_ret_contrib_sociais="3.65", arredondar_cima=["contrib"])
+    assert calcular(manual, Decimal("1000.10"))[0].v_ret_csll == Decimal("36.51")  # 36,50365
+
+    # Gravação: só chaves conhecidas, na ordem da lista; tributação antiga (sem a chave) não herda das configurações.
+    dados, erros = normalizar(tributacao_de(irrf) | {"arredondar_cima": ["cp", "xyz", "irrf", "irrf"]})
+    assert erros == [] and dados["arredondar_cima"] == ["irrf", "cp"]
+    assert normalizar({"arredondar_cima": "irrf, csll"})[0]["arredondar_cima"] == ["irrf", "csll"]
+    antiga = {k: v for k, v in tributacao_de(irrf).items() if k != "arredondar_cima"}
+    assert aplicar_tributacao(replace(irrf, arredondar_cima=["irrf"]), antiga).arredondar_cima == []

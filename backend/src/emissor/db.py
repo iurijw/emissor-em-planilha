@@ -303,6 +303,8 @@ class Usuario(SQLModel, table=True):
     bloqueado_ate: NaiveDatetime | None = None
     criado_em: NaiveDatetime = Field(default_factory=agora)
     ultimo_login: NaiveDatetime | None = None
+    # Preferências de tela deste usuário (``auth.PREFERENCIAS``): aviso do 2FA dispensado, ordem das colunas...
+    preferencias_json: str | None = None
 
 
 class SessaoUsuario(SQLModel, table=True):

@@ -83,6 +83,9 @@ class ConfigFiscal:
     somar_contrib_sociais: bool = True
     p_ret_contrib_sociais: str | None = None
     p_ret_cp: str | None = None  # vRetCP (INSS)
+    # Tributos cujo valor em R$ é arredondado sempre para cima, no centavo (70,771 → 70,78; 70,770 fica 70,77), em vez
+    # do arredondamento comum: chaves de ARREDONDAVEIS. Para quando o tomador calcula a retenção assim.
+    arredondar_cima: list[str] = field(default_factory=list)
     # Total aproximado dos tributos (Lei 12.741) para não optante do Simples (pTotTrib)
     p_tot_trib_fed: str | None = None
     p_tot_trib_est: str | None = None
@@ -130,6 +133,18 @@ CAMPOS_PERCENTUAIS = (
     "ibscbs_p_dif_mun",
     "ibscbs_p_dif_cbs",
 )
+
+# Tributos em % que podem ser arredondados sempre para cima (``ConfigFiscal.arredondar_cima``). PIS e COFINS: só a
+# parte retida que vai nas Contribuições Sociais - Retidas; o vPis/vCofins do grupo piscofins continua base x
+# alíquota (E0694/E0696 exigem a conta exata).
+ARREDONDAVEIS = {
+    "pis": "PIS retido",
+    "cofins": "COFINS retida",
+    "irrf": "IRRF",
+    "csll": "CSLL",
+    "contrib": "Contribuições Sociais - Retidas",
+    "cp": "Contribuição Previdenciária",
+}
 
 # tpRetPisCofins → (PIS retido, COFINS retido, CSLL retida); None = o código não diz (CSLL opcional).
 # "1" exige a CSLL: E0724 obriga vRetCSLL para todo código que não seja 0 ou 2.
@@ -225,6 +240,7 @@ CAMPOS_TRIBUTACAO = (
     "somar_contrib_sociais",
     "p_ret_contrib_sociais",
     "p_ret_cp",
+    "arredondar_cima",
     "p_tot_trib_fed",
     "p_tot_trib_est",
     "p_tot_trib_mun",
@@ -255,6 +271,8 @@ def aplicar_tributacao(cfg: ConfigFiscal, tributacao: dict | None) -> ConfigFisc
     novos = {k: v for k, v in tributacao.items() if k in CAMPOS_TRIBUTACAO}
     # Tributações gravadas antes da opção somavam sempre (e não herdam a escolha das configurações).
     novos["somar_contrib_sociais"] = novos.get("somar_contrib_sociais") is not False
+    # Idem para o arredondamento para cima: tributação sem a chave arredonda do jeito comum.
+    novos["arredondar_cima"] = [c for c in novos.get("arredondar_cima") or [] if c in ARREDONDAVEIS]
     if "p_tot_trib_sn" in novos:
         p = novos["p_tot_trib_sn"]
         novos["p_tot_trib_sn"] = Decimal(str(p)) if p not in (None, "") else None

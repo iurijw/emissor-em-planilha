@@ -11,7 +11,7 @@ from emissor import auth
 from emissor.auth import Acesso
 
 # Ações permitidas com a assinatura suspensa, além das leituras (GET): baixar as notas emitidas e retomar a assinatura.
-PERMITIDAS_SUSPENSO = {"/api/emissoes/zip", "/api/logs/cliente", "/api/assinatura/confirmar"}
+PERMITIDAS_SUSPENSO = {"/api/emissoes/zip", "/api/logs/cliente", "/api/assinatura/confirmar", "/api/auth/preferencias"}
 
 
 def ip_cliente(request: Request) -> str | None:

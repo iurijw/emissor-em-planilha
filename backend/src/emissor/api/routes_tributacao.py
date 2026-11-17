@@ -17,6 +17,7 @@ from emissor.api.deps import AdminEmpresa, UsuarioAtual
 from emissor.api.routes_emissoes import obter_lote
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, Tributacao, agora, obter_config, sessao
 from emissor.nfse.models import DadosNota, aplicar_tributacao, normalizar_documento, tributacao_de
+from emissor.services import historico as historico_service
 from emissor.services import parametros, regras_prefeitura
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
@@ -466,6 +467,13 @@ def _total(valor: str) -> str:
         return f"{Decimal(valor):.2f}"
     except (InvalidOperation, TypeError):
         return "0.00"
+
+
+@router.get("/avulsa/historico")
+def historico_avulsa(documento: str | None = None) -> dict[str, Any]:
+    """Descrições e tributações das notas já emitidas (as do ``documento`` marcadas), para a nota avulsa."""
+    with sessao() as s:
+        return historico_service.historico(s, documento)
 
 
 @router.post("/avulsa/validar")

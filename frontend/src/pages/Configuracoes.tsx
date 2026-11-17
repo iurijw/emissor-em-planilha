@@ -6,14 +6,14 @@ import {
   dadosTributacao,
   type CertificadoInfo,
   type Config,
-  type DadosTributacao,
   type ErroEmissao,
   type Fiscal,
   type Status,
   type Tributacao,
 } from "../api";
 import { useTributacoes } from "../components/Abas";
-import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
+import { CamposEmpresa } from "../components/FiscalForm";
+import { EditorTributacao, type EdicaoTributacao } from "../components/EditorTributacao";
 import { ImportarClientesXml } from "../components/ImportarClientesXml";
 import { SecaoIntegracoes } from "../components/Integracoes";
 import { nomeEmpresa, SecaoEmpresas, useEmpresas } from "../components/Empresas";
@@ -307,45 +307,14 @@ function SecaoEmpresa({ cfg }: { cfg: Config }) {
   );
 }
 
-type Edicao = { id: number | "padrao" | null; nome: string; dados: DadosTributacao };
-
 function SecaoTributacoes() {
   const lista = useTributacoes();
-  const cfg = useQuery({ queryKey: ["config"], queryFn: () => api.get<Config>("/api/config") });
   const qc = useQueryClient();
   const toast = useToast();
-  const [editando, setEditando] = useState<Edicao | null>(null);
+  const [editando, setEditando] = useState<EdicaoTributacao | null>(null);
   const [excluir, setExcluir] = useState<Tributacao | null>(null);
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
-  const padrao = editando?.id === "padrao";
-
-  async function salvar() {
-    if (!editando) return;
-    setErro(null);
-    setOcupado(true);
-    try {
-      if (editando.id === "padrao") {
-        // A tributação padrão mora nas configurações, junto dos dados da empresa.
-        if (!cfg.data?.fiscal) throw new Error("Configurações não carregadas. Recarregue a página.");
-        await api.put("/api/config", { fiscal: { ...cfg.data.fiscal, ...editando.dados } });
-        toast("Tributação padrão salva.");
-        qc.invalidateQueries();
-      } else {
-        const corpo = { nome: editando.nome, dados: editando.dados };
-        if (editando.id) await api.put(`/api/tributacoes/${editando.id}`, corpo);
-        else await api.post("/api/tributacoes", corpo);
-        toast(`Tributação “${editando.nome.trim()}” salva.`);
-        qc.invalidateQueries({ queryKey: ["tributacoes"] });
-        qc.invalidateQueries({ queryKey: ["abas"] });
-      }
-      setEditando(null);
-    } catch (e) {
-      setErro(e);
-    } finally {
-      setOcupado(false);
-    }
-  }
 
   async function confirmarExclusao() {
     if (!excluir) return;
@@ -421,47 +390,7 @@ function SecaoTributacoes() {
       </button>
       {!editando && !excluir && <div style={{ marginTop: 12 }}><ErroCaixa erro={erro} /></div>}
 
-      {editando && (
-        <Dialogo
-          titulo={padrao ? "Tributação padrão" : editando.id ? `Tributação “${editando.nome}”` : "Nova tributação"}
-          fechar={() => setEditando(null)}
-          largo
-          rodape={
-            <>
-              <button className="btn" onClick={() => setEditando(null)}>Cancelar</button>
-              <button className="btn btn--primario" disabled={ocupado || !editando.nome.trim()} onClick={salvar}>
-                {ocupado && <Spinner />} Salvar tributação
-              </button>
-            </>
-          }
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
-            {padrao ? (
-              <p style={{ margin: 0, color: "var(--grafite)" }}>
-                Usada pelas abas sem tributação própria e pela nota avulsa quando nenhuma outra é escolhida.
-              </p>
-            ) : (
-              <label className="campo" style={{ maxWidth: 420 }}>
-                <span>Nome</span>
-                <input
-                  value={editando.nome}
-                  maxLength={60}
-                  autoFocus
-                  placeholder="Ex.: ISS retido pelo tomador"
-                  onChange={(e) => setEditando({ ...editando, nome: e.target.value })}
-                />
-                {!editando.id && <small>Começa igual à tributação padrão; mude só o que for diferente.</small>}
-              </label>
-            )}
-            <CamposTributacao
-              valor={editando.dados}
-              onChange={(d) => setEditando({ ...editando, dados: d })}
-              regime={lista.data?.regime}
-            />
-            <ErroCaixa erro={erro} titulo="Tributação não salva" />
-          </div>
-        </Dialogo>
-      )}
+      {editando && <EditorTributacao edicao={editando} fechar={() => setEditando(null)} />}
       {excluir && (
         <Dialogo
           titulo={`Excluir a tributação “${excluir.nome}”?`}

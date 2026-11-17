@@ -14,6 +14,7 @@ import { FaixaAssinatura, useAssinatura } from "./components/Assinatura";
 import { Atualizacoes } from "./components/Atualizacoes";
 import { BotaoSuporte, LinkSuporte } from "./components/Suporte";
 import { nomeEmpresa, SeletorEmpresa } from "./components/Empresas";
+import { usePreferencias } from "./preferencias";
 
 // A tela de emissão traz a grade (Glide Data Grid, a maior parte do código): fica num arquivo à parte, baixado
 // só depois do login (a tela de entrada fica leve). Logo depois do login começa a baixar, sem esperar a tela abrir.
@@ -119,6 +120,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
   const [rota, setRota] = useState<Rota>(rotaAtual());
   const status = useStatus();
   const assinatura = useAssinatura();
+  const [preferencias, salvarPreferencias] = usePreferencias();
   const admin = usuario.papel === "admin";
   // Administrador da empresa desta aba (o da instalação é admin em todas): certificado, configurações e tributações.
   const adminEmpresa = admin || usuario.papel_empresa === "admin";
@@ -231,13 +233,21 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
         </div>
       )}
       <main>
-        {!usuario.totp_ativo && rotaVisivel !== "conta" && (
+        {!usuario.totp_ativo && !preferencias.aviso_2fa_dispensado && rotaVisivel !== "conta" && (
           <div style={{ padding: "12px 24px 0", maxWidth: 1480, margin: "0 auto" }}>
-            <div className="info-caixa">
+            <div className="info-caixa info-caixa--dispensavel">
               <span>
                 Proteja o acesso ao certificado: <a href="#/conta">ative a verificação em duas etapas</a> com um aplicativo
                 autenticador no celular.
               </span>
+              <button
+                type="button"
+                className="btn-texto info-caixa__dispensar"
+                title="O aviso some para você em qualquer navegador. A verificação continua disponível em Minha conta."
+                onClick={() => salvarPreferencias({ aviso_2fa_dispensado: true }).catch(() => undefined)}
+              >
+                Não mostrar de novo
+              </button>
             </div>
           </div>
         )}
@@ -252,7 +262,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             <Emitir status={s} admin={adminEmpresa} />
           </Suspense>
         )}
-        {rotaVisivel === "emissoes" && <Emissoes />}
+        {rotaVisivel === "emissoes" && <Emissoes admin={adminEmpresa} podeEmitir={s.pronto_para_emitir} />}
         {rotaVisivel === "clientes" && <Clientes />}
         {rotaVisivel === "configuracoes" && <Configuracoes status={s} adminInstancia={admin} />}
         {rotaVisivel === "usuarios" && <Usuarios meuId={usuario.id} />}

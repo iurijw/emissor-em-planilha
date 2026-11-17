@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 from emissor.db import Aba, LinhaTabela, Tributacao, obter_config
 from emissor.nfse import codes
 from emissor.nfse.models import (
+    ARREDONDAVEIS,
     CAMPOS_PERCENTUAIS,
     CAMPOS_TRIBUTACAO,
     RETENCOES_PIS_COFINS,
@@ -76,6 +77,12 @@ def normalizar(d: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         if isinstance(v, str):
             v = v.strip() or None
         dados[k] = v
+    if "arredondar_cima" in dados:
+        bruto = dados["arredondar_cima"] or []
+        if isinstance(bruto, str):
+            bruto = bruto.split(",")
+        escolhidos = {str(c).strip() for c in bruto} if isinstance(bruto, (list, tuple, set)) else set()
+        dados["arredondar_cima"] = [c for c in ARREDONDAVEIS if c in escolhidos]
     for campo in ("ibscbs", "somar_contrib_sociais"):
         if campo in dados:
             dados[campo] = _bool(dados[campo]) if dados[campo] is not None else campo == "somar_contrib_sociais"

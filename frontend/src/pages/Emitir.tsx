@@ -17,12 +17,14 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, baixar, type Aba, type Cliente, type Linha, type Status } from "../api";
+import { api, ApiError, baixar, type Aba, type Cliente, type ColunaTabela, type Linha, type Status } from "../api";
 import { documentoValido, formatarDocumento, moeda, parseTSV, parseValor, soDocumento, STATUS_ROTULO } from "../format";
 import { AbasPlanilha, EditorAba } from "../components/Abas";
 import { EditorNomeCliente } from "../components/EditorNomeCliente";
 import { NotaAvulsa } from "../components/NotaAvulsa";
 import { BotaoVariaveis } from "../components/Variaveis";
+import { TributacaoDaAba } from "../components/TributacaoDaAba";
+import { usePreferencias } from "../preferencias";
 import { AmbChip, Dialogo, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 import { useEscuro } from "../tema";
 import { EmissaoFluxo } from "./EmissaoFluxo";
@@ -94,8 +96,10 @@ const TEMA_ESCURO: Partial<Theme> = {
 };
 const MONO = "'Martian Mono Variable', Consolas, monospace";
 
-type ColId = "nome" | "documento" | "valor" | "descricao" | "situacao";
-const COLUNAS: (GridColumn & { id: ColId })[] = [
+type ColId = ColunaTabela;
+type Coluna = GridColumn & { id: ColId };
+// Ordem de fábrica; cada usuário pode arrastar os títulos para outra (fica nas preferências dele).
+const COLUNAS_PADRAO: Coluna[] = [
   { id: "nome", title: "Nome da empresa", width: 300 },
   { id: "documento", title: "CNPJ / CPF", width: 190 },
   { id: "valor", title: "Valor", width: 140 },
@@ -103,6 +107,13 @@ const COLUNAS: (GridColumn & { id: ColId })[] = [
   { id: "situacao", title: "Última emissão", width: 230 },
 ];
 const EDITAVEIS: ColId[] = ["nome", "documento", "valor", "descricao"];
+const POR_ID = new Map(COLUNAS_PADRAO.map((c) => [c.id, c]));
+
+/** Colunas na ordem salva pelo usuário (lista incompleta ou com coluna desconhecida = ordem de fábrica). */
+function colunasNaOrdem(ordem: ColId[] | undefined): Coluna[] {
+  if (!ordem || ordem.length !== COLUNAS_PADRAO.length || !ordem.every((id) => POR_ID.has(id))) return COLUNAS_PADRAO;
+  return ordem.map((id) => POR_ID.get(id)!);
+}
 
 function aplicarValor(ln: LinhaLocal, col: ColId, texto: string): LinhaLocal {
   if (col === "documento") return { ...ln, documento: soDocumento(texto) };
@@ -199,6 +210,11 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const [abaId, setAbaId] = useState<number | null>(null);
   const [editarAba, setEditarAba] = useState<Aba | "nova" | null>(null);
   const [avulsa, setAvulsa] = useState(false);
+  const [preferencias, salvarPreferencias] = usePreferencias();
+  const COLUNAS = useMemo(() => colunasNaOrdem(preferencias.colunas_tabela), [preferencias.colunas_tabela]);
+  // Callbacks da grade (criados uma vez) leem a ordem atual por aqui.
+  const colunasRef = useRef(COLUNAS);
+  colunasRef.current = COLUNAS;
   const linhasRef = useRef(linhas);
   linhasRef.current = linhas;
   const ordemRef = useRef(ordem);
@@ -358,7 +374,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             const a = atual[y];
             const campo = id as Exclude<ColId, "situacao">;
             if (a && l[campo] === a[campo]) return;
-            const x = COLUNAS.findIndex((c) => c.id === id);
+            const x = colunasRef.current.findIndex((c) => c.id === id);
             x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
           }),
         );
@@ -463,7 +479,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       const texto = id === "nome" ? ln.nome : ln.descricao;
       return { kind: GridCellKind.Text, data: texto, displayData: texto, allowOverlay: true };
     },
-    [linhas, clientes, cores, erroCelula],
+    [linhas, clientes, cores, erroCelula, COLUNAS],
   );
 
   // Seleção atual sempre fresca para os callbacks da grade.
@@ -475,7 +491,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       alterar((atual) => {
         const r = [...atual];
         for (const { location: [c, row], value } of novos) {
-          const id = COLUNAS[c]?.id;
+          const id = colunasRef.current[c]?.id;
           if (!id || !EDITAVEIS.includes(id)) continue;
           while (r.length <= row) r.push(vazia());
           r[row] = aplicarValor(r[row], id, value.kind === GridCellKind.Text ? value.data : "");
@@ -501,7 +517,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         return r;
       }, "Escolher cliente");
       // Próximo dado a digitar é o valor: leva o cursor para lá (depois que o editor fechar).
-      const colValor = COLUNAS.findIndex((col) => col.id === "valor");
+      const colValor = colunasRef.current.findIndex((col) => col.id === "valor");
       window.setTimeout(() => {
         setSelecao({
           columns: CompactSelection.empty(),
@@ -517,7 +533,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const provideEditor = useCallback(
     (cell: GridCell) => {
       const alvo = selecaoRef.current.current?.cell;
-      if (!alvo || COLUNAS[alvo[0]]?.id !== "nome" || cell.kind !== GridCellKind.Text) return undefined;
+      if (!alvo || colunasRef.current[alvo[0]]?.id !== "nome" || cell.kind !== GridCellKind.Text) return undefined;
       const row = alvo[1];
       return {
         disablePadding: true,
@@ -559,7 +575,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       const edits: { location: Item; value: EditableGridCell }[] = [];
       valores.forEach((linha, dy) =>
         linha.forEach((v, dx) => {
-          if (x0 + dx < COLUNAS.length)
+          if (x0 + dx < colunasRef.current.length)
             edits.push({ location: [x0 + dx, y0 + dy], value: { kind: GridCellKind.Text, data: v, displayData: v, allowOverlay: true } });
         }),
       );
@@ -628,10 +644,10 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   // 1º clique: crescente (A→Z, 0→9); 2º clique na mesma coluna: decrescente.
   const onHeaderClicked = useCallback(
     (c: number) => {
-      const col = COLUNAS[c]?.id;
+      const col = colunasRef.current[c]?.id;
       if (!col) return;
       const nova: Ordem = { col, dir: ordem?.col === col && ordem.dir === 1 ? -1 : 1 };
-      alterar((atual) => ordenar(atual, nova, clientesRef.current), `Ordenar por ${COLUNAS[c].title}`, nova);
+      alterar((atual) => ordenar(atual, nova, clientesRef.current), `Ordenar por ${colunasRef.current[c].title}`, nova);
       // Seleção por índice apontaria para outras linhas depois de reordenar.
       setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
     },
@@ -641,8 +657,25 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   // A seta no título indica a última ordenação aplicada (linhas novas/editadas não se reordenam sozinhas).
   const colunas = useMemo(
     () => COLUNAS.map((c) => (ordem?.col === c.id ? { ...c, title: `${c.title} ${ordem.dir === 1 ? "▲" : "▼"}` } : c)),
-    [ordem],
+    [ordem, COLUNAS],
   );
+
+  // Arrastar o título de uma coluna muda a ordem (só a da tela: a planilha exportada e a importação continuam
+  // Nome, CNPJ/CPF, Valor, Descrição). A ordem fica nas preferências do usuário, em qualquer navegador.
+  const onColumnMoved = useCallback(
+    (de: number, para: number) => {
+      if (de === para) return;
+      const ids = colunasRef.current.map((c) => c.id);
+      const [movida] = ids.splice(de, 1);
+      ids.splice(para, 0, movida);
+      setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
+      salvarPreferencias({ colunas_tabela: ids }).catch((e) =>
+        toast(`A nova ordem das colunas não foi salva: ${e instanceof Error ? e.message : e}`, "erro"),
+      );
+    },
+    [salvarPreferencias, toast],
+  );
+  const ordemDeFabrica = COLUNAS.every((c, i) => c.id === COLUNAS_PADRAO[i].id);
 
   // ---- seleção e totais ----
   const linhasMarcadas = selecao.rows.toArray().filter((i) => i < linhas.length);
@@ -703,6 +736,12 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       </div>
 
       <div className="barra">
+        {aba && (
+          <>
+            <TributacaoDaAba aba={aba} admin={admin} />
+            <span className="barra__sep" />
+          </>
+        )}
         <div className="barra__historico" role="group" aria-label="Histórico de alterações">
           <button
             className="btn btn--pequeno btn--icone"
@@ -787,6 +826,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             theme={escuro ? TEMA_ESCURO : TEMA_CLARO}
             columns={colunas}
             onHeaderClicked={onHeaderClicked}
+            onColumnMoved={onColumnMoved}
             rows={linhas.length}
             getCellContent={getCellContent}
             onCellsEdited={onCellsEdited}
@@ -808,7 +848,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             trailingRowOptions={{ hint: "Nova linha…", sticky: true, tint: true }}
             onRowAppended={() => alterar((a) => [...a, vazia()], "Nova linha")}
             onCellClicked={([c, r]) => {
-              if (COLUNAS[c]?.id === "situacao" && linhas[r]?.ultima_emissao) setDetalhe(linhas[r]);
+              if (colunasRef.current[c]?.id === "situacao" && linhas[r]?.ultima_emissao) setDetalhe(linhas[r]);
             }}
           />
         )}
@@ -825,7 +865,19 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         Cole direto do Excel com <kbd>Ctrl</kbd>+<kbd>V</kbd>, desfaça com <kbd>Ctrl</kbd>+<kbd>Z</kbd> (refaça com
         <kbd>Ctrl</kbd>+<kbd>Y</kbd>), arraste o canto da seleção para repetir valores e use
         <kbd>Delete</kbd> para limpar. Marque linhas à esquerda para emitir só elas. Clique no título de uma coluna para
-        ordenar (clique de novo para inverter).
+        ordenar (clique de novo para inverter) e arraste o título para mudar a coluna de lugar.
+        {!ordemDeFabrica && (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="btn-texto"
+              onClick={() => salvarPreferencias({ colunas_tabela: COLUNAS_PADRAO.map((c) => c.id) }).catch(() => undefined)}
+            >
+              Voltar as colunas para a ordem original
+            </button>
+          </>
+        )}
       </p>
 
       {importar && (

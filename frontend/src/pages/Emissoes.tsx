@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, baixar, COM_ARQUIVOS, comEmpresa, type Emissao, type EstadoSincronizacao, type ListaEmissoes } from "../api";
+import { api, baixar, COM_ARQUIVOS, comEmpresa, type CopiaNota, type Emissao, type EstadoSincronizacao, type ListaEmissoes } from "../api";
+import { NotaAvulsa } from "../components/NotaAvulsa";
 import { CancelarNotas } from "../components/CancelarNotas";
 import { dataHora, formatarDocumento, haQuanto, moeda } from "../format";
 import { AmbChip, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
@@ -20,8 +21,25 @@ function loteDoHash(): string {
   return new URLSearchParams(location.hash.split("?")[1] || "").get("lote") || "";
 }
 
-export function Emissoes() {
+/** Pode virar ponto de partida de uma nota avulsa: já saiu da fila (autorizada, recusada, cancelada...). */
+const copiavel = (e: Emissao) => !["pendente", "processando"].includes(e.status);
+
+export function Emissoes({ admin = false, podeEmitir = true }: { admin?: boolean; podeEmitir?: boolean }) {
   const toast = useToast();
+  const [copia, setCopia] = useState<CopiaNota | null>(null);
+  const [copiando, setCopiando] = useState<number | null>(null);
+  async function copiar(e: Emissao) {
+    setCopiando(e.id);
+    try {
+      const c = await api.get<CopiaNota>(`/api/emissoes/${e.id}/copia`);
+      setAberta(null);
+      setCopia(c);
+    } catch (x) {
+      toast(x instanceof Error ? x.message : "Não foi possível copiar a nota.", "erro");
+    } finally {
+      setCopiando(null);
+    }
+  }
   const [filtro, setFiltro] = useState({ de: inicioMes(), ate: hoje(), status: "", ambiente: "", q: "", lote: loteDoHash() });
   const [pagina, setPagina] = useState(1);
   const [marcadas, setMarcadas] = useState<Map<number, Emissao>>(new Map());
@@ -308,12 +326,25 @@ export function Emissoes() {
                 </td>
                 <td><AmbChip ambiente={e.ambiente} /></td>
                 <td>
-                  {temArquivos(e) && (
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/xml`).catch((x) => toast(x.message, "erro"))}>XML</button>
-                      <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/pdf`).catch((x) => toast(x.message, "erro"))}>PDF</button>
-                    </div>
-                  )}
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {temArquivos(e) && (
+                      <>
+                        <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/xml`).catch((x) => toast(x.message, "erro"))}>XML</button>
+                        <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/pdf`).catch((x) => toast(x.message, "erro"))}>PDF</button>
+                      </>
+                    )}
+                    {podeEmitir && copiavel(e) && (
+                      <button
+                        className="btn btn--pequeno btn--icone btn--fantasma"
+                        aria-label={`Copiar a nota de ${e.tomador_nome} para uma nota avulsa`}
+                        title="Copiar para uma nota avulsa"
+                        disabled={copiando === e.id}
+                        onClick={() => copiar(e)}
+                      >
+                        {copiando === e.id ? <Spinner /> : <IconeCopiar />}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -327,7 +358,16 @@ export function Emissoes() {
           <button className="btn btn--pequeno" disabled={pagina * lista.data.por_pagina >= lista.data.total} onClick={() => setPagina((p) => p + 1)}>Próxima</button>
         </div>
       )}
-      {aberta !== null && <DetalheEmissao id={aberta} fechar={() => setAberta(null)} cancelar={(e) => setCancelando([e])} />}
+      {aberta !== null && (
+        <DetalheEmissao
+          id={aberta}
+          fechar={() => setAberta(null)}
+          cancelar={(e) => setCancelando([e])}
+          copiar={podeEmitir ? copiar : undefined}
+          copiando={copiando === aberta}
+        />
+      )}
+      {copia && <NotaAvulsa key={copia.emissao_id} copia={copia} admin={admin} fechar={() => setCopia(null)} />}
       {cancelando && (
         <CancelarNotas
           emissoes={cancelando}
@@ -408,7 +448,19 @@ function SituacaoAmbienteNacional() {
   );
 }
 
-function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => void; cancelar: (e: Emissao) => void }) {
+function DetalheEmissao({
+  id,
+  fechar,
+  cancelar,
+  copiar,
+  copiando,
+}: {
+  id: number;
+  fechar: () => void;
+  cancelar: (e: Emissao) => void;
+  copiar?: (e: Emissao) => void;
+  copiando?: boolean;
+}) {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["emissao", id], queryFn: () => api.get<Emissao>(`/api/emissoes/${id}`) });
@@ -466,6 +518,17 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
             )}
             {e.pode_cancelar && (
               <button className="btn btn--perigo" style={{ marginRight: "auto" }} onClick={() => cancelar(e)}>Cancelar NFS-e…</button>
+            )}
+            {copiar && copiavel(e) && (
+              <button
+                className="btn"
+                style={e.pode_cancelar ? undefined : { marginRight: "auto" }}
+                onClick={() => copiar(e)}
+                disabled={copiando}
+                title="Abre uma nota avulsa com o tomador, o valor, a descrição e a tributação desta nota"
+              >
+                {copiando ? <Spinner /> : <IconeCopiar />} {e.status === "rejeitada" || e.status === "erro" ? "Corrigir numa nota avulsa" : "Copiar para nota avulsa"}
+              </button>
             )}
             {temArquivos(e) && (
               <>
@@ -570,5 +633,15 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
         </div>
       )}
     </Gaveta>
+  );
+}
+
+/** Duas folhas sobrepostas: copiar a nota. */
+function IconeCopiar() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <rect x="5.25" y="5.25" width="8" height="9" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10.75 3.25v-.5a1.5 1.5 0 0 0-1.5-1.5h-5a1.5 1.5 0 0 0-1.5 1.5v7a1.5 1.5 0 0 0 1.5 1.5h.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
   );
 }
