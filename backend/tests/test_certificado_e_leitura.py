@@ -76,3 +76,26 @@ def test_padroes_dos_xmls_reais():
     # XMLs reais opcionais (temp/, fora do git): os padrões saem completos do conjunto de notas.
     assert cfg.cnpj and cfg.c_mun_emissor and cfg.c_trib_nac
     assert all(extrair_tomador(d).endereco is not None for d in docs)
+
+
+def test_padroes_com_contribuicoes_sociais_digitadas(nfse_exemplo_bytes):
+    """vRetCSLL menor que o PIS + COFINS retidos: a tributação importada não soma e guarda o percentual da nota."""
+
+    def nota(v_ret_csll: str, ver_aplic: str = "EmissorWeb_1.6.0.0") -> NFSeDoc:
+        grupo = (
+            "<piscofins><CST>01</CST><vBCPisCofins>490.00</vBCPisCofins><pAliqPis>0.65</pAliqPis>"
+            "<pAliqCofins>3.00</pAliqCofins><vPis>3.19</vPis><vCofins>14.70</vCofins><tpRetPisCofins>3</tpRetPisCofins>"
+            f"</piscofins><vRetCSLL>{v_ret_csll}</vRetCSLL>"
+        )
+        xml = nfse_exemplo_bytes.replace(b"<piscofins><CST>00</CST></piscofins>", grupo.encode())
+        return NFSeDoc.from_bytes(xml.replace(b"EmissorWeb_1.6.0.0", ver_aplic.encode()))
+
+    # Soma cheia (CSLL 4,90 + PIS 3,19 + COFINS 14,70): continua somando e guarda só a CSLL.
+    cfg = extrair_padroes([nota("22.79")])
+    assert cfg.somar_contrib_sociais is True and cfg.p_ret_csll == "1.00"
+    # O tomador reteve só R$ 9,80 (2%): valor digitado.
+    cfg = extrair_padroes([nota("9.80")])
+    assert (cfg.somar_contrib_sociais, cfg.p_ret_contrib_sociais, cfg.p_ret_csll) == (False, "2.00", None)
+    # Notas deste sistema até a 0.17.0 levavam só a CSLL no vRetCSLL.
+    cfg = extrair_padroes([nota("4.90", "EmPlanilha_0.17.0")])
+    assert cfg.somar_contrib_sociais is True and cfg.p_ret_csll == "1.00"
