@@ -288,6 +288,44 @@ def test_contribuicoes_sociais_somam_pis_cofins_e_csll(config_fiscal):
     assert csll_sem_pis_cofins(d("10.00"), "1", d("6.50"), d("30.00")) == d("10.00")
 
 
+def test_contribuicoes_sociais_digitadas(config_fiscal):
+    """Sem somar, o vRetCSLL é o percentual retido de fato (o tomador pode reter só parte)."""
+    from decimal import Decimal
+
+    from emissor.nfse.models import aplicar_tributacao, tributacao_de
+    from emissor.nfse.tributos import calcular
+    from emissor.services.tributacao import coerencia, normalizar
+
+    base = replace(
+        config_fiscal,
+        cst_pis_cofins="01",
+        p_aliq_pis="0.65",
+        p_aliq_cofins="3.00",
+        tp_ret_pis_cofins="3",
+        p_ret_csll="1",
+    )
+    manual = replace(base, somar_contrib_sociais=False, p_ret_contrib_sociais="3.65")
+    t, erros = calcular(manual, Decimal("1000"))
+    assert erros == [] and t.v_ret_csll == Decimal("36.50") and t.total_retido == Decimal("36.50")
+    # Sem PIS/COFINS retidos, a opção não muda nada (as contribuições sociais são só a CSLL).
+    t, _ = calcular(replace(manual, tp_ret_pis_cofins="8"), Decimal("1000"))
+    assert t.v_ret_csll == Decimal("10.00")
+    t, _ = calcular(replace(manual, tp_ret_pis_cofins="1"), Decimal("1000"))
+    assert t.v_ret_csll == Decimal("10.00")
+
+    dados = tributacao_de(manual) | {"p_ret_csll": None, "p_ret_contrib_sociais": None}
+    assert any("Contribuições Sociais" in e for e in coerencia(dados))
+    dados["p_ret_contrib_sociais"] = "3,65"
+    dados, erros = normalizar(dados | {"somar_contrib_sociais": "false"})
+    assert erros == [] and dados["p_ret_contrib_sociais"] == "3.65" and dados["somar_contrib_sociais"] is False
+    assert coerencia(dados) == []
+    # Tributação gravada antes da opção soma, mesmo que as configurações não somem.
+    antiga = {
+        k: v for k, v in tributacao_de(base).items() if k not in ("somar_contrib_sociais", "p_ret_contrib_sociais")
+    }
+    assert aplicar_tributacao(manual, antiga).somar_contrib_sociais is True
+
+
 def test_cst_pis_cofins_tem_todos_os_codigos_do_xsd(dps_input):
     import re
     from dataclasses import replace
