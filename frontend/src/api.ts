@@ -190,6 +190,8 @@ export interface Sessao {
   primeiro_acesso_por_email?: boolean;
   suspenso: boolean;
   url_assinatura: string | null;
+  /** Hospedagem: WhatsApp do suporte (só dígitos, com o 55); null na instalação própria. */
+  whatsapp_suporte?: string | null;
   recuperacao_email: boolean;
 }
 

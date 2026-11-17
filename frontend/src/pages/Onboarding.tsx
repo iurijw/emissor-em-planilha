@@ -5,6 +5,7 @@ import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
 import { ehEnter, ErroCaixa, Logo, Spinner } from "../ui";
 import { nomeEmpresa, SairDaEmpresaNova } from "../components/Empresas";
+import { LinkSuporte } from "../components/Suporte";
 
 const PASSOS = ["Certificado digital", "Notas anteriores", "Dados da empresa", "Tributação padrão", "Ambiente e numeração", "Revisão"];
 
@@ -171,6 +172,7 @@ export function Onboarding({ status }: { status: Status }) {
             </li>
           ))}
         </ol>
+        <LinkSuporte texto="Dúvidas? Fale com o suporte" status={status} />
         <p className="onb__rodape">
           NFS-e Padrão Nacional · os dados ficam salvos neste servidor. O certificado é guardado criptografado.
         </p>

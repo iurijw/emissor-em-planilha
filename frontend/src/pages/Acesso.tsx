@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, type Sessao } from "../api";
 import { ErroCaixa, Logo, Spinner } from "../ui";
+import { LinkSuporte } from "../components/Suporte";
 
 export const SENHA_MIN = 10;
 
@@ -18,6 +19,7 @@ function Moldura({ titulo, subtitulo, children }: { titulo: string; subtitulo?: 
         <h1 className="titulo">{titulo}</h1>
         {subtitulo && <p className="subtitulo">{subtitulo}</p>}
         {children}
+        <LinkSuporte />
       </div>
     </div>
   );

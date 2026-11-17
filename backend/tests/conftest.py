@@ -47,6 +47,7 @@ def data_dir_isolado(tmp_path, monkeypatch):
         "EMISSOR_CONVITE_INICIAL",
         "EMISSOR_SUSPENSO",
         "EMISSOR_URL_ASSINATURA",
+        "EMISSOR_WHATSAPP_SUPORTE",
         "EMISSOR_SECRET_KEY",
         "EMISSOR_ASSINATURA_API",
         "EMISSOR_INSTALACAO",

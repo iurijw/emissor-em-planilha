@@ -10,6 +10,7 @@
   --preto: #020202;
   --tinta: light-dark(#0b1014, #e3ebef);
   --grafite: light-dark(#56656f, #a0afb8);
+  --whatsapp: light-dark(#128c4a, #25d366); /* verde do WhatsApp, só no ícone do suporte */
   --grafite-claro: light-dark(#8795a0, #74848e);
   --azul: #0098d7;
   --azul-hover: light-dark(#0087c0, #18a8e4);
@@ -639,6 +640,19 @@ dialog.dialogo[open]::backdrop, dialog.gaveta[open]::backdrop { opacity: 1; tran
 .att:has(.att-pop:popover-open) .ic-att--nova { box-shadow: 0 0 0 3px rgb(0 152 215 / 25%); }
 .ic-att__ponto { position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; background: #f5a300; border: 2px solid var(--folha); }
 
+/* Suporte pelo WhatsApp (só na hospedagem): mesmo ícone redondo das atualizações, verde ao passar o mouse. */
+.ic-suporte { text-decoration: none; }
+.ic-suporte:hover, .ic-suporte:focus-visible { color: var(--whatsapp); }
+.link-suporte {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 20px;
+  color: var(--azul-texto); font-size: 0.8125rem; font-weight: 550; text-decoration: none;
+}
+.link-suporte svg { color: var(--whatsapp); flex: none; }
+.link-suporte:hover span { text-decoration: underline; text-underline-offset: 3px; }
+.onb__lado .link-suporte { margin-top: auto; color: #fff; }
+.onb__lado .link-suporte svg { color: #25d366; }
+.onb__lado .link-suporte + .onb__rodape { margin-top: 0; }
+
 /* Popover (camada superior) preso ao ícone: anchor positioning, ou as medidas do botão onde ele não existe. */
 .ic-att { anchor-name: --att; }
 .att-pop {
@@ -704,6 +718,9 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
   /* No celular o ícone fica no fim da linha das seções (a de cima só tem lugar para a marca e o usuário). */
   .nav:has(~ .att) { width: calc(100% - 46px); }
   .att { order: 3; height: 44px; }
+  .nav:has(~ .ic-suporte) { width: calc(100% - 46px); }
+  .nav:has(~ .ic-suporte):has(~ .att) { width: calc(100% - 92px); }
+  .ic-suporte { order: 3; align-self: center; }
   .att-pop, .att-pop[popover] { left: 8px; right: 8px; width: auto; }
   .att-pop:popover-open { display: flex; }
 @supports (anchor-name: --a) {

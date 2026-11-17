@@ -80,6 +80,7 @@ def sessao_atual(request: Request) -> dict[str, Any]:
         "primeiro_acesso_por_email": (not existe) and atualizacoes.instalacao() == "hospedagem",
         "suspenso": auth.suspenso(),
         "url_assinatura": auth.url_assinatura(),
+        "whatsapp_suporte": auth.whatsapp_suporte(),
         "recuperacao_email": auth.recuperacao_por_email(),
     }
 
