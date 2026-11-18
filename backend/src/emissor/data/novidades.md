@@ -7,6 +7,10 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.19.1 (18/11/2026)
+
+- Tributações: digitar um percentual de retenção não tira mais o cursor do campo quando aparece a opção de arredondar para cima, e o exemplo que aparecia ao marcá-la saiu.
+
 ## 0.19.0 (17/11/2026)
 
 - Retenções: escolha se "Contribuições Sociais - Retidas" soma PIS, COFINS e CSLL ou leva o percentual que o tomador reteve de fato, e se os centavos de cada imposto arredondam sempre para cima.
