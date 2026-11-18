@@ -68,3 +68,27 @@ def test_copia_e_historico(api):  # noqa: F811 (banco e empresa prontos)
         assert [d["do_tomador"] for d in h["descricoes"]] == [True, False]
         assert [x["tipo"] for x in h["tributacoes"]] == ["propria", "predefinida", "padrao"]
         assert h["tributacoes"][0]["do_tomador"] is True
+
+
+def test_excluir_notas_nao_emitidas(api):  # noqa: F811
+    from emissor.db import LinhaTabela, Lote
+
+    with sessao() as s:
+        s.add(Lote(id="L1", ambiente="2", status="concluido", total=4))
+        rej = _emissao(s, status="rejeitada", lote_id="L1")
+        sem_envio = _emissao(s, status="erro", lote_id="L1")
+        incerta = _emissao(s, status="erro", id_dps="DPS" + "1" * 42, lote_id="L1")  # pode ter sido gerada
+        aut = _emissao(s, lote_id="L1")
+        ln = LinhaTabela(ordem=0, nome="Cliente", documento="11222333000181", valor="100.00", ultima_emissao_id=rej.id)
+        s.add(ln)
+        s.commit()
+        ids = [rej.id, sem_envio.id, incerta.id, aut.id]
+        ln_id = ln.id
+    r = api.post("/api/emissoes/excluir", json={"ids": ids})
+    assert r.status_code == 200 and r.json() == {"excluidas": 2, "ignoradas": 2}, r.text
+    with sessao() as s:
+        assert s.get(Emissao, incerta.id) is not None and s.get(Emissao, aut.id) is not None
+        assert s.get(Emissao, rej.id) is None and s.get(Emissao, sem_envio.id) is None
+        assert s.get(LinhaTabela, ln_id).ultima_emissao_id is None
+        assert s.get(Lote, "L1") is not None  # ainda tem notas
+    assert api.post("/api/emissoes/excluir", json={"ids": []}).status_code == 422

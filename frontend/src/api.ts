@@ -76,6 +76,8 @@ export interface Emissao {
   recuperada: boolean;
   tributacao_nome: string | null;
   pode_cancelar: boolean;
+  /** Não existe na Sefin (recusada, não enviada, erro antes do envio): pode sair da lista. */
+  pode_excluir: boolean;
   atualizado_em: string | null;
   eventos?: EventoNFSe[];
   aviso?: string | null;

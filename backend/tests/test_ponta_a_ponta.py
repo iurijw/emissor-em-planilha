@@ -1363,6 +1363,8 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     api.worker.processar_lote(pendente["id"])
     cancelado = api.get(f"/api/lotes/{pendente['id']}").json()
     assert cancelado["status"] == "cancelado" and cancelado["contagem"] == {"nao_enviada": 1}, cancelado
+    nao_enviada = cancelado["emissoes"][0]
+    assert nao_enviada["pode_excluir"], nao_enviada
     api.worker.processar_lote(avulsa.json()["id"])
 
     # Emissões: consulta, downloads, verificar, cancelar, situação e sincronização
@@ -1378,6 +1380,10 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     ok(api.get(f"/api/emissoes/{eid}/pdf"))
     ok(api.post(f"/api/emissoes/{eid}/verificar"), 400)  # só para resultado incerto
     ok(api.post(f"/api/emissoes/{eid}/situacao"))
+    excl = ok(api.post("/api/emissoes/excluir", json={"ids": [eid, nao_enviada["id"]]})).json()
+    assert excl == {"excluidas": 1, "ignoradas": 1}, excl  # a autorizada fica
+    ok(api.get(f"/api/emissoes/{nao_enviada['id']}"), 404)
+    ok(api.get(f"/api/lotes/{pendente['id']}"), 404)  # lote sem nenhuma nota some junto
     d = ok(api.post(f"/api/emissoes/{eid}/cancelar", json={"c_motivo": "2", "x_motivo": "Serviço não prestado"}))
     ok(api.get(f"/api/emissoes/{eid}/eventos/{d.json()['eventos'][0]['id']}/xml"))
     ok(api.post("/api/sincronizacao", params={"forcar": True}))

@@ -358,7 +358,7 @@ dialog.gaveta::backdrop { background: light-dark(rgb(11 16 20 / 25%), rgb(0 0 0 
 .dialogo__topo { padding: 18px 22px 0; display: flex; align-items: flex-start; gap: 12px; }
 .dialogo__topo h2 { font: 700 1.25rem/1.2 var(--f-ui); font-stretch: 120%; margin: 0; text-wrap: balance; }
 .dialogo__corpo { padding: 16px 22px; overflow: auto; overscroll-behavior: contain; }
-.dialogo__rodape { padding: 14px 22px; border-top: 1px solid var(--linha); display: flex; gap: 8px; justify-content: flex-end; align-items: center; background: var(--folha-2); }
+.dialogo__rodape { padding: 14px 22px; border-top: 1px solid var(--linha); display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; background: var(--folha-2); }
 .fechar { margin-left: auto; background: none; border: 0; font-size: 1.375rem; line-height: 1; cursor: pointer; color: var(--grafite); padding: 2px 6px; border-radius: 4px; }
 .gaveta {
   inset: 0 0 0 auto; margin: 0; width: min(560px, 100vw); max-width: none; height: 100dvh; max-height: none;
@@ -1101,3 +1101,5 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 .arredondar__exemplo b { font-weight: 650; }
 .arredondar__comum { color: var(--grafite); }
 .previa-nfse__detalhe--cima { color: var(--azul-texto); }
+
+.excluir-notas__lista { margin: 12px 0 0; padding-left: 18px; color: var(--grafite); display: grid; gap: 2px; }

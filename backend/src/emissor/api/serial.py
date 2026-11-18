@@ -46,6 +46,7 @@ def emissao_resumo(e: Emissao) -> dict[str, Any]:
         "tem_xml": bool(e.xml_path),
         "tem_pdf": bool(e.xml_path),  # PDF é gerado sob demanda a partir do XML se faltar
         "pode_cancelar": e.status == "autorizada" and bool(e.chave_acesso),
+        "pode_excluir": excluivel(e),
         "erro": erro,
         "alertas": e.alertas(),
         "recuperada": e.recuperada,
@@ -113,6 +114,14 @@ def cliente_dict(c: Cliente) -> dict[str, Any]:
         "endereco_completo": c.endereco_completo,
         "atualizado_em": dt(c.atualizado_em),
     }
+
+
+def excluivel(e: Emissao) -> bool:
+    """Nota que não existe na Sefin: recusada, não enviada ou com erro antes de a DPS sair (sem Id da DPS).
+
+    Com erro de comunicação depois do envio a nota pode ter sido gerada: primeiro "Verificar na Sefin".
+    """
+    return e.status in ("rejeitada", "nao_enviada") or (e.status == "erro" and not e.id_dps)
 
 
 def lote_dict(lote: Lote, emissoes: list[Emissao] | None = None) -> dict[str, Any]:
