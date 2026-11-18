@@ -827,26 +827,84 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 
 .empresas__busca { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
 .empresas__busca .busca { flex: 0 1 380px; }
-.empresas__conta { color: var(--grafite); font-size: 0.8125rem; }
+.empresas__adicionar { margin-left: auto; }
+.empresas__conta { color: var(--grafite); font-size: 0.8125rem; white-space: nowrap; }
 .empresas__conta b { color: var(--tinta); font-weight: 600; }
+.empresas__filtros { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.empresas__filtro {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  border: 1px solid var(--linha); border-radius: 999px; background: var(--folha); color: var(--grafite);
+  font-size: 0.75rem; font-weight: 550; cursor: pointer;
+}
+.empresas__filtro .num { font-size: 0.6875rem; color: var(--grafite-claro); }
+.empresas__filtro:hover { border-color: var(--linha-forte); color: var(--tinta); }
+.empresas__filtro[aria-pressed="true"] { border-color: var(--azul); background: var(--azul-fundo); color: var(--azul-texto); }
+.empresas__filtro[aria-pressed="true"] .num { color: var(--azul-texto); }
 .empresas__vazio { padding: 18px 16px; border: 1px dashed var(--linha-forte); border-radius: 8px; color: var(--grafite); }
+/* Uma linha por empresa: nome, CNPJ, certificado e ambiente em colunas; o resto no menu "⋯". */
 .empresas { list-style: none; margin: 0; padding: 0; border: 1px solid var(--linha); border-radius: 8px; overflow: hidden; }
-.empresas__item { display: flex; align-items: stretch; gap: 14px; padding: 0 14px 0 0; background: var(--folha); }
+.empresas__item { display: flex; align-items: stretch; gap: 12px; padding: 0 8px 0 0; background: var(--folha); min-height: 44px; }
 .empresas__item + .empresas__item { border-top: 1px solid var(--linha); }
+.empresas__item:hover { background: var(--realce); }
+.empresas__item--atual { background: var(--azul-fundo); }
+.empresas__item--atual:hover { background: var(--azul-fundo); }
 .empresas__item > .cracha__borda { flex-basis: 5px; }
-.empresas__corpo { flex: 1; min-width: 0; padding: 12px 0; }
-.empresas__linha { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
-.empresas__linha strong { font-weight: 650; font-size: 0.9375rem; }
-.empresas__aqui { font-size: 0.7188rem; color: var(--azul-texto); font-weight: 600; }
-.empresas__meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; color: var(--grafite); font-size: 0.8125rem; }
-.empresas__pendente { color: var(--aviso); font-weight: 550; }
-.empresas__acoes { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; padding: 10px 0; }
+.empresas__corpo {
+  flex: 1; min-width: 0; padding: 7px 0;
+  display: grid; grid-template-columns: minmax(0, 1.6fr) 17ch minmax(0, 1.2fr) 14ch; align-items: center; gap: 2px 16px;
+  font-size: 0.8125rem;
+}
+.empresas__nome { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.empresas__nome strong { font-weight: 650; font-size: 0.875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.empresas__aqui, .empresas__pendente { flex: 0 0 auto; font-size: 0.6875rem; font-weight: 600; white-space: nowrap; }
+.empresas__aqui { color: var(--azul-texto); }
+.empresas__pendente { color: var(--aviso); }
+.empresas__doc { color: var(--tinta); font-size: 0.75rem; white-space: nowrap; }
+.empresas__cert { color: var(--grafite); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.empresas__cert--vencendo { color: var(--aviso); font-weight: 550; }
+.empresas__amb {
+  font: 600 0.625rem/1 var(--f-ui); font-stretch: 112%; letter-spacing: 0.07em; text-transform: uppercase; color: var(--grafite);
+}
+.empresas__conferencia { grid-column: 1 / -1; margin-top: 6px; }
+.empresas__acoes { display: flex; gap: 4px; align-items: center; justify-content: flex-end; flex: 0 0 8.5rem; }
+.empresas__mais { padding: 0 6px; min-width: 30px; }
+.empresas__menu {
+  position: fixed; inset: auto; margin: 0; padding: 4px; color: inherit; min-width: 220px;
+  top: calc(var(--ancora-baixo, 60px) + 4px); right: var(--ancora-direita, 20px);
+  background: var(--folha); border: 1px solid var(--linha-forte); border-radius: 8px; box-shadow: var(--sombra);
+  flex-direction: column;
+}
+.empresas__menu:popover-open { display: flex; }
+@supports (anchor-name: --a) {
+  .empresas__menu { top: calc(anchor(bottom) + 4px); right: anchor(right); position-try-fallbacks: flip-block; }
+}
+.empresas__menu button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 10px;
+  border: 0; border-radius: var(--raio); background: none; color: var(--tinta); cursor: pointer; text-align: left; font-size: 0.8125rem;
+}
+.empresas__menu button small { color: var(--grafite); font-size: 0.6875rem; }
+.empresas__menu button:hover:not(:disabled) { background: var(--realce); }
+.empresas__menu button:disabled { color: var(--grafite-claro); cursor: default; }
+.empresas__menu .empresas__menu--perigo { color: var(--erro); }
+.empresas__mais-linhas { display: flex; align-items: center; gap: 12px; margin-top: 10px; color: var(--grafite); font-size: 0.8125rem; }
 .empresas__desativadas { margin-top: 16px; color: var(--grafite); }
 .empresas__desativadas summary { cursor: pointer; font-weight: 550; }
 .empresas__desativadas ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 900px) {
+  .empresas__corpo { grid-template-columns: minmax(0, 1fr) auto; }
+  .empresas__nome { grid-column: 1 / -1; }
+  .empresas__cert { grid-column: 1; grid-row: 3; }
+  .empresas__amb { grid-column: 2; grid-row: 2; justify-self: end; }
+  .empresas__acoes { flex-basis: auto; }
+}
 @media (max-width: 640px) {
-  .empresas__item { flex-wrap: wrap; }
-  .empresas__acoes { width: 100%; justify-content: flex-start; padding: 0 0 12px 19px; }
+  .empresas__adicionar { margin-left: 0; }
+  .empresas__corpo { grid-template-columns: minmax(0, 1fr); }
+  .empresas__nome, .empresas__cert, .empresas__amb, .empresas__doc { grid-column: 1; grid-row: auto; justify-self: stretch; }
+  .empresas__cert { white-space: normal; }
+  .empresas__nome { flex-wrap: wrap; row-gap: 0; }
+  .empresas__nome strong { white-space: normal; }
+  .empresas__amb { order: 1; margin-top: 2px; }
   .cracha__botao { max-width: 160px; }
   /* No celular a lista ocupa a largura da tela, logo abaixo do crachá. */
   .cracha__lista, .cracha__lista[popover] { left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--ancora-baixo, 120px) - 18px); }

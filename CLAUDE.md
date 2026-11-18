@@ -644,6 +644,10 @@ até o Iuri pedir (`empresas.limite()`: `EMISSOR_LIMITE_EMPRESAS`, senão 1 com 
   certificados do procurador (adicionar empresa) ganham um campo de busca (`filtrarEmpresas` em `Empresas.tsx`): todas as
   palavras, sem acento/caixa, no nome, titular do certificado, "procuração"/"produção"/"homologação"; palavra com número
   procura no CNPJ/CPF sem pontuação. No crachá, setas e Enter escolhem; no celular a lista ocupa a largura da tela.
+  Configurações → Empresas (2026-11-18, pedido do Iuri): uma linha por empresa (nome, CNPJ, certificado, ambiente;
+  a aberta primeiro, depois em ordem alfabética), "Abrir" à vista e o resto num menu "⋯" (`MenuEmpresa`), filtros
+  rápidos (produção, homologação, procuração, certificado próprio ou vencendo, configuração pendente) e 20 por vez
+  ("Mostrar mais").
 - **Preço na hospedagem (quando habilitar):** até 3 CNPJs no mesmo preço; cada um a mais R$ 14,90/mês. O app só lê
   `EMISSOR_LIMITE_EMPRESAS`; a cobrança fica no painel (repositório da hospedagem).
 

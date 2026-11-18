@@ -260,6 +260,82 @@ export function SeletorEmpresa({ admin }: { admin: boolean }) {
 
 // --- Configurações → Empresas -------------------------------------------------------------------------------
 
+/** Filtros rápidos da lista de empresas (só aparecem os que têm alguma empresa). */
+const FILTROS: { id: string; rotulo: string; teste: (e: Empresa) => boolean }[] = [
+  { id: "producao", rotulo: "Produção", teste: (e) => e.ambiente === "1" },
+  { id: "homologacao", rotulo: "Homologação", teste: (e) => e.ambiente !== "1" },
+  { id: "procuracao", rotulo: "Por procuração", teste: (e) => e.acesso === "procuracao" },
+  { id: "certificado", rotulo: "Certificado próprio", teste: (e) => e.acesso !== "procuracao" },
+  { id: "vencendo", rotulo: "Certificado vencendo", teste: (e) => Boolean(e.certificado && (e.certificado.vencido || e.certificado.dias_para_vencer <= 30)) },
+  { id: "pendente", rotulo: "Configuração pendente", teste: (e) => !e.onboarding_concluido },
+];
+
+/** Quantas empresas a lista mostra antes do "Mostrar mais". */
+const POR_PAGINA = 20;
+
+function textoCertificado(e: Empresa) {
+  const c = e.certificado;
+  if (!c) return "Sem certificado";
+  const ate = new Date(c.valido_ate).toLocaleDateString("pt-BR");
+  if (e.acesso === "procuracao") return `Procuração · ${c.titular}`;
+  return c.vencido ? `Certificado vencido em ${ate}` : `Certificado até ${ate}`;
+}
+
+/** Menu "⋯" de cada empresa: as ações que não são abrir. */
+function MenuEmpresa(props: {
+  empresa: Empresa;
+  atual: boolean;
+  conferindo: boolean;
+  podeDesativar: boolean;
+  editar: () => void;
+  desativar: () => void;
+  conferir: () => void;
+}) {
+  const pop = usePopover();
+  const id = `empresa-menu-${props.empresa.id}`;
+  const ancora = `--empresa-${props.empresa.id}`;
+  const acao = (fn: () => void) => () => {
+    pop.fechar();
+    fn();
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn--pequeno btn--fantasma empresas__mais"
+        popovertarget={id}
+        aria-label={`Mais ações de ${props.empresa.nome}`}
+        title="Mais ações"
+        style={{ anchorName: ancora } as React.CSSProperties}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+          <circle cx="3.5" cy="8" r="1.4" fill="currentColor" />
+          <circle cx="8" cy="8" r="1.4" fill="currentColor" />
+          <circle cx="12.5" cy="8" r="1.4" fill="currentColor" />
+        </svg>
+      </button>
+      <div className="empresas__menu" id={id} popover="auto" ref={pop.ref} style={{ positionAnchor: ancora } as React.CSSProperties}>
+        <button type="button" onClick={acao(props.editar)}>Editar nome ou certificado</button>
+        {props.empresa.acesso === "procuracao" && (
+          <button
+            type="button"
+            disabled={!props.atual || props.conferindo}
+            title={props.atual ? undefined : "Abra a empresa para conferir a procuração"}
+            onClick={acao(props.conferir)}
+          >
+            Conferir procuração{!props.atual && <small>abra a empresa antes</small>}
+          </button>
+        )}
+        {props.podeDesativar && (
+          <button type="button" className="empresas__menu--perigo" onClick={acao(props.desativar)}>
+            Desativar
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 export function SecaoEmpresas({ empresaAtual }: { empresaAtual: number }) {
   const lista = useEmpresas();
   const qc = useQueryClient();
@@ -270,12 +346,26 @@ export function SecaoEmpresas({ empresaAtual }: { empresaAtual: number }) {
   const [conferencia, setConferencia] = useState<Record<number, { ok: boolean; mensagem: string } | "conferindo">>({});
   const [erro, setErro] = useState<unknown>(null);
   const [busca, setBusca] = useState("");
+  const [filtro, setFiltro] = useState<string | null>(null);
+  const [limite, setLimite] = useState(POR_PAGINA);
+  useEffect(() => setLimite(POR_PAGINA), [busca, filtro]);
   const d = lista.data;
   if (!d) return <ErroCaixa erro={lista.error} titulo="Não foi possível carregar as empresas" />;
   const comBusca = d.empresas.length + d.desativadas.length >= BUSCA_A_PARTIR;
   const buscando = comBusca && busca.trim() !== "";
-  const filtradas = buscando ? filtrarEmpresas(d.empresas, busca) : d.empresas;
+  // A empresa aberta nesta aba primeiro; as outras em ordem alfabética.
+  const ordenadas = [...d.empresas].sort(
+    (a, b) => Number(b.id === empresaAtual) - Number(a.id === empresaAtual) || a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }),
+  );
+  const buscadas = buscando ? filtrarEmpresas(ordenadas, busca) : ordenadas;
+  const filtroAtivo = FILTROS.find((f) => f.id === filtro);
+  const filtradas = filtroAtivo ? buscadas.filter(filtroAtivo.teste) : buscadas;
+  const visiveis = filtradas.slice(0, limite);
   const desativadas = buscando ? filtrarEmpresas(d.desativadas, busca) : d.desativadas;
+  // Filtros com alguma empresa, e que não valem para todas (aí não separam nada).
+  const filtros = comBusca
+    ? FILTROS.map((f) => ({ ...f, n: buscadas.filter(f.teste).length })).filter((f) => f.id === filtro || (f.n > 0 && f.n < buscadas.length))
+    : [];
 
   async function conferir(e: Empresa) {
     setConferencia((c) => ({ ...c, [e.id]: "conferindo" }));
@@ -298,6 +388,12 @@ export function SecaoEmpresas({ empresaAtual }: { empresaAtual: number }) {
     }
   }
 
+  const botaoAdicionar = d.pode_adicionar && (
+    <button className="btn btn--primario" onClick={() => setAdicionar(true)}>
+      Adicionar empresa
+    </button>
+  );
+
   return (
     <section className="folha" id="empresas">
       <h2 className="secao-titulo">Empresas</h2>
@@ -309,10 +405,9 @@ export function SecaoEmpresas({ empresaAtual }: { empresaAtual: number }) {
         <div className="empresas__busca">
           <CampoBusca valor={busca} mudar={setBusca} rotulo="Buscar empresa" placeholder="Buscar por nome, CNPJ ou certificado" />
           <span className="empresas__conta" aria-live="polite">
-            {buscando ? (
+            {buscando || filtroAtivo ? (
               <>
                 <b className="num">{filtradas.length}</b> de <span className="num">{d.empresas.length}</span>
-                {desativadas.length > 0 && <> · {desativadas.length} desativada(s)</>}
               </>
             ) : (
               <>
@@ -320,69 +415,101 @@ export function SecaoEmpresas({ empresaAtual }: { empresaAtual: number }) {
               </>
             )}
           </span>
+          <span className="empresas__adicionar">{botaoAdicionar}</span>
         </div>
       )}
-      {buscando && filtradas.length === 0 && (
+      {filtros.length > 0 && (
+        <div className="empresas__filtros" role="group" aria-label="Filtrar empresas">
+          {filtros.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className="empresas__filtro"
+              aria-pressed={filtro === f.id}
+              onClick={() => setFiltro(filtro === f.id ? null : f.id)}
+            >
+              {f.rotulo} <span className="num">{f.n}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {filtradas.length === 0 && (buscando || filtroAtivo) && (
         <div className="empresas__vazio">
-          Nenhuma empresa ativa com “{busca.trim()}”{desativadas.length > 0 ? ` (${desativadas.length} entre as desativadas, abaixo)` : ""}.{" "}
-          <button type="button" className="btn-texto" onClick={() => setBusca("")}>Limpar busca</button>
+          Nenhuma empresa ativa {buscando ? `com “${busca.trim()}”` : ""}
+          {filtroAtivo ? ` em “${filtroAtivo.rotulo}”` : ""}
+          {desativadas.length > 0 && buscando ? ` (${desativadas.length} entre as desativadas, abaixo)` : ""}.{" "}
+          <button
+            type="button"
+            className="btn-texto"
+            onClick={() => {
+              setBusca("");
+              setFiltro(null);
+            }}
+          >
+            Limpar busca
+          </button>
         </div>
       )}
       <ul className="empresas" hidden={filtradas.length === 0}>
-        {filtradas.map((e) => {
+        {visiveis.map((e) => {
           const c = conferencia[e.id];
+          const atual = e.id === empresaAtual;
+          const vencendo = e.certificado && (e.certificado.vencido || e.certificado.dias_para_vencer <= 30);
           return (
-            <li key={e.id} className="empresas__item">
+            <li key={e.id} className={`empresas__item ${atual ? "empresas__item--atual" : ""}`}>
               <Borda ambiente={e.ambiente} />
               <div className="empresas__corpo">
-                <div className="empresas__linha">
-                  <strong>
+                <div className="empresas__nome">
+                  <strong title={e.nome}>
                     <Destaque texto={e.nome} busca={buscando ? busca : ""} />
                   </strong>
-                  {e.id === empresaAtual && <span className="empresas__aqui">aberta nesta aba</span>}
+                  {atual && <span className="empresas__aqui">aberta nesta aba</span>}
+                  {!e.onboarding_concluido && <span className="empresas__pendente">configuração pendente</span>}
                 </div>
-                <div className="empresas__meta">
-                  <span className="num">{linhaDoc(e)}</span>
-                  <span>{e.ambiente === "1" ? "Produção" : "Homologação"}</span>
-                  <span>
-                    {e.acesso === "procuracao"
-                      ? `Por procuração: certificado de ${e.certificado?.titular ?? "?"}`
-                      : e.certificado
-                        ? `Certificado da empresa até ${new Date(e.certificado.valido_ate).toLocaleDateString("pt-BR")}`
-                        : "Sem certificado"}
-                  </span>
-                  {!e.onboarding_concluido && <span className="empresas__pendente">configuração inicial pendente</span>}
-                </div>
-                {c && c !== "conferindo" && <div className={c.ok ? "info-caixa" : "aviso"} style={{ marginTop: 8 }}>{c.mensagem}</div>}
+                <span className="empresas__doc num">{linhaDoc(e)}</span>
+                <span className={`empresas__cert ${vencendo ? "empresas__cert--vencendo" : ""}`} title={textoCertificado(e)}>
+                  {textoCertificado(e)}
+                </span>
+                <span className="empresas__amb">{e.ambiente === "1" ? "Produção" : "Homologação"}</span>
+                {c && c !== "conferindo" && <div className={`empresas__conferencia ${c.ok ? "info-caixa" : "aviso"}`}>{c.mensagem}</div>}
               </div>
               <div className="empresas__acoes">
-                {e.id !== empresaAtual && (
+                {c === "conferindo" && <Spinner />}
+                {!atual && (
                   <button className="btn btn--pequeno" onClick={() => trocarEmpresa(e.id)}>
                     {e.onboarding_concluido ? "Abrir" : "Configurar"}
                   </button>
                 )}
-                {e.acesso === "procuracao" && e.id === empresaAtual && (
-                  <button className="btn btn--pequeno" disabled={c === "conferindo"} onClick={() => conferir(e)}>
-                    {c === "conferindo" && <Spinner />} Conferir procuração
-                  </button>
-                )}
-                <button className="btn btn--pequeno btn--fantasma" onClick={() => setEditando(e)}>Editar</button>
-                {d.empresas.length > 1 && (
-                  <button className="btn btn--pequeno btn--fantasma" onClick={() => setDesativar(e)}>Desativar</button>
-                )}
+                <MenuEmpresa
+                  empresa={e}
+                  atual={atual}
+                  conferindo={c === "conferindo"}
+                  podeDesativar={d.empresas.length > 1}
+                  editar={() => setEditando(e)}
+                  desativar={() => setDesativar(e)}
+                  conferir={() => conferir(e)}
+                />
               </div>
             </li>
           );
         })}
       </ul>
-      <ErroCaixa erro={erro} />
-      {d.pode_adicionar ? (
-        <button className="btn btn--primario" style={{ marginTop: 14 }} onClick={() => setAdicionar(true)}>
-          Adicionar empresa
-        </button>
-      ) : (
-        d.limite !== null && <p className="secao-texto">Limite de {d.limite} empresa(s) nesta instalação.</p>
+      {filtradas.length > visiveis.length && (
+        <div className="empresas__mais-linhas">
+          <span>
+            Mostrando <span className="num">{visiveis.length}</span> de <span className="num">{filtradas.length}</span>
+          </span>
+          <button type="button" className="btn btn--pequeno" onClick={() => setLimite((n) => n + POR_PAGINA * 2)}>
+            Mostrar mais {Math.min(POR_PAGINA * 2, filtradas.length - visiveis.length)}
+          </button>
+          <button type="button" className="btn-texto" onClick={() => setLimite(filtradas.length)}>
+            Mostrar todas
+          </button>
+        </div>
       )}
+      <ErroCaixa erro={erro} />
+      {!comBusca && botaoAdicionar && <div style={{ marginTop: 14 }}>{botaoAdicionar}</div>}
+      {!d.pode_adicionar && d.limite !== null && <p className="secao-texto" style={{ marginTop: 14 }}>Limite de {d.limite} empresa(s) nesta instalação.</p>}
       {desativadas.length > 0 && (
         <details className="empresas__desativadas" open={buscando || undefined}>
           <summary>
