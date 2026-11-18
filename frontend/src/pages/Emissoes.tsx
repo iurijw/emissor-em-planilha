@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, baixar, COM_ARQUIVOS, comEmpresa, type CopiaNota, type Emissao, type EstadoSincronizacao, type ListaEmissoes } from "../api";
+import { useNomePadrao } from "../components/Abas";
 import { NotaAvulsa } from "../components/NotaAvulsa";
 import { CancelarNotas } from "../components/CancelarNotas";
 import { dataHora, formatarDocumento, haQuanto, moeda } from "../format";
@@ -504,6 +505,7 @@ function DetalheEmissao({
   const [consultando, setConsultando] = useState(false);
   const [erro, setErro] = useState<unknown>(null);
   const e = q.data;
+  const nomePadrao = useNomePadrao();
   const cancelamento = e?.eventos?.find((ev) => ["101101", "105104", "305101", "105102"].includes(ev.tipo));
 
   async function atualizarSituacao() {
@@ -633,7 +635,7 @@ function DetalheEmissao({
             <dt>Descrição</dt>
             <dd style={{ whiteSpace: "pre-wrap" }}>{e.descricao}</dd>
             <dt>Tributação</dt>
-            <dd>{e.tributacao_nome ?? "Tributação padrão"}{e.linha_id === null && e.lote_id ? " (nota avulsa)" : ""}</dd>
+            <dd>{e.tributacao_nome ?? nomePadrao}{e.linha_id === null && e.lote_id ? " (nota avulsa)" : ""}</dd>
             <dt>Emissão</dt>
             <dd>{dataHora(e.dh_emissao)}</dd>
             {e.chave_acesso && (<><dt>Chave de acesso</dt><dd className="num" style={{ fontSize: "0.6875rem" }}>{e.chave_acesso}</dd></>)}

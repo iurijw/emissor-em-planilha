@@ -390,6 +390,8 @@ export interface Tributacao {
 
 export interface ListaTributacoes {
   padrao: DadosTributacao | null;
+  /** Nome que a empresa deu à tributação padrão ("Tributação padrão" se não mudou). */
+  padrao_nome: string;
   padrao_resumo: string | null;
   regime: Regime | null;
   itens: Tributacao[];

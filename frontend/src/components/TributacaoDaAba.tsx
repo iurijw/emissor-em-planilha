@@ -1,8 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, dadosTributacao, type Aba } from "../api";
+import { api, dadosTributacao, type Aba, type DadosTributacao } from "../api";
 import { Spinner, usePopover, useToast } from "../ui";
-import { useTributacoes } from "./Abas";
+import { nomeDeCopia, useTributacoes } from "./Abas";
 import { EditorTributacao, type EdicaoTributacao } from "./EditorTributacao";
 
 /**
@@ -19,7 +19,8 @@ export function TributacaoDaAba({ aba, admin }: { aba: Aba; admin: boolean }) {
   const [editando, setEditando] = useState<EdicaoTributacao | null>(null);
   const itens = trib.data?.itens ?? [];
   const atual = aba.tributacao_id ? itens.find((t) => t.id === aba.tributacao_id) : null;
-  const nome = aba.tributacao_excluida ? "Tributação excluída" : aba.tributacao_nome ?? "Tributação padrão";
+  const nomePadrao = trib.data?.padrao_nome || "Tributação padrão";
+  const nome = aba.tributacao_excluida ? "Tributação excluída" : aba.tributacao_nome ?? nomePadrao;
   const resumo = atual?.resumo ?? (aba.tributacao_id ? null : trib.data?.padrao_resumo) ?? null;
 
   async function trocar(id: number | null) {
@@ -29,8 +30,8 @@ export function TributacaoDaAba({ aba, admin }: { aba: Aba; admin: boolean }) {
       await api.put<Aba>(`/api/abas/${aba.id}`, { nome: aba.nome, tributacao_id: id, clientes: aba.clientes.map((c) => c.documento) });
       await qc.invalidateQueries({ queryKey: ["abas"] });
       await qc.invalidateQueries({ queryKey: ["tributacoes"] });
-      const novo = id ? itens.find((t) => t.id === id)?.nome : "a tributação padrão";
-      toast(`As notas da aba “${aba.nome}” saem agora com ${id ? `“${novo}”` : novo}.`);
+      const novo = id ? itens.find((t) => t.id === id)?.nome : nomePadrao;
+      toast(`As notas da aba “${aba.nome}” saem agora com “${novo}”.`);
       pop.fechar();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Não foi possível trocar a tributação.", "erro");
@@ -43,7 +44,7 @@ export function TributacaoDaAba({ aba, admin }: { aba: Aba; admin: boolean }) {
     pop.fechar();
     const base = trib.data?.padrao;
     if (!base) return;
-    if (id === "padrao") setEditando({ id: "padrao", nome: "Padrão", dados: dadosTributacao(base) });
+    if (id === "padrao") setEditando({ id: "padrao", nome: nomePadrao, dados: dadosTributacao(base) });
     else if (id === null) setEditando({ id: null, nome: "", dados: dadosTributacao(base) });
     else {
       const t = itens.find((x) => x.id === id);
@@ -51,8 +52,16 @@ export function TributacaoDaAba({ aba, admin }: { aba: Aba; admin: boolean }) {
     }
   }
 
+  function copiar(id: number | null) {
+    pop.fechar();
+    const origem = id === null ? { nome: nomePadrao, dados: trib.data?.padrao } : itens.find((t) => t.id === id);
+    if (!origem?.dados) return;
+    const dados: DadosTributacao = dadosTributacao(origem.dados);
+    setEditando({ id: null, nome: nomeDeCopia(origem.nome, [nomePadrao, ...itens.map((t) => t.nome)]), dados, copiaDe: origem.nome });
+  }
+
   const opcoes: { id: number | null; nome: string; resumo: string | null }[] = [
-    { id: null, nome: "Tributação padrão", resumo: trib.data?.padrao_resumo ?? null },
+    { id: null, nome: nomePadrao, resumo: trib.data?.padrao_resumo ?? null },
     ...itens.map((t) => ({ id: t.id, nome: t.nome, resumo: t.resumo })),
   ];
   const escolhida = (id: number | null) => !aba.tributacao_excluida && (aba.tributacao_id ?? null) === id;
@@ -96,15 +105,26 @@ export function TributacaoDaAba({ aba, admin }: { aba: Aba; admin: boolean }) {
                     </span>
                   </button>
                   {admin && (
-                    <button
-                      type="button"
-                      className="btn btn--pequeno btn--fantasma trib-aba__editar"
-                      aria-label={`Editar ${o.nome}`}
-                      title={`Editar ${o.nome}`}
-                      onClick={() => editar(o.id ?? "padrao")}
-                    >
-                      Editar
-                    </button>
+                    <span className="trib-aba__acoes">
+                      <button
+                        type="button"
+                        className="btn btn--pequeno btn--fantasma"
+                        aria-label={`Copiar ${o.nome} para uma tributação nova`}
+                        title="Fazer uma tributação nova a partir desta"
+                        onClick={() => copiar(o.id)}
+                      >
+                        Copiar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--pequeno btn--fantasma"
+                        aria-label={`Editar ${o.nome}`}
+                        title={`Editar ${o.nome}`}
+                        onClick={() => editar(o.id ?? "padrao")}
+                      >
+                        Editar
+                      </button>
+                    </span>
                   )}
                 </div>
               ))}

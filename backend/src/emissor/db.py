@@ -73,6 +73,7 @@ class Configuracao(SQLModel, table=True):
     proximo_ndps_homologacao: int = 1
     proximo_ndps_producao: int = 1
     config_fiscal_json: str = "{}"
+    tributacao_padrao_nome: str | None = None  # nome mostrado da tributação padrão (vazio = "Tributação padrão")
     atualizado_em: NaiveDatetime = Field(default_factory=agora)
 
     @property

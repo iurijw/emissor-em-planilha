@@ -5,13 +5,14 @@ import {
   baixar,
   dadosTributacao,
   type CertificadoInfo,
+  type DadosTributacao,
   type Config,
   type ErroEmissao,
   type Fiscal,
   type Status,
   type Tributacao,
 } from "../api";
-import { useTributacoes } from "../components/Abas";
+import { nomeDeCopia, useTributacoes } from "../components/Abas";
 import { CamposEmpresa } from "../components/FiscalForm";
 import { EditorTributacao, type EdicaoTributacao } from "../components/EditorTributacao";
 import { ImportarClientesXml } from "../components/ImportarClientesXml";
@@ -334,6 +335,10 @@ function SecaoTributacoes() {
 
   const itens = lista.data?.itens ?? [];
   const base = lista.data?.padrao;
+  function copiar(nome: string, dados: DadosTributacao) {
+    const existentes = [lista.data?.padrao_nome ?? "", ...itens.map((t) => t.nome)];
+    setEditando({ id: null, nome: nomeDeCopia(nome, existentes), dados: dadosTributacao(dados), copiaDe: nome });
+  }
   return (
     <section className="folha" id="tributacoes">
       <h2 className="secao-titulo">Tributações</h2>
@@ -356,13 +361,19 @@ function SecaoTributacoes() {
             <tbody>
               <tr>
                 <td>
-                  <b>Padrão</b>
+                  <b>{lista.data?.padrao_nome}</b> <span className="selo-padrao">padrão</span>
                 </td>
                 <td>{lista.data?.padrao_resumo}</td>
                 <td style={{ color: "var(--grafite)" }}>as sem tributação própria</td>
                 <td className="dir" style={{ whiteSpace: "nowrap" }}>
-                  <button className="btn btn--pequeno" onClick={() => setEditando({ id: "padrao", nome: "Padrão", dados: dadosTributacao(base) })}>
+                  <button
+                    className="btn btn--pequeno"
+                    onClick={() => setEditando({ id: "padrao", nome: lista.data?.padrao_nome ?? "Tributação padrão", dados: dadosTributacao(base) })}
+                  >
                     Editar
+                  </button>{" "}
+                  <button className="btn btn--pequeno btn--fantasma" onClick={() => copiar(lista.data?.padrao_nome ?? "Tributação padrão", base)}>
+                    Copiar
                   </button>
                 </td>
               </tr>
@@ -374,6 +385,9 @@ function SecaoTributacoes() {
                   <td className="dir" style={{ whiteSpace: "nowrap" }}>
                     <button className="btn btn--pequeno" onClick={() => setEditando({ id: t.id, nome: t.nome, dados: dadosTributacao(t.dados) })}>
                       Editar
+                    </button>{" "}
+                    <button className="btn btn--pequeno btn--fantasma" onClick={() => copiar(t.nome, t.dados)}>
+                      Copiar
                     </button>{" "}
                     <button className="btn btn--pequeno btn--fantasma" onClick={() => setExcluir(t)}>
                       Excluir

@@ -1026,9 +1026,9 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 .trib-aba__texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .trib-aba__texto strong { font-weight: 600; font-size: 0.8438rem; }
 .trib-aba__texto small { color: var(--grafite); font-size: 0.75rem; line-height: 1.35; }
-.trib-aba__editar { flex: 0 0 auto; margin-right: 4px; opacity: 0; }
-.trib-aba__linha:hover .trib-aba__editar, .trib-aba__editar:focus-visible, .trib-aba__linha:has([aria-selected="true"]) .trib-aba__editar { opacity: 1; }
-@media (hover: none) { .trib-aba__editar { opacity: 1; } }
+.trib-aba__acoes { flex: 0 0 auto; display: flex; gap: 2px; margin-right: 4px; opacity: 0; }
+.trib-aba__linha:hover .trib-aba__acoes, .trib-aba__acoes:focus-within, .trib-aba__linha:has([aria-selected="true"]) .trib-aba__acoes { opacity: 1; }
+@media (hover: none) { .trib-aba__acoes { opacity: 1; } }
 .trib-aba__nova {
   flex: 0 0 auto; padding: 11px 16px; border: 0; border-top: 1px solid var(--linha); background: none;
   color: var(--azul-texto); font: inherit; font-weight: 550; text-align: left; cursor: pointer;
@@ -1103,3 +1103,4 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 .previa-nfse__detalhe--cima { color: var(--azul-texto); }
 
 .excluir-notas__lista { margin: 12px 0 0; padding-left: 18px; color: var(--grafite); display: grid; gap: 2px; }
+.selo-padrao { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 0.6875rem; font-weight: 550; letter-spacing: 0.02em; background: var(--azul-fundo); color: var(--azul-texto); vertical-align: 1px; }

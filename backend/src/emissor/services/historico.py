@@ -32,10 +32,12 @@ def _comparavel(d: dict[str, Any]) -> dict[str, Any]:
     return {k: d.get(k) for k in CAMPOS_TRIBUTACAO if k not in _IGNORAR}
 
 
-def escolha_tributacao(e: Emissao, predefinidas: list[Tributacao]) -> dict[str, Any]:
+def escolha_tributacao(
+    e: Emissao, predefinidas: list[Tributacao], nome_padrao: str = trib_service.NOME_PADRAO
+) -> dict[str, Any]:
     dados = e.tributacao()
     if not dados:
-        return {"tipo": "padrao", "nome": "Tributação padrão"}
+        return {"tipo": "padrao", "nome": nome_padrao}
     if e.tributacao_nome:
         for t in predefinidas:
             if t.nome == e.tributacao_nome and _comparavel(t.dados()) == _comparavel(dados):
@@ -65,7 +67,7 @@ def copia(s: Session, e: Emissao) -> dict[str, Any]:
         "documento": "" if nota.get("tomador_exterior") else e.tomador_documento,
         "valor": e.valor,
         "descricao": e.descricao,
-        "tributacao": escolha_tributacao(e, list(s.exec(select(Tributacao)))),
+        "tributacao": escolha_tributacao(e, list(s.exec(select(Tributacao))), trib_service.nome_padrao(s)),
         "nota": nota,
     }
 
@@ -85,6 +87,7 @@ def historico(s: Session, documento: str | None = None) -> dict[str, Any]:
         )
     )
     predefinidas = list(s.exec(select(Tributacao)))
+    padrao = trib_service.nome_padrao(s)
     descricoes: dict[str, dict[str, Any]] = {}
     tributacoes: dict[str, dict[str, Any]] = {}
     for e in emissoes:
@@ -104,7 +107,7 @@ def historico(s: Session, documento: str | None = None) -> dict[str, Any]:
             )
             item["vezes"] += 1
             item["do_tomador"] = item["do_tomador"] or do_tomador
-        escolha = escolha_tributacao(e, predefinidas)
+        escolha = escolha_tributacao(e, predefinidas, padrao)
         chave_t = (
             escolha["tipo"]
             if escolha["tipo"] == "padrao"

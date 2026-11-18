@@ -392,6 +392,14 @@ def config_base(s: Session) -> ConfigFiscal:
     return fiscal
 
 
+NOME_PADRAO = "Tributação padrão"
+
+
+def nome_padrao(s: Session) -> str:
+    """Nome que a empresa deu à tributação padrão (a das configurações)."""
+    return obter_config(s).tributacao_padrao_nome or NOME_PADRAO
+
+
 def resumo(t: dict[str, Any]) -> str:
     """Texto curto para listas: serviço, ISS e IBS/CBS."""
     partes = [f"serviço {t.get('c_trib_nac')}"]

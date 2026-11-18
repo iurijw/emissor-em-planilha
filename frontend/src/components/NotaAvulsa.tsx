@@ -309,7 +309,7 @@ export function NotaAvulsa({ fechar, admin, copia }: { fechar: () => void; admin
   }
 
   const opcoes: { id: Escolha; titulo: string; detalhe: string | null }[] = [
-    { id: "padrao", titulo: "Tributação padrão", detalhe: trib.data?.padrao_resumo ?? null },
+    { id: "padrao", titulo: trib.data?.padrao_nome || "Tributação padrão", detalhe: trib.data?.padrao_resumo ?? null },
     ...(trib.data?.itens ?? []).map((t) => ({ id: t.id as Escolha, titulo: t.nome, detalhe: t.resumo })),
     { id: "propria", titulo: "Só para esta nota", detalhe: "Parte da tributação padrão; ajuste o que mudar." },
   ];

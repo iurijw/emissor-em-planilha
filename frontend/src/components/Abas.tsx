@@ -9,6 +9,21 @@ export function useTributacoes() {
   return useQuery({ queryKey: ["tributacoes"], queryFn: () => api.get<ListaTributacoes>("/api/tributacoes") });
 }
 
+/** Nome da tributação padrão (a empresa pode dar outro em Configurações → Tributações). */
+export function useNomePadrao(): string {
+  return useTributacoes().data?.padrao_nome || "Tributação padrão";
+}
+
+/** Nome livre para a cópia de uma tributação: "Cópia de X", "Cópia de X (2)"... */
+export function nomeDeCopia(nome: string, existentes: string[]): string {
+  const usados = new Set(existentes.map((n) => n.trim().toLocaleLowerCase("pt-BR")));
+  const base = `Cópia de ${nome}`.slice(0, 54);
+  for (let i = 1; ; i++) {
+    const n = i === 1 ? base : `${base} (${i})`;
+    if (!usados.has(n.toLocaleLowerCase("pt-BR"))) return n;
+  }
+}
+
 /**
  * Abas da tabela, no rodapé da grade como as planilhas do Excel. Cada aba leva o selo da tributação
  * com que as notas dela saem.
@@ -143,7 +158,7 @@ export function EditorAba(props: {
         <label className="campo">
           <span>Tributação das notas desta aba</span>
           <select value={tributacao ?? ""} onChange={(e) => setTributacao(e.target.value ? Number(e.target.value) : null)}>
-            <option value="">Tributação padrão</option>
+            <option value="">{trib.data?.padrao_nome || "Tributação padrão"}</option>
             {trib.data?.itens.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.nome}

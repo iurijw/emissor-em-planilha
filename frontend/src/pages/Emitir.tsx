@@ -19,7 +19,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, baixar, type Aba, type Cliente, type ColunaTabela, type Linha, type Status } from "../api";
 import { documentoValido, formatarDocumento, moeda, parseTSV, parseValor, soDocumento, STATUS_ROTULO } from "../format";
-import { AbasPlanilha, EditorAba } from "../components/Abas";
+import { AbasPlanilha, EditorAba, useNomePadrao } from "../components/Abas";
 import { EditorNomeCliente } from "../components/EditorNomeCliente";
 import { NotaAvulsa } from "../components/NotaAvulsa";
 import { BotaoVariaveis } from "../components/Variaveis";
@@ -212,6 +212,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const [avulsa, setAvulsa] = useState(false);
   const [preferencias, salvarPreferencias] = usePreferencias();
   const COLUNAS = useMemo(() => colunasNaOrdem(preferencias.colunas_tabela), [preferencias.colunas_tabela]);
+  const nomePadrao = useNomePadrao();
   // Callbacks da grade (criados uma vez) leem a ordem atual por aqui.
   const colunasRef = useRef(COLUNAS);
   colunasRef.current = COLUNAS;
@@ -924,7 +925,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       {emitindo && (
         <EmissaoFluxo
           linhaIds={emitindo.ids}
-          tributacao={aba ? aba.tributacao_nome ?? "Tributação padrão" : undefined}
+          tributacao={aba ? aba.tributacao_nome ?? nomePadrao : undefined}
           loteExistente={emitindo.loteId}
           nomes={new Map(linhas.filter((l) => l.id).map((l) => [l.id!, l.nome || formatarDocumento(l.documento)]))}
           fechar={() => {
