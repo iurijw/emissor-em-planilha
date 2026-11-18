@@ -73,6 +73,7 @@ class Configuracao(SQLModel, table=True):
     proximo_ndps_homologacao: int = 1
     proximo_ndps_producao: int = 1
     config_fiscal_json: str = "{}"
+    tributacao_padrao_nome: str | None = None  # nome mostrado da tributação padrão (vazio = "Tributação padrão")
     atualizado_em: NaiveDatetime = Field(default_factory=agora)
 
     @property
@@ -303,6 +304,8 @@ class Usuario(SQLModel, table=True):
     bloqueado_ate: NaiveDatetime | None = None
     criado_em: NaiveDatetime = Field(default_factory=agora)
     ultimo_login: NaiveDatetime | None = None
+    # Preferências de tela deste usuário (``auth.PREFERENCIAS``): aviso do 2FA dispensado, ordem das colunas...
+    preferencias_json: str | None = None
 
 
 class SessaoUsuario(SQLModel, table=True):

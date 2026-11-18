@@ -76,6 +76,8 @@ export interface Emissao {
   recuperada: boolean;
   tributacao_nome: string | null;
   pode_cancelar: boolean;
+  /** Não existe na Sefin (recusada, não enviada, erro antes do envio): pode sair da lista. */
+  pode_excluir: boolean;
   atualizado_em: string | null;
   eventos?: EventoNFSe[];
   aviso?: string | null;
@@ -193,6 +195,17 @@ export interface Sessao {
   /** Hospedagem: WhatsApp do suporte (só dígitos, com o 55); null na instalação própria. */
   whatsapp_suporte?: string | null;
   recuperacao_email: boolean;
+  /** Preferências de tela do usuário (valem em qualquer navegador). */
+  preferencias?: Preferencias;
+}
+
+export type ColunaTabela = "nome" | "documento" | "valor" | "descricao" | "situacao";
+
+export interface Preferencias {
+  /** "Não mostrar de novo" no aviso da verificação em duas etapas. */
+  aviso_2fa_dispensado?: boolean;
+  /** Ordem das colunas da tabela de notas (arrastando o título). */
+  colunas_tabela?: ColunaTabela[];
 }
 
 export interface Usuario {
@@ -245,6 +258,8 @@ export interface Fiscal {
   somar_contrib_sociais?: boolean;
   p_ret_contrib_sociais?: string | null;
   p_ret_cp: string | null;
+  /** Tributos com o valor em R$ arredondado sempre para cima no centavo (chaves de ARREDONDAVEIS). */
+  arredondar_cima?: Arredondavel[];
   p_tot_trib_fed: string | null;
   p_tot_trib_est: string | null;
   p_tot_trib_mun: string | null;
@@ -315,6 +330,7 @@ export const CAMPOS_TRIBUTACAO = [
   "somar_contrib_sociais",
   "p_ret_contrib_sociais",
   "p_ret_cp",
+  "arredondar_cima",
   "p_tot_trib_fed",
   "p_tot_trib_est",
   "p_tot_trib_mun",
@@ -331,6 +347,35 @@ export const CAMPOS_TRIBUTACAO = [
 ] as const;
 export type DadosTributacao = Pick<Fiscal, (typeof CAMPOS_TRIBUTACAO)[number]>;
 
+export type Arredondavel = "pis" | "cofins" | "irrf" | "csll" | "contrib" | "cp";
+
+/** Nota já emitida como ponto de partida da nota avulsa (``GET /api/emissoes/{id}/copia``). */
+export interface EscolhaTributacaoHistorico {
+  tipo: "padrao" | "predefinida" | "propria";
+  nome: string;
+  tributacao_id?: number;
+  dados?: DadosTributacao;
+  resumo?: string;
+}
+
+export interface CopiaNota {
+  emissao_id: number;
+  numero_nfse: string | null;
+  nome: string;
+  documento: string;
+  valor: string;
+  descricao: string;
+  tributacao: EscolhaTributacaoHistorico;
+  /** Dados só da nota (descontos, pedido, informações complementares, exterior, obra...). */
+  nota: Record<string, unknown>;
+}
+
+export interface HistoricoAvulsa {
+  documento: string | null;
+  descricoes: { texto: string; vezes: number; ultima_em: string; ultimo_tomador: string; do_tomador: boolean }[];
+  tributacoes: (EscolhaTributacaoHistorico & { vezes: number; ultima_em: string; do_tomador: boolean })[];
+}
+
 export function dadosTributacao(f: DadosTributacao): DadosTributacao {
   return Object.fromEntries(CAMPOS_TRIBUTACAO.map((k) => [k, f[k]])) as unknown as DadosTributacao;
 }
@@ -345,6 +390,8 @@ export interface Tributacao {
 
 export interface ListaTributacoes {
   padrao: DadosTributacao | null;
+  /** Nome que a empresa deu à tributação padrão ("Tributação padrão" se não mudou). */
+  padrao_nome: string;
   padrao_resumo: string | null;
   regime: Regime | null;
   itens: Tributacao[];

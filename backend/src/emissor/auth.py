@@ -121,6 +121,62 @@ class Acesso:
         }
 
 
+# --- preferências de tela ------------------------------------------------------------------------
+# Só estas chaves são aceitas (o resto é ignorado), cada uma com o seu tipo. Ficam no usuário, então valem em
+# qualquer navegador em que ele entrar.
+COLUNAS_TABELA = ("nome", "documento", "valor", "descricao", "situacao")
+PREFERENCIAS = ("aviso_2fa_dispensado", "colunas_tabela")
+
+
+def _preferencia_valida(chave: str, valor: object) -> object | None:
+    if chave == "aviso_2fa_dispensado":
+        return bool(valor)
+    if chave == "colunas_tabela":
+        if not isinstance(valor, list):
+            return None
+        ids = [c for c in valor if isinstance(c, str) and c in COLUNAS_TABELA]
+        # Ordem completa e sem repetição; uma lista incompleta (versão antiga da tela) é descartada.
+        return ids if sorted(ids) == sorted(COLUNAS_TABELA) else None
+    return None
+
+
+def preferencias(usuario_id: int) -> dict:
+    with sessao() as s:
+        u = s.get(Usuario, usuario_id)
+        try:
+            dados = json.loads(u.preferencias_json) if u and u.preferencias_json else {}
+        except ValueError:
+            dados = {}
+    return {k: v for k, v in dados.items() if k in PREFERENCIAS} if isinstance(dados, dict) else {}
+
+
+def salvar_preferencias(acesso: Acesso, novas: dict) -> dict:
+    """Junta ``novas`` às preferências do usuário (``None`` apaga a chave) e devolve todas."""
+    with sessao() as s:
+        u = s.get(Usuario, acesso.usuario_id)
+        if u is None:
+            raise AuthError("Sessão encerrada. Entre de novo.", 401, login=True)
+        try:
+            atuais = json.loads(u.preferencias_json) if u.preferencias_json else {}
+        except ValueError:
+            atuais = {}
+        if not isinstance(atuais, dict):
+            atuais = {}
+        for chave, valor in novas.items():
+            if chave not in PREFERENCIAS:
+                continue
+            if valor is None:
+                atuais.pop(chave, None)
+                continue
+            limpo = _preferencia_valida(chave, valor)
+            if limpo is not None:
+                atuais[chave] = limpo
+        u.preferencias_json = json.dumps(atuais, ensure_ascii=False)
+        s.add(u)
+        s.commit()
+    return {k: v for k, v in atuais.items() if k in PREFERENCIAS}
+
+
 def _sha256(texto: str) -> str:
     return hashlib.sha256(texto.encode()).hexdigest()
 

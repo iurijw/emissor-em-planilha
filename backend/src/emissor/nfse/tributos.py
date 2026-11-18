@@ -16,7 +16,7 @@ continua só com a CSLL (não conferido na Sefin real).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
 
 from emissor.nfse.models import RETENCOES_PIS_COFINS, ConfigFiscal, contrib_sociais_digitadas, iss_exige_aliquota
 
@@ -34,10 +34,12 @@ def pct(v: str | Decimal | None) -> Decimal | None:
         return None
 
 
-def _de(valor: Decimal, p: Decimal | None) -> Decimal | None:
+def _de(valor: Decimal, p: Decimal | None, cima: bool = False) -> Decimal | None:
+    """``valor`` x ``p``% no centavo: meio para cima (comum) ou, com ``cima``, sempre para cima (70,771 → 70,78;
+    70,770 continua 70,77, porque não há fração de centavo a arredondar)."""
     if p is None:
         return None
-    return (valor * p / 100).quantize(CENTAVO, rounding=ROUND_HALF_UP)
+    return (valor * p / 100).quantize(CENTAVO, rounding=ROUND_CEILING if cima else ROUND_HALF_UP)
 
 
 @dataclass
@@ -82,6 +84,7 @@ def calcular(
     """
     t = Tributos()
     erros: list[str] = []
+    cima = set(cfg.arredondar_cima or ())
     bruto = valor
     for nome, d in (("incondicionado", desc_incond), ("condicionado", desc_cond)):
         if d is not None and not Decimal("0") < d < bruto:
@@ -116,16 +119,20 @@ def calcular(
         pis, cofins, _csll = RETENCOES_PIS_COFINS.get(cfg.tp_ret_pis_cofins or "", (False, False, None))
         t.pis_retido, t.cofins_retido = pis, cofins
         t.pis_cofins_fora_do_vretcsll = cfg.tp_ret_pis_cofins == "1"
-    t.v_csll = _de(valor, pct(cfg.p_ret_csll))
+    t.v_csll = _de(valor, pct(cfg.p_ret_csll), "csll" in cima)
     t.v_ret_csll = t.v_csll
     if contrib_sociais_digitadas(cfg):
-        t.v_ret_csll = _de(valor, pct(cfg.p_ret_contrib_sociais))
+        t.v_ret_csll = _de(valor, pct(cfg.p_ret_contrib_sociais), "contrib" in cima)
     elif not t.pis_cofins_fora_do_vretcsll and (t.pis_retido or t.cofins_retido):
-        retidos = [t.v_csll, t.v_pis if t.pis_retido else None, t.v_cofins if t.cofins_retido else None]
+        # vPis/vCofins do grupo piscofins ficam base x alíquota (E0694/E0696); arredondar para cima vale só para a
+        # parte retida que entra nas Contribuições Sociais - Retidas.
+        pis = _de(valor, t.p_aliq_pis, "pis" in cima) if t.pis_retido else None
+        cofins = _de(valor, t.p_aliq_cofins, "cofins" in cima) if t.cofins_retido else None
+        retidos = [t.v_csll, pis, cofins]
         if any(v is not None for v in retidos):
             t.v_ret_csll = sum((v for v in retidos if v), Decimal("0"))
-    t.v_ret_irrf = _de(valor, pct(cfg.p_ret_irrf))
-    t.v_ret_cp = _de(valor, pct(cfg.p_ret_cp))
+    t.v_ret_irrf = _de(valor, pct(cfg.p_ret_irrf), "irrf" in cima)
+    t.v_ret_cp = _de(valor, pct(cfg.p_ret_cp), "cp" in cima)
     # E0699–E0701: retenção informada tem de ser > 0; um valor que arredonda para zero simplesmente não vai.
     for campo in ("v_ret_irrf", "v_ret_csll", "v_ret_cp"):
         if getattr(t, campo) is not None and getattr(t, campo) <= 0:

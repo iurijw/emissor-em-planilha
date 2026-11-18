@@ -16,11 +16,12 @@ from sqlmodel import func, or_, select
 
 from emissor import auth
 from emissor.api.deps import UsuarioAtual
-from emissor.api.serial import emissao_detalhe, emissao_resumo, lote_dict
-from emissor.db import Emissao, EventoNFSe, Lote, sessao
+from emissor.api.serial import emissao_detalhe, emissao_resumo, excluivel, lote_dict
+from emissor.db import Emissao, EventoEntrada, EventoNFSe, LinhaTabela, Lote, sessao
 from emissor.nfse.models import normalizar_documento
 from emissor.services import arquivos
 from emissor.services import eventos as eventos_service
+from emissor.services import historico as historico_service
 from emissor.services import relatorio as relatorio_service
 from emissor.services.emissao import criar_lote, verificar_na_sefin, worker
 
@@ -221,6 +222,49 @@ def baixar_zip_filtradas(
 @router.get("/emissoes/{emissao_id}")
 def detalhe(emissao_id: int) -> dict[str, Any]:
     return _detalhe(_emissao(emissao_id))
+
+
+@router.get("/emissoes/{emissao_id}/copia")
+def copiar(emissao_id: int) -> dict[str, Any]:
+    """Dados da nota para começar uma nota avulsa igual (tomador, valor, descrição, tributação e dados da nota)."""
+    with sessao() as s:
+        e = s.get(Emissao, emissao_id)
+        if e is None:
+            raise HTTPException(404, "Emissão não encontrada.")
+        return historico_service.copia(s, e)
+
+
+class Exclusao(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=5000)
+
+
+@router.post("/emissoes/excluir")
+def excluir(entrada: Exclusao, acesso: UsuarioAtual) -> dict[str, Any]:
+    """Tira da lista as notas não emitidas. O XML da DPS e os logs ficam (diagnóstico); a numeração não volta."""
+    with sessao() as s:
+        emissoes = list(s.exec(select(Emissao).where(Emissao.id.in_(entrada.ids))))  # type: ignore[union-attr]
+        apagar = [e for e in emissoes if excluivel(e)]
+        ids = [e.id for e in apagar]
+        if ids:
+            for ln in s.exec(select(LinhaTabela).where(LinhaTabela.ultima_emissao_id.in_(ids))):  # type: ignore[union-attr]
+                ln.ultima_emissao_id = None
+                s.add(ln)
+            for ev in s.exec(select(EventoEntrada).where(EventoEntrada.emissao_id.in_(ids))):  # type: ignore[union-attr]
+                ev.emissao_id = None
+                s.add(ev)
+            lotes = {e.lote_id for e in apagar if e.lote_id}
+            for e in apagar:
+                s.delete(e)
+            s.flush()
+            for lote_id in lotes:
+                resta = s.exec(select(func.count()).select_from(Emissao).where(Emissao.lote_id == lote_id)).one()
+                lote = s.get(Lote, lote_id)
+                if not resta and lote is not None and lote.status != "em_andamento":
+                    s.delete(lote)
+            s.commit()
+    if ids:
+        auth.auditar("notas_excluidas", f"{len(ids)} nota(s) não emitida(s): {', '.join(map(str, ids[:50]))}", acesso)
+    return {"excluidas": len(ids), "ignoradas": len(entrada.ids) - len(ids)}
 
 
 @router.post("/emissoes/{emissao_id}/verificar")

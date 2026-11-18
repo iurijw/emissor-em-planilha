@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { type AliquotaIss, api, baixar, type DadosTributacao, type Emissao, type Lote, type Status, type Validacao } from "../api";
+import { useNomePadrao } from "../components/Abas";
 import { nomeEmpresa } from "../components/Empresas";
 import { ListaRegrasPrefeitura } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
@@ -48,6 +49,7 @@ export function EmissaoFluxo(props: {
   fechar: () => void;
 }) {
   const toast = useToast();
+  const nomePadrao = useNomePadrao();
   const [fase, setFase] = useState<Fase>(props.loteExistente ? "acompanhando" : "validando");
   const [val, setVal] = useState<Validacao | null>(null);
   const [erro, setErro] = useState<unknown>(null);
@@ -203,7 +205,7 @@ export function EmissaoFluxo(props: {
               </div>
               {(props.tributacao || val.tributacao_nome !== undefined) && (
                 <div>
-                  <div className="tributacao-conferir">{props.tributacao ?? val.tributacao_nome ?? "Tributação padrão"}</div>
+                  <div className="tributacao-conferir">{props.tributacao ?? val.tributacao_nome ?? nomePadrao}</div>
                   <div style={{ color: "var(--grafite)" }}>tributação</div>
                 </div>
               )}

@@ -1,9 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, baixar, COM_ARQUIVOS, comEmpresa, type Emissao, type EstadoSincronizacao, type ListaEmissoes } from "../api";
+import { api, baixar, COM_ARQUIVOS, comEmpresa, type CopiaNota, type Emissao, type EstadoSincronizacao, type ListaEmissoes } from "../api";
+import { useNomePadrao } from "../components/Abas";
+import { NotaAvulsa } from "../components/NotaAvulsa";
 import { CancelarNotas } from "../components/CancelarNotas";
 import { dataHora, formatarDocumento, haQuanto, moeda } from "../format";
-import { AmbChip, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
+import { AmbChip, Dialogo, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 
 const temArquivos = (e: Emissao) => COM_ARQUIVOS.includes(e.status);
 
@@ -20,14 +22,32 @@ function loteDoHash(): string {
   return new URLSearchParams(location.hash.split("?")[1] || "").get("lote") || "";
 }
 
-export function Emissoes() {
+/** Pode virar ponto de partida de uma nota avulsa: já saiu da fila (autorizada, recusada, cancelada...). */
+const copiavel = (e: Emissao) => !["pendente", "processando"].includes(e.status);
+
+export function Emissoes({ admin = false, podeEmitir = true }: { admin?: boolean; podeEmitir?: boolean }) {
   const toast = useToast();
+  const [copia, setCopia] = useState<CopiaNota | null>(null);
+  const [copiando, setCopiando] = useState<number | null>(null);
+  async function copiar(e: Emissao) {
+    setCopiando(e.id);
+    try {
+      const c = await api.get<CopiaNota>(`/api/emissoes/${e.id}/copia`);
+      setAberta(null);
+      setCopia(c);
+    } catch (x) {
+      toast(x instanceof Error ? x.message : "Não foi possível copiar a nota.", "erro");
+    } finally {
+      setCopiando(null);
+    }
+  }
   const [filtro, setFiltro] = useState({ de: inicioMes(), ate: hoje(), status: "", ambiente: "", q: "", lote: loteDoHash() });
   const [pagina, setPagina] = useState(1);
   const [marcadas, setMarcadas] = useState<Map<number, Emissao>>(new Map());
   const [aberta, setAberta] = useState<number | null>(null);
   const [baixando, setBaixando] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState<Emissao[] | null>(null);
+  const [excluindo, setExcluindo] = useState<Emissao[] | null>(null);
   // Todas as notas do filtro, não só as da página (o ZIP sai pelos filtros, sem a lista de ids).
   const [todoFiltro, setTodoFiltro] = useState(false);
   const qc = useQueryClient();
@@ -55,9 +75,12 @@ export function Emissoes() {
     refetchInterval: (q) => (q.state.data?.itens.some((e) => ["pendente", "processando"].includes(e.status)) ? 2000 : false),
   });
   const itens = lista.data?.itens ?? [];
-  const selecionaveis = itens.filter(temArquivos);
+  // Marcáveis: as que têm arquivos (baixar, cancelar) e as não emitidas (excluir da lista).
+  const selecionaveis = itens.filter((e) => temArquivos(e) || e.pode_excluir);
   const todasMarcadas = selecionaveis.length > 0 && selecionaveis.every((e) => marcadas.has(e.id));
   const cancelaveis = todoFiltro ? [] : [...marcadas.values()].filter((e) => e.pode_cancelar);
+  const excluiveis = todoFiltro ? [] : [...marcadas.values()].filter((e) => e.pode_excluir);
+  const comArquivos = todoFiltro || [...marcadas.values()].some(temArquivos);
   const total = lista.data?.total ?? 0;
   const haMaisPaginas = total > itens.length;
 
@@ -197,7 +220,7 @@ export function Emissoes() {
           ) : marcadas.size ? (
             <><b className="num" style={{ color: "var(--tinta)" }}>{marcadas.size}</b> selecionada(s)</>
           ) : (
-            "Selecione notas para baixar ou cancelar em lote"
+            "Selecione notas para baixar, cancelar ou excluir em lote"
           )}
         </span>
         {todasMarcadas && haMaisPaginas && !todoFiltro && (
@@ -205,13 +228,13 @@ export function Emissoes() {
             Selecionar todas as <span className="num">{total}</span> do filtro
           </button>
         )}
-        <button className="btn btn--pequeno" disabled={(!marcadas.size && !todoFiltro) || !!baixando} onClick={() => baixarZip("ambos")}>
+        <button className="btn btn--pequeno" disabled={!comArquivos || !!baixando} onClick={() => baixarZip("ambos")}>
           {baixando === "ambos" && <Spinner />} Baixar XML + PDF
         </button>
-        <button className="btn btn--pequeno" disabled={(!marcadas.size && !todoFiltro) || !!baixando} onClick={() => baixarZip("xml")}>
+        <button className="btn btn--pequeno" disabled={!comArquivos || !!baixando} onClick={() => baixarZip("xml")}>
           {baixando === "xml" && <Spinner />} Só XML
         </button>
-        <button className="btn btn--pequeno" disabled={(!marcadas.size && !todoFiltro) || !!baixando} onClick={() => baixarZip("pdf")}>
+        <button className="btn btn--pequeno" disabled={!comArquivos || !!baixando} onClick={() => baixarZip("pdf")}>
           {baixando === "pdf" && <Spinner />} Só PDF
         </button>
         <span className="barra__sep" />
@@ -228,6 +251,20 @@ export function Emissoes() {
           onClick={() => setCancelando(cancelaveis)}
         >
           Cancelar{cancelaveis.length ? ` (${cancelaveis.length})` : ""}…
+        </button>
+        <button
+          className="btn btn--pequeno"
+          disabled={!excluiveis.length}
+          title={
+            todoFiltro
+              ? "Para excluir, marque as notas uma a uma"
+              : marcadas.size && !excluiveis.length
+                ? "Só notas não emitidas (recusadas, não enviadas ou com erro antes do envio) saem da lista"
+                : "Tira da lista as notas que não foram emitidas"
+          }
+          onClick={() => setExcluindo(excluiveis)}
+        >
+          Excluir{excluiveis.length ? ` (${excluiveis.length})` : ""}…
         </button>
         {(marcadas.size > 0 || todoFiltro) && (
           <button className="btn btn--pequeno btn--fantasma" onClick={limparSelecao}>
@@ -285,7 +322,7 @@ export function Emissoes() {
                   <input
                     type="checkbox"
                     aria-label={`Selecionar nota de ${e.tomador_nome}`}
-                    disabled={!temArquivos(e)}
+                    disabled={!temArquivos(e) && !e.pode_excluir}
                     checked={marcadas.has(e.id)}
                     onChange={() => {
                       setTodoFiltro(false);
@@ -308,12 +345,25 @@ export function Emissoes() {
                 </td>
                 <td><AmbChip ambiente={e.ambiente} /></td>
                 <td>
-                  {temArquivos(e) && (
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/xml`).catch((x) => toast(x.message, "erro"))}>XML</button>
-                      <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/pdf`).catch((x) => toast(x.message, "erro"))}>PDF</button>
-                    </div>
-                  )}
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {temArquivos(e) && (
+                      <>
+                        <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/xml`).catch((x) => toast(x.message, "erro"))}>XML</button>
+                        <button className="btn btn--pequeno" onClick={() => baixar(`/api/emissoes/${e.id}/pdf`).catch((x) => toast(x.message, "erro"))}>PDF</button>
+                      </>
+                    )}
+                    {podeEmitir && copiavel(e) && (
+                      <button
+                        className="btn btn--pequeno btn--icone btn--fantasma"
+                        aria-label={`Copiar a nota de ${e.tomador_nome} para uma nota avulsa`}
+                        title="Copiar para uma nota avulsa"
+                        disabled={copiando === e.id}
+                        onClick={() => copiar(e)}
+                      >
+                        {copiando === e.id ? <Spinner /> : <IconeCopiar />}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -327,7 +377,32 @@ export function Emissoes() {
           <button className="btn btn--pequeno" disabled={pagina * lista.data.por_pagina >= lista.data.total} onClick={() => setPagina((p) => p + 1)}>Próxima</button>
         </div>
       )}
-      {aberta !== null && <DetalheEmissao id={aberta} fechar={() => setAberta(null)} cancelar={(e) => setCancelando([e])} />}
+      {aberta !== null && (
+        <DetalheEmissao
+          id={aberta}
+          fechar={() => setAberta(null)}
+          cancelar={(e) => setCancelando([e])}
+          excluir={(e) => setExcluindo([e])}
+          copiar={podeEmitir ? copiar : undefined}
+          copiando={copiando === aberta}
+        />
+      )}
+      {copia && <NotaAvulsa key={copia.emissao_id} copia={copia} admin={admin} fechar={() => setCopia(null)} />}
+      {excluindo && (
+        <ExcluirNotas
+          emissoes={excluindo}
+          fechar={() => setExcluindo(null)}
+          concluido={(ids) => {
+            setMarcadas((m) => {
+              const n = new Map(m);
+              ids.forEach((i) => n.delete(i));
+              return n;
+            });
+            if (aberta !== null && ids.includes(aberta)) setAberta(null);
+            qc.invalidateQueries();
+          }}
+        />
+      )}
       {cancelando && (
         <CancelarNotas
           emissoes={cancelando}
@@ -408,7 +483,21 @@ function SituacaoAmbienteNacional() {
   );
 }
 
-function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => void; cancelar: (e: Emissao) => void }) {
+function DetalheEmissao({
+  id,
+  fechar,
+  cancelar,
+  excluir,
+  copiar,
+  copiando,
+}: {
+  id: number;
+  fechar: () => void;
+  cancelar: (e: Emissao) => void;
+  excluir: (e: Emissao) => void;
+  copiar?: (e: Emissao) => void;
+  copiando?: boolean;
+}) {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["emissao", id], queryFn: () => api.get<Emissao>(`/api/emissoes/${id}`) });
@@ -416,6 +505,7 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
   const [consultando, setConsultando] = useState(false);
   const [erro, setErro] = useState<unknown>(null);
   const e = q.data;
+  const nomePadrao = useNomePadrao();
   const cancelamento = e?.eventos?.find((ev) => ["101101", "105104", "305101", "105102"].includes(ev.tipo));
 
   async function atualizarSituacao() {
@@ -466,6 +556,22 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
             )}
             {e.pode_cancelar && (
               <button className="btn btn--perigo" style={{ marginRight: "auto" }} onClick={() => cancelar(e)}>Cancelar NFS-e…</button>
+            )}
+            {e.pode_excluir && (
+              <button className="btn" style={{ marginRight: "auto" }} onClick={() => excluir(e)} title="Esta nota não existe na Sefin: tira da lista">
+                Excluir da lista…
+              </button>
+            )}
+            {copiar && copiavel(e) && (
+              <button
+                className="btn"
+                style={e.pode_cancelar || e.pode_excluir ? undefined : { marginRight: "auto" }}
+                onClick={() => copiar(e)}
+                disabled={copiando}
+                title="Abre uma nota avulsa com o tomador, o valor, a descrição e a tributação desta nota"
+              >
+                {copiando ? <Spinner /> : <IconeCopiar />} {e.status === "rejeitada" || e.status === "erro" ? "Corrigir numa nota avulsa" : "Copiar para nota avulsa"}
+              </button>
             )}
             {temArquivos(e) && (
               <>
@@ -529,7 +635,7 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
             <dt>Descrição</dt>
             <dd style={{ whiteSpace: "pre-wrap" }}>{e.descricao}</dd>
             <dt>Tributação</dt>
-            <dd>{e.tributacao_nome ?? "Tributação padrão"}{e.linha_id === null && e.lote_id ? " (nota avulsa)" : ""}</dd>
+            <dd>{e.tributacao_nome ?? nomePadrao}{e.linha_id === null && e.lote_id ? " (nota avulsa)" : ""}</dd>
             <dt>Emissão</dt>
             <dd>{dataHora(e.dh_emissao)}</dd>
             {e.chave_acesso && (<><dt>Chave de acesso</dt><dd className="num" style={{ fontSize: "0.6875rem" }}>{e.chave_acesso}</dd></>)}
@@ -570,5 +676,71 @@ function DetalheEmissao({ id, fechar, cancelar }: { id: number; fechar: () => vo
         </div>
       )}
     </Gaveta>
+  );
+}
+
+/** Duas folhas sobrepostas: copiar a nota. */
+function IconeCopiar() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <rect x="5.25" y="5.25" width="8" height="9" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10.75 3.25v-.5a1.5 1.5 0 0 0-1.5-1.5h-5a1.5 1.5 0 0 0-1.5 1.5v7a1.5 1.5 0 0 0 1.5 1.5h.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** Tira da lista notas que não existem na Sefin. A numeração da DPS já usada não volta (a próxima continua igual). */
+function ExcluirNotas({ emissoes, fechar, concluido }: { emissoes: Emissao[]; fechar: () => void; concluido: (ids: number[]) => void }) {
+  const toast = useToast();
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<unknown>(null);
+  const uma = emissoes.length === 1;
+  async function confirmar() {
+    setEnviando(true);
+    setErro(null);
+    try {
+      const ids = emissoes.map((e) => e.id);
+      const r = await api.post<{ excluidas: number; ignoradas: number }>("/api/emissoes/excluir", { ids });
+      toast(
+        r.excluidas === 1 ? "1 nota excluída da lista." : `${r.excluidas} notas excluídas da lista.`,
+        "ok",
+      );
+      concluido(ids);
+      fechar();
+    } catch (x) {
+      setErro(x);
+    } finally {
+      setEnviando(false);
+    }
+  }
+  return (
+    <Dialogo
+      titulo={uma ? "Excluir esta nota da lista?" : `Excluir ${emissoes.length} notas da lista?`}
+      fechar={fechar}
+      rodape={
+        <>
+          <button className="btn btn--fantasma" onClick={fechar} disabled={enviando}>Voltar</button>
+          <button className="btn btn--perigo" onClick={confirmar} disabled={enviando} data-autofocus>
+            {enviando && <Spinner />} Excluir
+          </button>
+        </>
+      }
+    >
+      <p style={{ margin: 0 }}>
+        {uma ? "Esta nota não foi emitida" : "Estas notas não foram emitidas"} (recusadas pela Sefin, não enviadas ou com erro
+        antes do envio), então não existem no Sistema Nacional. Excluir só tira da lista; a linha da tabela continua lá.
+      </p>
+      {!uma && (
+        <ul className="excluir-notas__lista">
+          {emissoes.slice(0, 8).map((e) => (
+            <li key={e.id}>
+              {e.tomador_nome} <span className="num">{moeda(e.valor)}</span>
+            </li>
+          ))}
+          {emissoes.length > 8 && <li>e mais {emissoes.length - 8}</li>}
+        </ul>
+      )}
+      <ErroCaixa erro={erro} titulo="Não foi possível excluir" />
+    </Dialogo>
   );
 }

@@ -74,6 +74,8 @@ def sessao_atual(request: Request) -> dict[str, Any]:
     return {
         "autenticado": acesso is not None,
         "usuario": acesso.as_dict() if acesso else None,
+        # Preferências de tela (aviso do 2FA dispensado, ordem das colunas da tabela); não valem para tokens da API.
+        "preferencias": auth.preferencias(acesso.usuario_id) if acesso and not acesso.token_id else {},
         "primeiro_acesso": not existe,
         "primeiro_acesso_sem_codigo": (not existe) and _acesso_local(request),
         # Hospedagem: o link com o código do primeiro acesso vai só para o e-mail de quem assinou.
@@ -215,6 +217,16 @@ def ativar_2fa(entrada: Codigo, acesso: UsuarioAtual) -> dict[str, Any]:
 def desativar_2fa(entrada: DesativarDoisFatores, acesso: UsuarioAtual) -> dict[str, bool]:
     auth.desativar_2fa(acesso, entrada.senha, entrada.codigo)
     return {"ok": True}
+
+
+class Preferencias(BaseModel):
+    model_config = {"extra": "allow"}
+
+
+@router.put("/auth/preferencias")
+def salvar_preferencias(entrada: Preferencias, acesso: UsuarioAtual) -> dict[str, Any]:
+    """Junta as preferências de tela enviadas às do usuário (só as chaves conhecidas; ``null`` apaga)."""
+    return auth.salvar_preferencias(acesso, dict(entrada.model_extra or {}))
 
 
 # --- usuários (administrador) --------------------------------------------------------------------

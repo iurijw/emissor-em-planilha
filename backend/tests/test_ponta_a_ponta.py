@@ -1262,6 +1262,14 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     segredo = ok(api.post("/api/auth/2fa/iniciar", json={"senha": nova})).json()["segredo"]
     ok(api.post("/api/auth/2fa/ativar", json={"codigo": auth.totp_agora(segredo)}))
     ok(api.post("/api/auth/2fa/desativar", json={"senha": nova, "codigo": "000000"}), 400)
+    # Preferências de tela: só as chaves conhecidas, com o tipo certo; voltam na sessão.
+    colunas = ["valor", "nome", "documento", "descricao", "situacao"]
+    prefs = ok(
+        api.put("/api/auth/preferencias", json={"aviso_2fa_dispensado": True, "colunas_tabela": colunas, "x": 1})
+    )
+    assert prefs.json() == {"aviso_2fa_dispensado": True, "colunas_tabela": colunas}
+    ok(api.put("/api/auth/preferencias", json={"colunas_tabela": ["nome"]}))  # incompleta: ignorada
+    assert ok(api.get("/api/auth/sessao")).json()["preferencias"]["colunas_tabela"] == colunas
 
     # Usuários e convite
     convite = ok(api.post("/api/usuarios", json={"email": "op@exemplo.com.br", "nome": "Op"})).json()
@@ -1330,7 +1338,12 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     # Tributações, abas e tabela
     t = ok(api.post("/api/tributacoes", json={"nome": "Outra", "dados": {"c_trib_nac": "010101"}})).json()
     ok(api.put(f"/api/tributacoes/{t['id']}", json={"nome": "Outra 2", "dados": {"c_trib_nac": "010101"}}))
-    ok(api.get("/api/tributacoes"))
+    ok(api.put("/api/tributacoes/padrao", json={"nome": "Outra 2"}), 400)  # nome de outra tributação
+    ok(api.put("/api/tributacoes/padrao", json={"nome": "  Normal   do mês "}))
+    assert ok(api.get("/api/tributacoes")).json()["padrao_nome"] == "Normal do mês"
+    ok(api.post("/api/tributacoes", json={"nome": "Normal do mês", "dados": {}}), 400)
+    ok(api.put("/api/tributacoes/padrao", json={"nome": "Tributação padrão"}))
+    assert ok(api.get("/api/tributacoes")).json()["padrao_nome"] == "Tributação padrão"
     ok(api.post("/api/tributacoes/aliquota-iss", json={"tributacao_id": t["id"], "p_aliq_iss": "2"}))
     aba = ok(api.post("/api/abas", json={"nome": "Extra", "tributacao_id": t["id"]})).json()
     ok(api.put(f"/api/abas/{aba['id']}", json={"nome": "Extra 2", "tributacao_id": t["id"]}))
@@ -1355,6 +1368,8 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     api.worker.processar_lote(pendente["id"])
     cancelado = api.get(f"/api/lotes/{pendente['id']}").json()
     assert cancelado["status"] == "cancelado" and cancelado["contagem"] == {"nao_enviada": 1}, cancelado
+    nao_enviada = cancelado["emissoes"][0]
+    assert nao_enviada["pode_excluir"], nao_enviada
     api.worker.processar_lote(avulsa.json()["id"])
 
     # Emissões: consulta, downloads, verificar, cancelar, situação e sincronização
@@ -1362,10 +1377,18 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     assert len(itens) == 2
     eid = itens[0]["id"]
     ok(api.get(f"/api/emissoes/{eid}"))
+    copia = ok(api.get(f"/api/emissoes/{eid}/copia")).json()
+    assert copia["valor"] and copia["tributacao"]["tipo"] in ("padrao", "predefinida", "propria")
+    hist = ok(api.get("/api/avulsa/historico", params={"documento": TOMADOR_CPF})).json()
+    assert any(d["texto"] == "x" and d["do_tomador"] for d in hist["descricoes"])
     ok(api.get(f"/api/emissoes/{eid}/xml"))
     ok(api.get(f"/api/emissoes/{eid}/pdf"))
     ok(api.post(f"/api/emissoes/{eid}/verificar"), 400)  # só para resultado incerto
     ok(api.post(f"/api/emissoes/{eid}/situacao"))
+    excl = ok(api.post("/api/emissoes/excluir", json={"ids": [eid, nao_enviada["id"]]})).json()
+    assert excl == {"excluidas": 1, "ignoradas": 1}, excl  # a autorizada fica
+    ok(api.get(f"/api/emissoes/{nao_enviada['id']}"), 404)
+    ok(api.get(f"/api/lotes/{pendente['id']}"), 404)  # lote sem nenhuma nota some junto
     d = ok(api.post(f"/api/emissoes/{eid}/cancelar", json={"c_motivo": "2", "x_motivo": "Serviço não prestado"}))
     ok(api.get(f"/api/emissoes/{eid}/eventos/{d.json()['eventos'][0]['id']}/xml"))
     ok(api.post("/api/sincronizacao", params={"forcar": True}))

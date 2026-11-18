@@ -730,7 +730,9 @@ function ReceberCobrancas({ d, tipo, pedido }: { d: Integracoes; tipo: TipoConec
               <input
                 data-autofocus
                 type="password"
-                autoComplete="off"
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
                 spellCheck={false}
                 className="num"
                 placeholder={stripe ? "rk_live_..." : "$aact_prod_..."}
@@ -874,7 +876,9 @@ function ReceberCobrancas({ d, tipo, pedido }: { d: Integracoes; tipo: TipoConec
                   <span>Cole aqui o segredo de assinatura do destino (whsec_...)</span>
                   <input
                     type="password"
-                    autoComplete="off"
+                    autoComplete="new-password"
+                    data-1p-ignore
+                    data-lpignore="true"
                     spellCheck={false}
                     className="num"
                     placeholder="whsec_..."

@@ -17,6 +17,7 @@ from emissor.api.deps import AdminEmpresa, UsuarioAtual
 from emissor.api.routes_emissoes import obter_lote
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, Tributacao, agora, obter_config, sessao
 from emissor.nfse.models import DadosNota, aplicar_tributacao, normalizar_documento, tributacao_de
+from emissor.services import historico as historico_service
 from emissor.services import parametros, regras_prefeitura
 from emissor.services import tabela as tabela_service
 from emissor.services import tributacao as trib_service
@@ -52,11 +53,13 @@ def listar_tributacoes() -> dict[str, Any]:
     """Tributações predefinidas e os padrões das configurações (ponto de partida de uma tributação nova)."""
     with sessao() as s:
         fiscal = obter_config(s).config_fiscal()
+        nome_padrao = trib_service.nome_padrao(s)
         abas = trib_service.garantir_abas(s)
         itens = list(s.exec(select(Tributacao).order_by(Tributacao.nome)))
     padrao = tributacao_de(fiscal) if fiscal else None
     return {
         "padrao": padrao,
+        "padrao_nome": nome_padrao,
         "padrao_resumo": trib_service.resumo(padrao) if padrao else None,
         # O regime decide quais alíquotas a tela mostra (ex.: a do ISS retido só para ISS apurado pelo Simples).
         "regime": {"op_simp_nac": fiscal.op_simp_nac, "reg_ap_trib_sn": fiscal.reg_ap_trib_sn} if fiscal else None,
@@ -83,7 +86,7 @@ def criar_tributacao(entrada: TributacaoEntrada, admin: AdminEmpresa) -> dict[st
     nome = _nome_tributacao(entrada.nome)
     with sessao() as s:
         dados = trib_service.validar_completa(entrada.dados, trib_service.config_base(s))
-        if s.exec(select(Tributacao).where(Tributacao.nome == nome)).first():
+        if s.exec(select(Tributacao).where(Tributacao.nome == nome)).first() or nome == trib_service.nome_padrao(s):
             raise HTTPException(400, f"Já existe uma tributação chamada “{nome}”.")
         t = Tributacao(nome=nome, dados_json=trib_service.dumps(dados))
         s.add(t)
@@ -92,6 +95,27 @@ def criar_tributacao(entrada: TributacaoEntrada, admin: AdminEmpresa) -> dict[st
         abas = trib_service.garantir_abas(s)
     auth.auditar("tributacao_criada", f"{nome}: {trib_service.resumo(dados)}", admin)
     return _tributacao_dict(t, abas)
+
+
+class NomePadraoEntrada(BaseModel):
+    nome: str
+
+
+@router.put("/tributacoes/padrao")
+def renomear_padrao(entrada: NomePadraoEntrada, admin: AdminEmpresa) -> dict[str, str]:
+    """Nome da tributação padrão (os campos dela continuam nas configurações, ``PUT /api/config``)."""
+    nome = _nome_tributacao(entrada.nome)
+    with sessao() as s:
+        if s.exec(select(Tributacao).where(Tributacao.nome == nome)).first():
+            raise HTTPException(400, f"Já existe uma tributação chamada “{nome}”.")
+        cfg = obter_config(s)
+        anterior = cfg.tributacao_padrao_nome or trib_service.NOME_PADRAO
+        cfg.tributacao_padrao_nome = None if nome == trib_service.NOME_PADRAO else nome
+        s.add(cfg)
+        s.commit()
+    if nome != anterior:
+        auth.auditar("tributacao_padrao_renomeada", f"{anterior} → {nome}", admin)
+    return {"nome": nome}
 
 
 @router.put("/tributacoes/{tributacao_id}")
@@ -103,7 +127,7 @@ def alterar_tributacao(tributacao_id: int, entrada: TributacaoEntrada, admin: Ad
             raise HTTPException(404, "Tributação não encontrada.")
         dados = trib_service.validar_completa(entrada.dados, trib_service.config_base(s))
         outra = s.exec(select(Tributacao).where(Tributacao.nome == nome, Tributacao.id != tributacao_id)).first()
-        if outra:
+        if outra or nome == trib_service.nome_padrao(s):
             raise HTTPException(400, f"Já existe uma tributação chamada “{nome}”.")
         t.nome = nome
         t.dados_json = trib_service.dumps(dados)
@@ -466,6 +490,13 @@ def _total(valor: str) -> str:
         return f"{Decimal(valor):.2f}"
     except (InvalidOperation, TypeError):
         return "0.00"
+
+
+@router.get("/avulsa/historico")
+def historico_avulsa(documento: str | None = None) -> dict[str, Any]:
+    """Descrições e tributações das notas já emitidas (as do ``documento`` marcadas), para a nota avulsa."""
+    with sessao() as s:
+        return historico_service.historico(s, documento)
 
 
 @router.post("/avulsa/validar")

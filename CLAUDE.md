@@ -245,13 +245,13 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/cep/{cep}` | rua, bairro e município pelo CEP (BrasilAPI, ViaCEP de reserva) |
 | `GET /api/servicos?q=`, `GET /api/servicos/{codigo}`, `POST /api/config/conferir-servico` | lista nacional de serviços e consulta do serviço na prefeitura |
 | `POST /api/config/regras-prefeitura` `{tributacao, c_mun_emissor?, reg_esp_trib?, forcar?}` | o que a prefeitura cadastrou para o serviço (avisos) |
-| `GET/POST /api/tributacoes`, `PUT/DELETE /api/tributacoes/{id}` (escrita só admin) | tributações predefinidas |
+| `GET/POST /api/tributacoes`, `PUT/DELETE /api/tributacoes/{id}`, `PUT /api/tributacoes/padrao` `{nome}` (escrita só admin) | tributações predefinidas e nome da padrão |
 | `POST /api/tributacoes/aliquota-iss` `{tributacao_id \| null, p_aliq_iss}` (qualquer usuário, auditado) | alíquota do ISS retido pelo aviso da emissão |
 | `GET/POST /api/abas`, `PUT/DELETE /api/abas/{id}`; `aba_id` em `GET/PUT /api/tabela`, importar e exportar | abas da tabela |
-| `POST /api/avulsa/validar`, `POST /api/avulsa` | nota avulsa |
+| `POST /api/avulsa/validar`, `POST /api/avulsa`, `GET /api/avulsa/historico?documento=`, `GET /api/emissoes/{id}/copia` | nota avulsa (histórico e cópia de nota emitida) |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
 | `GET /api/emissoes/relatorio?formato=xlsx\|csv` (mesmos filtros da lista) | planilha das notas filtradas |
-| `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip` (ids), `GET /api/emissoes/zip?conteudo=` (todas as do filtro, até 20.000), `POST /api/emissoes/{id}/verificar` | emissões |
+| `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip` (ids), `GET /api/emissoes/zip?conteudo=` (todas as do filtro, até 20.000), `POST /api/emissoes/{id}/verificar`, `POST /api/emissoes/excluir` (ids; só notas não emitidas) | emissões |
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
 | `POST /api/logs/cliente`, `GET /api/diagnostico` | logs do frontend e ZIP de diagnóstico |
@@ -261,6 +261,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET /api/integracoes` também lista `conectores`; `POST /api/integracoes/conectores`, `PUT/DELETE .../conectores/{id}`, `POST .../conectores/{id}/token`, `GET .../conectores/{id}/eventos`, `POST /api/integracoes/eventos-entrada/{id}/reprocessar` (admin da empresa); `POST /api/v1/entrada/asaas/{caminho}` (token do conector), `POST /api/v1/entrada/stripe/{caminho}` (`Stripe-Signature`) | conectores do Asaas e da Stripe |
 | `/api/v1/*` (token, ver "API de integração e webhooks"), `/api/v1/docs` e `/api/v1/openapi.json` (abertos) | API de integração |
 | `GET /api/saude` (sem login), `GET /api/auth/sessao`, `POST /api/auth/entrar\|sair\|esqueci\|primeiro-acesso\|convite\|convite/ver` | acesso |
+| `PUT /api/auth/preferencias` (aviso do 2FA dispensado, ordem das colunas) | preferências do usuário |
 | `GET /api/auth/conta`, `POST /api/auth/senha`, `POST /api/auth/2fa/iniciar\|ativar\|desativar` | conta do usuário |
 | `GET/POST /api/usuarios`, `PUT/DELETE /api/usuarios/{id}` (excluir só desativado), `POST /api/usuarios/{id}/redefinir`, `GET /api/auditoria` | administrador |
 | `GET/POST /api/empresas`, `PUT /api/empresas/{id}`, `POST /api/empresas/{id}/usar-certificado\|desativar\|reativar\|conferir-procuracao`, `GET/POST /api/certificados`, `DELETE /api/certificados/{id}`, `GET/PUT /api/instancia/clientes`, `PUT /api/usuarios/{id}/empresas` | várias empresas (ver a seção) |
@@ -643,6 +644,10 @@ até o Iuri pedir (`empresas.limite()`: `EMISSOR_LIMITE_EMPRESAS`, senão 1 com 
   certificados do procurador (adicionar empresa) ganham um campo de busca (`filtrarEmpresas` em `Empresas.tsx`): todas as
   palavras, sem acento/caixa, no nome, titular do certificado, "procuração"/"produção"/"homologação"; palavra com número
   procura no CNPJ/CPF sem pontuação. No crachá, setas e Enter escolhem; no celular a lista ocupa a largura da tela.
+  Configurações → Empresas (2026-11-18, pedido do Iuri): uma linha por empresa (nome, CNPJ, certificado, ambiente;
+  a aberta primeiro, depois em ordem alfabética), "Abrir" à vista e o resto num menu "⋯" (`MenuEmpresa`), filtros
+  rápidos (produção, homologação, procuração, certificado próprio ou vencendo, configuração pendente) e 20 por vez
+  ("Mostrar mais").
 - **Preço na hospedagem (quando habilitar):** até 3 CNPJs no mesmo preço; cada um a mais R$ 14,90/mês. O app só lê
   `EMISSOR_LIMITE_EMPRESAS`; a cobrança fica no painel (repositório da hospedagem).
 
@@ -1039,4 +1044,6 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-17 | Contribuições Sociais - Retidas: soma automática por padrão, com a opção de digitar o percentual retido de fato na tributação | Pedido do Iuri: o Emissor Nacional deixa o campo livre porque o tomador pode reter só parte |
 | 2026-11-16 | `.env.example` comentado (o compose lê `.env` se existir) e `EMISSOR_PUBLICO=1`, que liga as proteções de servidor público (webhook só https fora da rede interna, primeiro acesso sempre com código) sem o limite de empresas da hospedagem; IP real atrás de proxy pelo `FORWARDED_ALLOW_IPS` do uvicorn | Pedido do Iuri: quem hospedar o app por conta própria precisa saber o que configurar; antes essas proteções só valiam com `FLY_APP_NAME` |
 | 2026-11-16 | Modo escuro seguindo o sistema, com escolha Automático/Claro/Escuro por navegador em Minha conta; produção em claro sobre escuro | Pedido do Iuri; guias do Chrome (escolha numa tela de ajustes, não um botão fixo no topo); o aviso de produção precisa continuar o mais forte também no escuro |
+| 2026-11-17 | "Arredondar os centavos sempre para cima" por imposto (`arredondar_cima`: IRRF, CSLL, CP, contribuições digitadas e a parte retida de PIS/COFINS somada no `vRetCSLL`), desligado por padrão; `vPis`/`vCofins` continuam meio para cima | Pedido do Iuri; a Sefin exige `vPis`/`vCofins` = base x alíquota (E0694/E0696), os retidos só precisam ficar abaixo do valor |
+| 2026-11-17 | Preferências por usuário no servidor (`usuario.preferencias_json`): aviso do 2FA dispensado e ordem das colunas da tabela (arrastar); tributação da aba trocada pela barra da tabela; cópia de nota emitida e histórico discreto (ícone) na nota avulsa, sem copiar obra/evento; excluir da lista de emissões as notas não emitidas (recusada, não enviada ou erro sem Id da DPS; a com erro depois do envio pede "Verificar na Sefin" antes), mantendo o XML da DPS e os logs; nome da tributação padrão em `configuracao.tributacao_padrao_nome` (vazio = "Tributação padrão"; sem repetir o nome de outra) e "Copiar" em cada tributação (abre uma nova com os mesmos campos) | Pedido do Iuri (melhorias da emissão) |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

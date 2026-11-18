@@ -17,12 +17,14 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, baixar, type Aba, type Cliente, type Linha, type Status } from "../api";
+import { api, ApiError, baixar, type Aba, type Cliente, type ColunaTabela, type Linha, type Status } from "../api";
 import { documentoValido, formatarDocumento, moeda, parseTSV, parseValor, soDocumento, STATUS_ROTULO } from "../format";
-import { AbasPlanilha, EditorAba } from "../components/Abas";
+import { AbasPlanilha, EditorAba, useNomePadrao } from "../components/Abas";
 import { EditorNomeCliente } from "../components/EditorNomeCliente";
 import { NotaAvulsa } from "../components/NotaAvulsa";
 import { BotaoVariaveis } from "../components/Variaveis";
+import { TributacaoDaAba } from "../components/TributacaoDaAba";
+import { usePreferencias } from "../preferencias";
 import { AmbChip, Dialogo, ErroCaixa, Gaveta, MensagensSefin, Spinner, StatusChip, useToast } from "../ui";
 import { useEscuro } from "../tema";
 import { EmissaoFluxo } from "./EmissaoFluxo";
@@ -94,8 +96,10 @@ const TEMA_ESCURO: Partial<Theme> = {
 };
 const MONO = "'Martian Mono Variable', Consolas, monospace";
 
-type ColId = "nome" | "documento" | "valor" | "descricao" | "situacao";
-const COLUNAS: (GridColumn & { id: ColId })[] = [
+type ColId = ColunaTabela;
+type Coluna = GridColumn & { id: ColId };
+// Ordem de fábrica; cada usuário pode arrastar os títulos para outra (fica nas preferências dele).
+const COLUNAS_PADRAO: Coluna[] = [
   { id: "nome", title: "Nome da empresa", width: 300 },
   { id: "documento", title: "CNPJ / CPF", width: 190 },
   { id: "valor", title: "Valor", width: 140 },
@@ -103,6 +107,13 @@ const COLUNAS: (GridColumn & { id: ColId })[] = [
   { id: "situacao", title: "Última emissão", width: 230 },
 ];
 const EDITAVEIS: ColId[] = ["nome", "documento", "valor", "descricao"];
+const POR_ID = new Map(COLUNAS_PADRAO.map((c) => [c.id, c]));
+
+/** Colunas na ordem salva pelo usuário (lista incompleta ou com coluna desconhecida = ordem de fábrica). */
+function colunasNaOrdem(ordem: ColId[] | undefined): Coluna[] {
+  if (!ordem || ordem.length !== COLUNAS_PADRAO.length || !ordem.every((id) => POR_ID.has(id))) return COLUNAS_PADRAO;
+  return ordem.map((id) => POR_ID.get(id)!);
+}
 
 function aplicarValor(ln: LinhaLocal, col: ColId, texto: string): LinhaLocal {
   if (col === "documento") return { ...ln, documento: soDocumento(texto) };
@@ -199,6 +210,12 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const [abaId, setAbaId] = useState<number | null>(null);
   const [editarAba, setEditarAba] = useState<Aba | "nova" | null>(null);
   const [avulsa, setAvulsa] = useState(false);
+  const [preferencias, salvarPreferencias] = usePreferencias();
+  const COLUNAS = useMemo(() => colunasNaOrdem(preferencias.colunas_tabela), [preferencias.colunas_tabela]);
+  const nomePadrao = useNomePadrao();
+  // Callbacks da grade (criados uma vez) leem a ordem atual por aqui.
+  const colunasRef = useRef(COLUNAS);
+  colunasRef.current = COLUNAS;
   const linhasRef = useRef(linhas);
   linhasRef.current = linhas;
   const ordemRef = useRef(ordem);
@@ -358,7 +375,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             const a = atual[y];
             const campo = id as Exclude<ColId, "situacao">;
             if (a && l[campo] === a[campo]) return;
-            const x = COLUNAS.findIndex((c) => c.id === id);
+            const x = colunasRef.current.findIndex((c) => c.id === id);
             x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
           }),
         );
@@ -463,7 +480,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       const texto = id === "nome" ? ln.nome : ln.descricao;
       return { kind: GridCellKind.Text, data: texto, displayData: texto, allowOverlay: true };
     },
-    [linhas, clientes, cores, erroCelula],
+    [linhas, clientes, cores, erroCelula, COLUNAS],
   );
 
   // Seleção atual sempre fresca para os callbacks da grade.
@@ -475,7 +492,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       alterar((atual) => {
         const r = [...atual];
         for (const { location: [c, row], value } of novos) {
-          const id = COLUNAS[c]?.id;
+          const id = colunasRef.current[c]?.id;
           if (!id || !EDITAVEIS.includes(id)) continue;
           while (r.length <= row) r.push(vazia());
           r[row] = aplicarValor(r[row], id, value.kind === GridCellKind.Text ? value.data : "");
@@ -501,7 +518,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         return r;
       }, "Escolher cliente");
       // Próximo dado a digitar é o valor: leva o cursor para lá (depois que o editor fechar).
-      const colValor = COLUNAS.findIndex((col) => col.id === "valor");
+      const colValor = colunasRef.current.findIndex((col) => col.id === "valor");
       window.setTimeout(() => {
         setSelecao({
           columns: CompactSelection.empty(),
@@ -517,7 +534,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const provideEditor = useCallback(
     (cell: GridCell) => {
       const alvo = selecaoRef.current.current?.cell;
-      if (!alvo || COLUNAS[alvo[0]]?.id !== "nome" || cell.kind !== GridCellKind.Text) return undefined;
+      if (!alvo || colunasRef.current[alvo[0]]?.id !== "nome" || cell.kind !== GridCellKind.Text) return undefined;
       const row = alvo[1];
       return {
         disablePadding: true,
@@ -559,7 +576,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       const edits: { location: Item; value: EditableGridCell }[] = [];
       valores.forEach((linha, dy) =>
         linha.forEach((v, dx) => {
-          if (x0 + dx < COLUNAS.length)
+          if (x0 + dx < colunasRef.current.length)
             edits.push({ location: [x0 + dx, y0 + dy], value: { kind: GridCellKind.Text, data: v, displayData: v, allowOverlay: true } });
         }),
       );
@@ -628,10 +645,10 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   // 1º clique: crescente (A→Z, 0→9); 2º clique na mesma coluna: decrescente.
   const onHeaderClicked = useCallback(
     (c: number) => {
-      const col = COLUNAS[c]?.id;
+      const col = colunasRef.current[c]?.id;
       if (!col) return;
       const nova: Ordem = { col, dir: ordem?.col === col && ordem.dir === 1 ? -1 : 1 };
-      alterar((atual) => ordenar(atual, nova, clientesRef.current), `Ordenar por ${COLUNAS[c].title}`, nova);
+      alterar((atual) => ordenar(atual, nova, clientesRef.current), `Ordenar por ${colunasRef.current[c].title}`, nova);
       // Seleção por índice apontaria para outras linhas depois de reordenar.
       setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
     },
@@ -641,8 +658,25 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   // A seta no título indica a última ordenação aplicada (linhas novas/editadas não se reordenam sozinhas).
   const colunas = useMemo(
     () => COLUNAS.map((c) => (ordem?.col === c.id ? { ...c, title: `${c.title} ${ordem.dir === 1 ? "▲" : "▼"}` } : c)),
-    [ordem],
+    [ordem, COLUNAS],
   );
+
+  // Arrastar o título de uma coluna muda a ordem (só a da tela: a planilha exportada e a importação continuam
+  // Nome, CNPJ/CPF, Valor, Descrição). A ordem fica nas preferências do usuário, em qualquer navegador.
+  const onColumnMoved = useCallback(
+    (de: number, para: number) => {
+      if (de === para) return;
+      const ids = colunasRef.current.map((c) => c.id);
+      const [movida] = ids.splice(de, 1);
+      ids.splice(para, 0, movida);
+      setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
+      salvarPreferencias({ colunas_tabela: ids }).catch((e) =>
+        toast(`A nova ordem das colunas não foi salva: ${e instanceof Error ? e.message : e}`, "erro"),
+      );
+    },
+    [salvarPreferencias, toast],
+  );
+  const ordemDeFabrica = COLUNAS.every((c, i) => c.id === COLUNAS_PADRAO[i].id);
 
   // ---- seleção e totais ----
   const linhasMarcadas = selecao.rows.toArray().filter((i) => i < linhas.length);
@@ -703,6 +737,12 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       </div>
 
       <div className="barra">
+        {aba && (
+          <>
+            <TributacaoDaAba aba={aba} admin={admin} />
+            <span className="barra__sep" />
+          </>
+        )}
         <div className="barra__historico" role="group" aria-label="Histórico de alterações">
           <button
             className="btn btn--pequeno btn--icone"
@@ -787,6 +827,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             theme={escuro ? TEMA_ESCURO : TEMA_CLARO}
             columns={colunas}
             onHeaderClicked={onHeaderClicked}
+            onColumnMoved={onColumnMoved}
             rows={linhas.length}
             getCellContent={getCellContent}
             onCellsEdited={onCellsEdited}
@@ -808,7 +849,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             trailingRowOptions={{ hint: "Nova linha…", sticky: true, tint: true }}
             onRowAppended={() => alterar((a) => [...a, vazia()], "Nova linha")}
             onCellClicked={([c, r]) => {
-              if (COLUNAS[c]?.id === "situacao" && linhas[r]?.ultima_emissao) setDetalhe(linhas[r]);
+              if (colunasRef.current[c]?.id === "situacao" && linhas[r]?.ultima_emissao) setDetalhe(linhas[r]);
             }}
           />
         )}
@@ -825,7 +866,19 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         Cole direto do Excel com <kbd>Ctrl</kbd>+<kbd>V</kbd>, desfaça com <kbd>Ctrl</kbd>+<kbd>Z</kbd> (refaça com
         <kbd>Ctrl</kbd>+<kbd>Y</kbd>), arraste o canto da seleção para repetir valores e use
         <kbd>Delete</kbd> para limpar. Marque linhas à esquerda para emitir só elas. Clique no título de uma coluna para
-        ordenar (clique de novo para inverter).
+        ordenar (clique de novo para inverter) e arraste o título para mudar a coluna de lugar.
+        {!ordemDeFabrica && (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="btn-texto"
+              onClick={() => salvarPreferencias({ colunas_tabela: COLUNAS_PADRAO.map((c) => c.id) }).catch(() => undefined)}
+            >
+              Voltar as colunas para a ordem original
+            </button>
+          </>
+        )}
       </p>
 
       {importar && (
@@ -872,7 +925,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       {emitindo && (
         <EmissaoFluxo
           linhaIds={emitindo.ids}
-          tributacao={aba ? aba.tributacao_nome ?? "Tributação padrão" : undefined}
+          tributacao={aba ? aba.tributacao_nome ?? nomePadrao : undefined}
           loteExistente={emitindo.loteId}
           nomes={new Map(linhas.filter((l) => l.id).map((l) => [l.id!, l.nome || formatarDocumento(l.documento)]))}
           fechar={() => {
@@ -938,6 +991,22 @@ function pendenteReceita(c: Cliente | undefined): boolean {
   return !c || (c.origem === "planilha" && !c.endereco_completo);
 }
 
+const EXEMPLO_IMPORTAR: [string, string, string, string][] = [
+  ["Padaria Pão Dourado Ltda", "11.222.333/0001-81", "1.250,00", "Assessoria contábil de {mes}/{ano}"],
+  ["Maria da Silva", "529.982.247-25", "380,00", "Consultoria tributária"],
+];
+
+/** Modelo em CSV (separado por ";", com BOM para o Excel abrir os acentos). */
+function baixarModelo() {
+  const linhas = [["Nome", "CNPJ/CPF", "Valor", "Descrição"], ...EXEMPLO_IMPORTAR];
+  const csv = "\ufeff" + linhas.map((l) => l.map((c) => (/[;"\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(";")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = "modelo-notas.csv";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: () => void; concluido: (l: Linha[]) => void }) {
   const [modo, setModo] = useState<"substituir" | "acrescentar">("substituir");
   const [erro, setErro] = useState<unknown>(null);
@@ -966,29 +1035,60 @@ function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: 
   }
   return (
     <Dialogo titulo="Importar planilha" fechar={fechar}>
-      <p style={{ marginTop: 0, color: "var(--grafite)" }}>
-        Vai para a aba aberta. Excel (.xlsx) ou CSV com as colunas <b>Nome</b>, <b>CNPJ/CPF</b>, <b>Valor</b> e <b>Descrição</b>. A primeira linha pode
-        ter esses títulos; sem títulos, vale essa ordem.
-      </p>
-      <p style={{ marginTop: 0, color: "var(--grafite)" }}>
-        Afiliado da Shopee? Envie o <b>relatório de comissões</b> ou o <b>NF/RPA</b> da Central do Afiliado como veio: o sistema faz uma linha por loja
-        com a comissão paga por ela. O relatório de comissões não traz o CNPJ: preencha na primeira vez, e nos meses seguintes a loja é reconhecida
-        pelo nome.
-      </p>
-      <div className="amb-escolha" style={{ marginBottom: 16 }}>
-        <button type="button" className="amb-op" aria-pressed={modo === "substituir"} onClick={() => setModo("substituir")}>
-          <strong>Substituir a tabela</strong>
-          <span>Apaga as linhas atuais e usa só a planilha.</span>
+      <p className="importar__intro">Excel (.xlsx) ou CSV com uma nota por linha, assim:</p>
+      <div className="importar__exemplo" role="region" aria-label="Exemplo de planilha">
+        <table>
+          <thead>
+            <tr>
+              <th className="importar__col">A</th>
+              <th className="importar__col">B</th>
+              <th className="importar__col">C</th>
+              <th className="importar__col">D</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="importar__titulos">
+              <td>Nome</td>
+              <td>CNPJ/CPF</td>
+              <td>Valor</td>
+              <td>Descrição</td>
+            </tr>
+            {EXEMPLO_IMPORTAR.map((l) => (
+              <tr key={l[1]}>
+                <td>{l[0]}</td>
+                <td className="num">{l[1]}</td>
+                <td className="num importar__valor">{l[2]}</td>
+                <td>{l[3]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="importar__dica">
+        A linha de títulos é opcional (sem ela, vale a ordem acima). O nome pode ficar vazio: o sistema busca pelo CNPJ.{" "}
+        <button type="button" className="btn-texto" onClick={baixarModelo}>
+          Baixar modelo
         </button>
-        <button type="button" className="amb-op" aria-pressed={modo === "acrescentar"} onClick={() => setModo("acrescentar")}>
-          <strong>Acrescentar no fim</strong>
-          <span>Mantém as linhas atuais.</span>
+      </p>
+      <div className="importar__modo" role="radiogroup" aria-label="O que fazer com as linhas atuais">
+        <button type="button" role="radio" aria-checked={modo === "substituir"} onClick={() => setModo("substituir")}>
+          Substituir a tabela
+        </button>
+        <button type="button" role="radio" aria-checked={modo === "acrescentar"} onClick={() => setModo("acrescentar")}>
+          Acrescentar no fim
         </button>
       </div>
-      <ZonaArquivo aceitar=".xlsx,.xlsm,.csv,.txt" titulo={ocupado ? "Importando…" : "Escolha ou arraste a planilha"} dica=".xlsx ou .csv" onArquivos={enviar} />
+      <ZonaArquivo aceitar=".xlsx,.xlsm,.csv,.txt" titulo={ocupado ? "Importando…" : "Escolha ou arraste a planilha"} dica={modo === "substituir" ? "As linhas atuais desta aba serão trocadas pela planilha" : "As linhas da planilha entram depois das atuais"} onArquivos={enviar} />
       <div style={{ marginTop: 12 }}>
         <ErroCaixa erro={erro} titulo="Não foi possível importar" />
       </div>
+      <details className="importar__shopee">
+        <summary>Afiliado da Shopee?</summary>
+        <p>
+          Envie o <b>relatório de comissões</b> ou o <b>NF/RPA</b> da Central do Afiliado do jeito que veio: sai uma linha por loja com a comissão paga
+          por ela. O relatório de comissões não traz o CNPJ: preencha na primeira vez, e nos meses seguintes a loja é reconhecida pelo nome.
+        </p>
+      </details>
     </Dialogo>
   );
 }
