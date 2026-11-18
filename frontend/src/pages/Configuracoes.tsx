@@ -224,7 +224,7 @@ function SecaoCertificado({ status }: { status: Status }) {
           <ZonaArquivo aceitar=".pfx,.p12" titulo={arquivo ? arquivo.name : "Escolha o novo certificado"} dica=".pfx ou .p12" onArquivos={(f) => setArquivo(f[0] ?? null)} />
           <label className="campo" style={{ maxWidth: 320 }}>
             <span>Senha do certificado</span>
-            <input type="password" autoComplete="off" value={senha} onChange={(e) => setSenha(e.target.value)} />
+            <input type="password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={senha} onChange={(e) => setSenha(e.target.value)} />
           </label>
           <ErroCaixa erro={erro} titulo="Certificado não aceito" />
           <div style={{ display: "flex", gap: 8 }}>

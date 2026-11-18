@@ -744,7 +744,7 @@ export function AdicionarEmpresa({ fechar }: { fechar: () => void }) {
         <div className="pilha">
           <label className="campo">
             <span>CNPJ da empresa que vai emitir</span>
-            <input className="num" inputMode="text" value={cnpj} placeholder="00.000.000/0000-00" onChange={(e) => setCnpj(e.target.value.toUpperCase())} />
+            <input className="num" inputMode="text" name="cnpj-empresa" autoComplete="off" data-1p-ignore data-lpignore="true" spellCheck={false} value={cnpj} placeholder="00.000.000/0000-00" onChange={(e) => setCnpj(e.target.value.toUpperCase())} />
           </label>
           <fieldset className="campo-grupo">
             <legend>Certificado do procurador</legend>
@@ -816,7 +816,7 @@ function CamposArquivo(props: {
       />
       <label className="campo" style={{ maxWidth: 320 }}>
         <span>Senha do certificado</span>
-        <input type="password" autoComplete="off" value={props.senha} onChange={(e) => props.setSenha(e.target.value)} />
+        <input type="password" name="senha-certificado" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={props.senha} onChange={(e) => props.setSenha(e.target.value)} />
       </label>
     </>
   );

@@ -211,7 +211,9 @@ export function Onboarding({ status }: { status: Status }) {
                     <input
                       type="password"
                       value={senha}
-                      autoComplete="off"
+                      autoComplete="new-password"
+                      data-1p-ignore
+                      data-lpignore="true"
                       onChange={(e) => setSenha(e.target.value)}
                       onKeyDown={(e) => ehEnter(e) && enviarCertificado()}
                     />
