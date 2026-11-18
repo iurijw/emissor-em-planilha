@@ -7,6 +7,16 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.19.0 (17/11/2026)
+
+- Retenções: escolha se "Contribuições Sociais - Retidas" soma PIS, COFINS e CSLL ou leva o percentual que o tomador reteve de fato, e se os centavos de cada imposto arredondam sempre para cima.
+- Tabela: troque a tributação da aba pela barra de cima e arraste as colunas para mudar a ordem.
+- Nota avulsa: copie uma nota já emitida e reaproveite descrições e tributações usadas antes.
+- Tributações: renomeie a padrão e copie qualquer uma para criar outra.
+- Emissões: exclua da lista as notas que não chegaram a ser emitidas.
+- Importar planilha mostra um exemplo do formato aceito e um modelo para baixar.
+- O aviso para ativar a verificação em duas etapas pode ser dispensado de vez.
+
 ## 0.18.0 (16/11/2026)
 
 - Modo escuro: segue o tema do computador, ou escolha Claro ou Escuro em Minha conta → Aparência.
