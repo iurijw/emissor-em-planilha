@@ -991,6 +991,22 @@ function pendenteReceita(c: Cliente | undefined): boolean {
   return !c || (c.origem === "planilha" && !c.endereco_completo);
 }
 
+const EXEMPLO_IMPORTAR: [string, string, string, string][] = [
+  ["Padaria Pão Dourado Ltda", "11.222.333/0001-81", "1.250,00", "Assessoria contábil de {mes}/{ano}"],
+  ["Maria da Silva", "529.982.247-25", "380,00", "Consultoria tributária"],
+];
+
+/** Modelo em CSV (separado por ";", com BOM para o Excel abrir os acentos). */
+function baixarModelo() {
+  const linhas = [["Nome", "CNPJ/CPF", "Valor", "Descrição"], ...EXEMPLO_IMPORTAR];
+  const csv = "\ufeff" + linhas.map((l) => l.map((c) => (/[;"\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(";")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = "modelo-notas.csv";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: () => void; concluido: (l: Linha[]) => void }) {
   const [modo, setModo] = useState<"substituir" | "acrescentar">("substituir");
   const [erro, setErro] = useState<unknown>(null);
@@ -1019,29 +1035,60 @@ function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: 
   }
   return (
     <Dialogo titulo="Importar planilha" fechar={fechar}>
-      <p style={{ marginTop: 0, color: "var(--grafite)" }}>
-        Vai para a aba aberta. Excel (.xlsx) ou CSV com as colunas <b>Nome</b>, <b>CNPJ/CPF</b>, <b>Valor</b> e <b>Descrição</b>. A primeira linha pode
-        ter esses títulos; sem títulos, vale essa ordem.
-      </p>
-      <p style={{ marginTop: 0, color: "var(--grafite)" }}>
-        Afiliado da Shopee? Envie o <b>relatório de comissões</b> ou o <b>NF/RPA</b> da Central do Afiliado como veio: o sistema faz uma linha por loja
-        com a comissão paga por ela. O relatório de comissões não traz o CNPJ: preencha na primeira vez, e nos meses seguintes a loja é reconhecida
-        pelo nome.
-      </p>
-      <div className="amb-escolha" style={{ marginBottom: 16 }}>
-        <button type="button" className="amb-op" aria-pressed={modo === "substituir"} onClick={() => setModo("substituir")}>
-          <strong>Substituir a tabela</strong>
-          <span>Apaga as linhas atuais e usa só a planilha.</span>
+      <p className="importar__intro">Excel (.xlsx) ou CSV com uma nota por linha, assim:</p>
+      <div className="importar__exemplo" role="region" aria-label="Exemplo de planilha">
+        <table>
+          <thead>
+            <tr>
+              <th className="importar__col">A</th>
+              <th className="importar__col">B</th>
+              <th className="importar__col">C</th>
+              <th className="importar__col">D</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="importar__titulos">
+              <td>Nome</td>
+              <td>CNPJ/CPF</td>
+              <td>Valor</td>
+              <td>Descrição</td>
+            </tr>
+            {EXEMPLO_IMPORTAR.map((l) => (
+              <tr key={l[1]}>
+                <td>{l[0]}</td>
+                <td className="num">{l[1]}</td>
+                <td className="num importar__valor">{l[2]}</td>
+                <td>{l[3]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="importar__dica">
+        A linha de títulos é opcional (sem ela, vale a ordem acima). O nome pode ficar vazio: o sistema busca pelo CNPJ.{" "}
+        <button type="button" className="btn-texto" onClick={baixarModelo}>
+          Baixar modelo
         </button>
-        <button type="button" className="amb-op" aria-pressed={modo === "acrescentar"} onClick={() => setModo("acrescentar")}>
-          <strong>Acrescentar no fim</strong>
-          <span>Mantém as linhas atuais.</span>
+      </p>
+      <div className="importar__modo" role="radiogroup" aria-label="O que fazer com as linhas atuais">
+        <button type="button" role="radio" aria-checked={modo === "substituir"} onClick={() => setModo("substituir")}>
+          Substituir a tabela
+        </button>
+        <button type="button" role="radio" aria-checked={modo === "acrescentar"} onClick={() => setModo("acrescentar")}>
+          Acrescentar no fim
         </button>
       </div>
-      <ZonaArquivo aceitar=".xlsx,.xlsm,.csv,.txt" titulo={ocupado ? "Importando…" : "Escolha ou arraste a planilha"} dica=".xlsx ou .csv" onArquivos={enviar} />
+      <ZonaArquivo aceitar=".xlsx,.xlsm,.csv,.txt" titulo={ocupado ? "Importando…" : "Escolha ou arraste a planilha"} dica={modo === "substituir" ? "As linhas atuais desta aba serão trocadas pela planilha" : "As linhas da planilha entram depois das atuais"} onArquivos={enviar} />
       <div style={{ marginTop: 12 }}>
         <ErroCaixa erro={erro} titulo="Não foi possível importar" />
       </div>
+      <details className="importar__shopee">
+        <summary>Afiliado da Shopee?</summary>
+        <p>
+          Envie o <b>relatório de comissões</b> ou o <b>NF/RPA</b> da Central do Afiliado do jeito que veio: sai uma linha por loja com a comissão paga
+          por ela. O relatório de comissões não traz o CNPJ: preencha na primeira vez, e nos meses seguintes a loja é reconhecida pelo nome.
+        </p>
+      </details>
     </Dialogo>
   );
 }

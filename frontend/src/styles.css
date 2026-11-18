@@ -1162,3 +1162,26 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 
 .excluir-notas__lista { margin: 12px 0 0; padding-left: 18px; color: var(--grafite); display: grid; gap: 2px; }
 .selo-padrao { margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 0.6875rem; font-weight: 550; letter-spacing: 0.02em; background: var(--azul-fundo); color: var(--azul-texto); vertical-align: 1px; }
+
+/* Importar planilha: exemplo do formato aceito, modo e arquivo */
+.importar__intro { margin: 0 0 8px; color: var(--tinta); }
+.importar__exemplo { overflow-x: auto; border: 1px solid var(--linha-forte); border-radius: 6px; background: var(--folha); }
+.importar__exemplo table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+.importar__exemplo th, .importar__exemplo td { padding: 5px 10px; border-right: 1px solid var(--linha); border-bottom: 1px solid var(--linha); white-space: nowrap; text-align: left; }
+.importar__exemplo th:last-child, .importar__exemplo td:last-child { border-right: 0; }
+.importar__exemplo tbody tr:last-child td { border-bottom: 0; }
+.importar__col { background: var(--neutro); color: var(--grafite); font: 600 0.6875rem/1 var(--f-ui); text-align: center !important; padding: 4px 10px; }
+.importar__titulos td { font-weight: 650; background: var(--azul-fundo); color: var(--azul-texto); }
+.importar__exemplo .num { font-size: 0.75rem; }
+.importar__valor { text-align: right !important; }
+.importar__dica { margin: 8px 0 16px; color: var(--grafite); font-size: 0.8125rem; }
+.importar__modo { display: inline-flex; margin-bottom: 10px; padding: 3px; gap: 2px; border: 1px solid var(--linha-forte); border-radius: 8px; background: var(--neutro); }
+.importar__modo button {
+  height: 30px; padding: 0 14px; border: 0; border-radius: 6px; background: none; color: var(--grafite);
+  font-size: 0.8125rem; font-weight: 550; cursor: pointer;
+}
+.importar__modo button:hover { color: var(--tinta); }
+.importar__modo button[aria-checked="true"] { background: var(--folha); color: var(--tinta); box-shadow: 0 0 0 1px var(--linha-forte); }
+.importar__shopee { margin-top: 14px; color: var(--grafite); font-size: 0.8125rem; }
+.importar__shopee summary { cursor: pointer; font-weight: 550; width: fit-content; }
+.importar__shopee p { margin: 6px 0 0; }
