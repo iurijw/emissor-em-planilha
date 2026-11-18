@@ -239,18 +239,16 @@ function Texto(props: {
   largo?: boolean;
   placeholder?: string;
   obrigatorio?: boolean;
-  /** Abaixo da ajuda, fora do rótulo (ex.: a opção de arredondar). */
+  /**
+   * Abaixo da ajuda, fora do rótulo (ex.: a opção de arredondar). Basta passar a prop (mesmo undefined) para o campo
+   * ficar sempre dentro do mesmo invólucro: se o invólucro surgisse só quando `depois` aparece, o React recriaria o
+   * input no meio da digitação e o cursor sairia do campo.
+   */
   depois?: ReactNode;
 }) {
-  if (props.depois)
-    return (
-      <div className={`campo-com-opcao${props.largo ? " largo" : ""}`}>
-        <Texto {...props} depois={undefined} largo={false} />
-        {props.depois}
-      </div>
-    );
-  return (
-    <label className={`campo${props.largo ? " largo" : ""}${props.erro ? " campo--erro" : ""}${props.obrigatorio ? " campo--obrigatorio" : ""}`}>
+  const comOpcao = "depois" in props;
+  const campo = (
+    <label className={`campo${props.largo && !comOpcao ? " largo" : ""}${props.erro ? " campo--erro" : ""}${props.obrigatorio ? " campo--obrigatorio" : ""}`}>
       <span>{props.rotulo}</span>
       <input
         className={props.num ? "num" : undefined}
@@ -263,6 +261,13 @@ function Texto(props: {
       />
       {props.erro ? <small className="campo__erro">{props.erro}</small> : props.ajuda && <small>{props.ajuda}</small>}
     </label>
+  );
+  if (!comOpcao) return campo;
+  return (
+    <div className={`campo-com-opcao${props.largo ? " largo" : ""}`}>
+      {campo}
+      {props.depois}
+    </div>
   );
 }
 
@@ -1566,7 +1571,7 @@ function de(base: number, p: string | null, cima = false): number {
 
 const ORDEM_ARREDONDAVEIS: Arredondavel[] = ["pis", "cofins", "irrf", "csll", "contrib", "cp"];
 
-/** Caixa "Arredondar os centavos sempre para cima" embaixo de um percentual, com o exemplo quando marcada. */
+/** Caixa "Arredondar os centavos sempre para cima" embaixo de um percentual. */
 function ArredondarCima({ marcado, onChange }: { marcado: boolean; onChange: (sim: boolean) => void }) {
   return (
     <div className="arredondar">
@@ -1574,13 +1579,6 @@ function ArredondarCima({ marcado, onChange }: { marcado: boolean; onChange: (si
         <input type="checkbox" checked={marcado} onChange={(e) => onChange(e.target.checked)} />
         <span>Arredondar os centavos sempre para cima</span>
       </label>
-      {marcado && (
-        <p className="arredondar__exemplo">
-          <span className="num">R$ 70,771</span> vira <b className="num">R$ 70,78</b>
-          <span className="arredondar__comum"> (no comum, R$ 70,77)</span>. Conta exata, como{" "}
-          <span className="num">R$ 70,770</span>, fica <span className="num">R$ 70,77</span>.
-        </p>
-      )}
     </div>
   );
 }
