@@ -390,24 +390,27 @@ export async function copiar(texto: string): Promise<void> {
 /** A logo (public/logo.svg) desenhada na página, para o canto dobrado acompanhar o tema (preto no claro, claro no
  *  escuro, onde o preto sumiria no fundo). O favicon continua sendo o arquivo. */
 export function Logo({ tamanho = 30 }: { tamanho?: number }) {
+  // Três folhas em lote com a grade da planilha vazada (mesmo desenho de public/logo.svg).
   const mascara = `logo-grade-${useId().replace(/:/g, "")}`;
   return (
-    <svg className="logo" viewBox="0 0 64 64" width={tamanho} height={tamanho} aria-hidden="true">
+    <svg className="logo" viewBox="0 0 128 128" width={tamanho} height={tamanho} aria-hidden="true">
       <defs>
         <mask id={mascara}>
-          <rect width="64" height="64" fill="#fff" />
-          {[26, 38, 50].map((y) => (
+          <rect width="128" height="128" fill="#fff" />
+          {[72, 86, 100].map((y) => (
             <g key={y}>
-              <rect x="12" y={y} width="10" height="8" rx="1" fill="#000" />
-              <rect x="26" y={y} width="26" height="8" rx="1" fill="#000" />
+              <rect x="60" y={y} width="14" height="10" rx="2.5" fill="#000" />
+              <rect x="78" y={y} width="22" height="10" rx="2.5" fill="#000" />
             </g>
           ))}
         </mask>
       </defs>
       <g mask={`url(#${mascara})`}>
-        <polygon points="7,2 41,2 57,18 57,62 7,62" fill="#0098D7" />
-        <polygon points="41,2 41,18 57,18" style={{ fill: "var(--logo-canto)" }} />
+        <path d="M26 6H60L78 24V76Q78 84 70 84H26Q18 84 18 76V14Q18 6 26 6Z" fill="#B3E0F3" />
+        <path d="M42 22H76L94 40V92Q94 100 86 100H42Q34 100 34 92V30Q34 22 42 22Z" fill="#66C1E7" />
+        <path d="M58 38H92L110 56V108Q110 116 102 116H58Q50 116 50 108V46Q50 38 58 38Z" fill="#0098D7" />
       </g>
+      <path d="M92 38L110 56H96Q92 56 92 52Z" style={{ fill: "var(--logo-canto)" }} />
     </svg>
   );
 }

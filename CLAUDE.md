@@ -270,8 +270,8 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 
 - **Stack:** Vite 6 + React 18 (a Glide Data Grid 6 exige React ≤ 18) + TypeScript + TanStack Query. Node 20.11+
   (Vite 7 exigiria 20.19+). Fontes self-hosted via `@fontsource-variable` (funciona sem internet).
-- **Identidade visual:** logo própria em `frontend/public/logo.svg` (folha de nota com canto dobrado e grade de
-  planilha), cores azul `#0098D7`, preto `#020202`, fundo `#F9FDFE`; Archivo (largura expandida nos títulos) +
+- **Identidade visual:** logo própria em `frontend/public/logo.svg` (três folhas em lote em tons do azul, grade de
+  planilha vazada e canto dobrado; desde 2026-11-22, variações em `/mnt/project-files/assets-design/higgsfield/logo/A-lote/`), cores azul `#0098D7`, preto `#020202`, fundo `#F9FDFE`; Archivo (largura expandida nos títulos) +
   Martian Mono para CNPJ, valores, números e chaves. Assinaturas: faixa de ambiente no topo (hachurada =
   homologação, preta = produção) e "fita" de progresso do lote (um segmento por nota). Produção exige digitar
   EMITIR para confirmar; botão de emitir fica preto em produção.
@@ -1046,4 +1046,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-16 | Modo escuro seguindo o sistema, com escolha Automático/Claro/Escuro por navegador em Minha conta; produção em claro sobre escuro | Pedido do Iuri; guias do Chrome (escolha numa tela de ajustes, não um botão fixo no topo); o aviso de produção precisa continuar o mais forte também no escuro |
 | 2026-11-17 | "Arredondar os centavos sempre para cima" por imposto (`arredondar_cima`: IRRF, CSLL, CP, contribuições digitadas e a parte retida de PIS/COFINS somada no `vRetCSLL`), desligado por padrão; `vPis`/`vCofins` continuam meio para cima | Pedido do Iuri; a Sefin exige `vPis`/`vCofins` = base x alíquota (E0694/E0696), os retidos só precisam ficar abaixo do valor |
 | 2026-11-17 | Preferências por usuário no servidor (`usuario.preferencias_json`): aviso do 2FA dispensado e ordem das colunas da tabela (arrastar); tributação da aba trocada pela barra da tabela; cópia de nota emitida e histórico discreto (ícone) na nota avulsa, sem copiar obra/evento; excluir da lista de emissões as notas não emitidas (recusada, não enviada ou erro sem Id da DPS; a com erro depois do envio pede "Verificar na Sefin" antes), mantendo o XML da DPS e os logs; nome da tributação padrão em `configuracao.tributacao_padrao_nome` (vazio = "Tributação padrão"; sem repetir o nome de outra) e "Copiar" em cada tributação (abre uma nova com os mesmos campos) | Pedido do Iuri (melhorias da emissão) |
+| 2026-11-22 | Logo nova: três folhas em lote (#B3E0F3, #66C1E7, #0098D7) com a grade vazada atravessando as três e o canto dobrado preto (claro no escuro); `logo.svg`, `Logo` em `ui.tsx`, `sw.js`, `favicon.png` e `docs/img/logo.png` | Pedido do Iuri: a anterior parecia básica; conceito gerado no Higgsfield e redesenhado à mão |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
