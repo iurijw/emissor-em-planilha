@@ -7,10 +7,13 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
-## 0.19.1 (24/11/2026)
+## 0.19.2 (24/11/2026)
 
 - Logo nova: três folhas em lote com a grade da planilha.
 - Janela estreita: o topo não passa mais da tela. Os nomes das seções viram ícones (o nome aparece ao passar o mouse) e, no celular, a empresa fica ao lado da logo.
+
+## 0.19.1 (18/11/2026)
+
 - Tributações: digitar um percentual de retenção não tira mais o cursor do campo quando aparece a opção de arredondar para cima, e o exemplo que aparecia ao marcá-la saiu.
 
 ## 0.19.0 (17/11/2026)
