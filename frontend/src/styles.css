@@ -117,6 +117,28 @@ a { color: var(--azul-texto); }
 .nav a[aria-current="page"] { color: var(--tinta); border-bottom-color: var(--azul); font-weight: 600; }
 .topo__info { margin-left: auto; display: flex; align-items: center; gap: 14px; color: var(--grafite); font-size: 0.7812rem; }
 .topo__info strong { color: var(--tinta); font-weight: 600; }
+/* O cabeçalho não encolhe os itens (o nome do usuário viraria reticências antes da hora): quando não cabe, o script
+   (useCabecalhoCompacto) troca nomes por ícones em etapas, em data-compacto. */
+.topo > * { flex-shrink: 0; }
+.nav__icone { display: none; flex: none; }
+@media (width > 900px) { .topo[data-compacto~="nav"] { gap: 18px; } }
+.topo[data-compacto~="nav"] .nav a { position: relative; padding: 0 11px; }
+.topo[data-compacto~="nav"] .nav__icone { display: block; }
+.topo[data-compacto~="nav"] .nav__rotulo,
+.topo[data-compacto~="marca"] .marca__nome,
+.topo[data-compacto~="marca"] .topo__assinatura-texto {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+/* Nome da seção ao passar o mouse ou com o foco do teclado (o leitor de tela já lê o nome escondido acima). */
+.topo[data-compacto~="nav"] .nav a::after {
+  content: attr(data-rotulo) / ""; position: absolute; top: calc(100% + 6px); left: 50%; translate: -50% 0; z-index: 30;
+  padding: 4px 8px; border-radius: 5px; background: var(--contraste); color: var(--contraste-texto);
+  font-size: 0.75rem; font-weight: 500; white-space: nowrap; pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity 0.12s, visibility 0.12s;
+}
+.topo[data-compacto~="nav"] .nav a:is(:hover, :focus-visible)::after { opacity: 1; visibility: visible; transition-delay: 0.25s; }
+@media (max-width: 900px) { .topo[data-compacto~="nav"] .nav a::after { display: none; } }
+.topo[data-compacto~="info"] .topo__info > span { display: none; }
 
 /* ---------- Página ---------- */
 .pagina { padding: 22px 24px 40px; max-width: 1480px; margin: 0 auto; }
@@ -482,6 +504,7 @@ dialog.dialogo[open]::backdrop, dialog.gaveta[open]::backdrop { opacity: 1; tran
   .topo { flex-wrap: wrap; height: auto; gap: 4px 12px; padding: 12px 16px 0; }
   .nav { width: 100%; height: 44px; overflow-x: auto; scrollbar-width: none; }
   .nav a { padding: 0 10px; }
+  .topo[data-compacto~="nav"] .nav a { flex: 1; justify-content: center; }
   .topo__info { order: 1; margin-left: auto; }
   .topo__info > span { display: none; }
   .topo__usuario { order: 1; border-left: 0; }
@@ -535,6 +558,19 @@ dialog.dialogo[open]::backdrop, dialog.gaveta[open]::backdrop { opacity: 1; tran
 .topo__usuario a { color: var(--tinta); font-weight: 600; text-decoration: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topo__usuario a:hover { text-decoration: underline; }
 .topo__usuario a.topo__assinatura { color: var(--grafite); font-weight: 500; margin-right: 8px; }
+.topo__assinatura { display: inline-flex; align-items: center; }
+.topo__assinatura-icone, .topo__iniciais { display: none; }
+.topo[data-compacto~="marca"] .topo__assinatura-icone { display: block; }
+.topo[data-compacto~="marca"] .topo__usuario a.topo__assinatura { margin-right: 4px; padding: 6px; border-radius: 50%; overflow: visible; }
+.topo[data-compacto~="marca"] .topo__usuario a.topo__assinatura:hover { background: var(--realce); color: var(--tinta); }
+.topo[data-compacto~="usuario"] .topo__nome-texto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.topo[data-compacto~="usuario"] .topo__iniciais {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--azul-fundo); color: var(--azul-texto); border: 1px solid var(--azul-borda);
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.02em;
+}
+.topo[data-compacto~="usuario"] .topo__usuario a.topo__nome { overflow: visible; text-decoration: none; }
+.topo[data-compacto~="usuario"] .topo__usuario a.topo__nome:hover .topo__iniciais { border-color: var(--azul); }
 .faixa-suspenso { border-radius: 0; border-width: 0 0 1px; justify-content: center; }
 
 /* ---------- Assinatura: fim do teste grátis ---------- */
