@@ -138,6 +138,12 @@ a { color: var(--azul-texto); }
 }
 .topo[data-compacto~="nav"] .nav a:is(:hover, :focus-visible)::after { opacity: 1; visibility: visible; transition-delay: 0.25s; }
 @media (max-width: 900px) { .topo[data-compacto~="nav"] .nav a::after { display: none; } }
+/* Celular com várias empresas: o crachá da empresa fica ao lado da logo, no lugar do nome do sistema. */
+@media (max-width: 600px) {
+  .topo:has(.cracha) .marca__nome { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .topo:has(.cracha) .topo__info { margin-left: 0; flex: 1 1 12rem; min-width: 0; }
+  .topo:has(.cracha) .cracha, .topo:has(.cracha) .cracha__botao { max-width: 100%; }
+}
 .topo[data-compacto~="info"] .topo__info > span { display: none; }
 
 /* ---------- Página ---------- */
