@@ -307,6 +307,11 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
   (`instalarValidacaoAcessivel`; campos com aria-invalid próprio levam `data-aria-invalid-proprio`); `ehEnter` ignora o
   Enter de composição de IME; fontes em `rem` + `<meta name="text-scale">`; `color-scheme`, `accent-color`,
   `font-size-adjust: from-font`, `text-wrap`; tela de emissão (grade) carregada à parte, depois do login.
+- **Cabeçalho em janela estreita** (2026-11-24, `useCabecalhoCompacto` em `App.tsx`): sem largura fixa, o script mede se
+  o topo cabe e encolhe em etapas (`data-compacto`): sem prestador/certificado → seções só com ícone (nome numa dica ao
+  passar o mouse/foco; leitor de tela lê o nome escondido) → sem o nome do sistema e "Assinatura" vira ícone → iniciais
+  do usuário. Mede de novo no `resize` da janela (não `ResizeObserver`: mudar a etapa muda a altura e daria "loop"
+  no log), em mudanças do conteúdo e quando as fontes carregam. No celular (≤ 900 px) vale para a linha das seções.
 - **Modo escuro** (2026-11-16, `src/tema.ts`): segue o sistema; Minha conta → Aparência fixa Automático/Claro/Escuro
   **neste navegador** (`localStorage` `esquema-de-cor`, sem ir ao servidor). A escolha fica em
   `<meta name="color-scheme">` (script inline no `index.html` antes de desenhar) e o `styles.css` copia para a
