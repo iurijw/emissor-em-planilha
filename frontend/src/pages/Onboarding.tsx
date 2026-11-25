@@ -275,7 +275,8 @@ export function Onboarding({ status }: { status: Status }) {
                       <input type="checkbox" checked={usarLinhas} onChange={(e) => setUsarLinhas(e.target.checked)} />
                       <span>
                         Montar a tabela de emissão com estes {importacao.linhas.length} clientes, usando o valor e a descrição
-                        da última nota de cada um.
+                        da última nota de cada um
+                        {importacao.linhas.some((l) => l.locacao) ? " (e o imóvel de cada aluguel)" : ""}.
                       </span>
                     </label>
                   )}

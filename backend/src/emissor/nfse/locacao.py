@@ -217,3 +217,60 @@ def erros_unidade(loc: dict | None) -> list[str]:
     if erros:
         return [f"Locação: falta o {', o '.join(erros)} (ou o CIB do imóvel)."]
     return []
+
+
+def de_nfse(d) -> dict | None:
+    """Dados do imóvel de uma NFS-e de locação já emitida (``NFSeDoc``), com as chaves de ``CAMPOS``.
+
+    Para a próxima nota (onboarding): o vencimento vira só o dia do mês e o valor total só vai com copropriedade
+    menor que 100% (com 100% ele é o próprio valor da nota). Sem o grupo do imóvel, None.
+    """
+    base = "IBSCBS/imovel"
+    if d.el(f"DPS/infDPS/{base}") is None:
+        return None
+    unid = f"{base}/gUnidImob"
+    loc = {
+        "c_mun": d.dps(f"{base}/cMun"),
+        "insc_imob_fisc": d.dps(f"{unid}/inscImobFisc"),
+        "c_cib": d.dps(f"{unid}/cCIB"),
+        "cep": d.dps(f"{unid}/end/CEP"),
+        "logradouro": d.dps(f"{unid}/end/xLgr"),
+        "numero": d.dps(f"{unid}/end/nro"),
+        "complemento": d.dps(f"{unid}/end/xCpl"),
+        "bairro": d.dps(f"{unid}/end/xBairro"),
+    }
+    if loc["numero"] and loc["numero"].upper() in ("S/N", "SN"):
+        loc["numero"] = None
+    p = _dec(d.dps(f"{base}/gLocacao/pCopropriedade"))
+    if p is not None and p != CEM:
+        loc["p_copropriedade"] = _br(p)
+        loc["v_tot_oper"] = _br(_dec(d.dps(f"{base}/gLocacao/vTotOper")))
+    venc = d.dps(f"{base}/gLocacao/dVencOrig")
+    if venc and re.fullmatch(r"\d{4}-\d{2}-\d{2}", venc):
+        loc["venc"] = str(int(venc[8:10]))
+    por_tipo = {tp: chave for chave, tp in AJUSTES}
+    el_unid = d.el(f"DPS/infDPS/{unid}")
+    for aj in el_unid.iterchildren() if el_unid is not None else ():
+        if not isinstance(aj.tag, str) or not aj.tag.endswith("gAjusteBCLocImoveis"):
+            continue
+        campos = {etree_local(c): (c.text or "").strip() for c in aj.iterchildren() if isinstance(c.tag, str)}
+        chave = por_tipo.get(campos.get("tpAjusteBCLocImoveis", ""))
+        v = _dec(campos.get("vAjusteBCLocImoveis"))
+        if chave and v:
+            anterior = _dec(loc.get(chave)) or Decimal(0)
+            loc[chave] = _br(anterior + v)
+            if chave == "outras" and campos.get("xTpAjusteBCLocImoveis"):
+                loc["outras_descricao"] = campos["xTpAjusteBCLocImoveis"]
+    return limpar(loc)
+
+
+def _br(v: Decimal | None) -> str | None:
+    """Decimal → "1234,56" (como se digita na planilha)."""
+    if v is None:
+        return None
+    return f"{v:.2f}".replace(".", ",")
+
+
+def etree_local(el) -> str:
+    tag = el.tag
+    return tag.rsplit("}", 1)[-1]

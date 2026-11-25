@@ -570,6 +570,9 @@ XSD `v1_01_nt009`, Anexo I da Produção Restrita (2026-10-20, aba RN DPS_NFS-e)
   da linha para `emissao.nota_json`.
 - **Nota avulsa:** `DadosNota.locacao` (`components/LocacaoImovel.tsx`, seção "Imóvel e locação"); copiar uma nota de
   aluguel traz o imóvel junto. Na tela de tributação, escolher um 99.03 liga IBS/CBS, põe `tribISSQN 4` e cIndOp 020101.
+- **Onboarding** (`locacao.de_nfse`): a tributação vem das notas de aluguel como as outras (99.03, tribISSQN 4, cIndOp
+  020101, cClassTrib) e cada linha sugerida leva o imóvel da nota (uma linha por cliente e imóvel; vencimento vira só o
+  dia; valor total só com copropriedade < 100%). XMLs de exemplo (fictícios) em `/mnt/project-files/exemplos/locacao/`.
 - DANFSe: a inscrição imobiliária cai para a de `gUnidImob`. `sefin_simulada.py` recusa E0532/E0937/E0433/E0902 e
   calcula a base do IBS/CBS com os ajustes do imóvel.
 - Fora: mais de uma unidade imobiliária por nota, `bensMoveis`, cIndOp 0202xx–0204xx (cessão de direitos, obras).
