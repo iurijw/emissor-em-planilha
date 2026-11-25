@@ -1079,6 +1079,32 @@ def test_servico_que_a_prefeitura_nao_administra(api, sim, pfx_bytes, nfse_exemp
     assert api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["avisos"] == []  # falha guardada 5 min
 
 
+def test_conferencia_com_codigo_municipal(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """Prefeitura que cadastrou o serviço só com o desdobramento (06.04.01.604): sem o falso aviso de E0312."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    fiscal = api.get("/api/config").json()["fiscal"]
+    c_trib, mun = fiscal["c_trib_nac"], fiscal["c_mun_emissor"]
+    sim.so_desdobramento[(mun, c_trib)] = "604"
+    parametros.limpar_cache()
+    ids = _linhas(api, [{"nome": "A", "documento": TOMADOR_CNPJ, "valor": "10", "descricao": "a"}])
+
+    # Sem o código municipal na tributação: o .000 não existe e o aviso sugere informar o código municipal.
+    r = api.post("/api/config/conferir-servico", json={"c_trib_nac": c_trib}).json()
+    assert r["situacao"] == "nao_encontrado" and "código municipal" in r["mensagem"], r
+
+    # Com o 604 na tributação padrão: a consulta usa 06.04.01.604 (formato do ADN real) e encontra.
+    assert api.put("/api/config", json={"fiscal": {**fiscal, "c_trib_mun": "604"}}).status_code == 200
+    r = api.post("/api/config/conferir-servico", json={"c_trib_nac": c_trib, "c_trib_mun": "604"}).json()
+    assert r["situacao"] == "encontrado" and r["mensagem"].count(".604") == 1, r
+    assert any(re.search(r"\.\d{2}\.604/\d{4}-\d{2}-\d{2}/aliquota$", c) for c in sim.chamadas), sim.chamadas
+    val = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()
+    assert val["avisos"] == [] and val["linhas"][0]["erros"] == [], val
+    regras = api.post(
+        "/api/config/regras-prefeitura", json={"tributacao": {"c_trib_nac": c_trib, "c_trib_mun": "604"}}
+    ).json()
+    assert regras["historico_aliquotas"], regras  # histórico também pelo desdobramento
+
+
 def test_regras_da_prefeitura(api, sim, pfx_bytes, nfse_exemplo_bytes):
     """Retenção, regime especial, alíquota e benefício cadastrados pela prefeitura: avisos que não bloqueiam."""
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)

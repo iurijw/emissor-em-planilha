@@ -149,7 +149,9 @@ def _mesmo_servico(codigo: Any, c_trib_nac: str) -> bool:
 
 
 def servico_completo(cfg: ConfigFiscal) -> str:
-    return f"{codes.formatar_c_trib_nac(cfg.c_trib_nac)}.000"
+    """``06.04.01.604`` com o código municipal (o ADN guarda o serviço por desdobramento), senão ``06.04.01.000``."""
+    mun = (cfg.c_trib_mun or "").strip()
+    return f"{codes.formatar_c_trib_nac(cfg.c_trib_nac)}.{mun if mun.isdigit() and len(mun) == 3 else '000'}"
 
 
 def conferir(

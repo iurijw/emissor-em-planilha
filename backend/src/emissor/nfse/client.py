@@ -195,15 +195,27 @@ class SefinClient:
         url = f"{self.ambiente.adn_url}/contribuintes/NFSe/{chave}/Eventos"
         return self._lote_adn(self._request("GET", url, "adn_eventos"), "adn_eventos")
 
-    def aliquota_municipal(self, c_mun: str, c_trib_nac: str, competencia: date) -> AliquotaMunicipal:
+    def aliquota_municipal(
+        self, c_mun: str, c_trib_nac: str, competencia: date, c_trib_mun: str | None = None
+    ) -> AliquotaMunicipal:
         """ADN ``GET /parametrizacao/{município}/{serviço}/{competência}/aliquota``: o município administra o serviço?
 
         O município cadastra no Sistema Nacional cada serviço que administra, com a alíquota; sem esse cadastro a
         Sefin recusa a DPS (E0312). A rota não tem documentação oficial publicada: tenta o formato das bibliotecas de
         referência (código de 6 dígitos, data ``AAAA-MM-DD``) e, sem achar, o alternativo (``17.19.01.000``,
         ``MM-DD-AAAA``). "Não encontrado" só quando um deles responde que não há cadastro.
+
+        Com o código municipal (``cTribMun``, 3 dígitos) a primeira consulta é a do desdobramento (``06.04.01.604``): o
+        município que cadastra o serviço só com o desdobramento responde 404 para ``06.04.01.000`` (Barretos, conferido
+        no ADN real em 25/11/2026).
         """
+        desdobramento = (
+            ((f"{formatar_c_trib_nac(c_trib_nac)}.{c_trib_mun}", competencia.isoformat()),)
+            if c_trib_mun and c_trib_mun.isdigit() and len(c_trib_mun) == 3 and c_trib_mun != "000"
+            else ()
+        )
         tentativas = (
+            *desdobramento,
             # O formato que o ADN real aceita (conferido em 15/11/2026: com 6 dígitos ele responde 400, "o código do
             # serviço deve ser composto por nove dígitos"); o das bibliotecas de referência fica de reserva.
             (f"{formatar_c_trib_nac(c_trib_nac)}.000", competencia.isoformat()),

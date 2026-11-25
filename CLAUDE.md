@@ -528,6 +528,8 @@ digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 d�
   alternativo (`17.19.01.000`, `MM-DD-AAAA`). Encontrado = alguma alíquota vigente na competência; "não encontrado" só
   com 404/200 que diga que não há cadastro (`mensagem`/`aliquotas` vazio); 401/403/429/5xx viram `SefinError`; o resto
   é "não conferido". **Formato tirado das bibliotecas de referência, sem documentação oficial nem teste no ADN real.**
+  **Com `cTribMun` a consulta usa o desdobramento** (`06.04.01.604`; também histórico e regimes especiais): Barretos
+  cadastrou o 06.04.01 só como `.604` e o `.000` dava 404, um falso aviso de E0312 (ADN real, 25/11/2026).
   Município de incidência = o do prestador quando o local da prestação é o mesmo (ou vazio); serviços com ISS no
   domicílio do tomador (subitens 4.22, 4.23, 5.09, 10.04, 15.01, 15.09) e local em outro município não são conferidos.
   Cache em memória por (ambiente, município, serviço, mês): 6 h para respostas, 5 min para falhas. **Nunca bloqueia**:
