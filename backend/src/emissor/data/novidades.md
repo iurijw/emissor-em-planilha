@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.20.1 (25/11/2026)
+
+- Emissões: o Excel pode sair só com as notas marcadas ("Excel das selecionadas").
+- O aviso de serviço que a prefeitura não tem cadastrado não aparece mais por engano quando a prefeitura usa código municipal (por exemplo 06.04.01.604).
+
 ## 0.20.0 (25/11/2026)
 
 - Notas de aluguel de imóveis (obrigatórias a partir de 01/12): na aba com a tributação de locação, a tabela ganha as colunas do imóvel (endereço, IPTU, condomínio, vencimento...), também na importação e na nota avulsa.
