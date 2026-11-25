@@ -22,7 +22,7 @@ import re
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -231,6 +231,17 @@ class SefinSimulada:
                 return self._rejeitar("E0959", "CST do IBS/CBS incompatível com a classificação tributária.")
             if not t("serv/cServ/cNBS"):
                 return self._rejeitar("E0322", "Código NBS obrigatório quando o grupo IBS/CBS é informado.")
+        if (t("serv/cServ/cTribNac") or "").startswith("9903"):
+            if t("valores/trib/tribMun/tribISSQN") != "4":
+                return self._rejeitar("E0532", "O campo que informa sobre a tributação do ISSQN deve ser 4.")
+            if inf.find(f"{N}IBSCBS/{N}imovel/{N}gLocacao") is None:
+                return self._rejeitar("E0937", "Grupo gLocacao deve ser informado.")
+            p_cop = Decimal(t("IBSCBS/imovel/gLocacao/pCopropriedade"))
+            esperado = (Decimal(t("IBSCBS/imovel/gLocacao/vTotOper")) * p_cop / 100).quantize(DOIS, ROUND_HALF_EVEN)
+            if abs(esperado - Decimal(t("valores/vServPrest/vServ"))) > Decimal("0.01"):
+                return self._rejeitar("E0433", "Para locações o valor do serviço deve ser vTotOper x pCopropriedade.")
+            if not (t("IBSCBS/cIndOp") or "").startswith("02"):
+                return self._rejeitar("E0902", "O código indicador da operação deve ser qualquer 02XXXX.")
         if (t("valores/trib/tribMun/tribISSQN") == "2") != bool(t("valores/trib/tribMun/tpImunidade")):
             return self._rejeitar(
                 "E0592", "O tipo de imunidade é obrigatório e deve ser informado somente com imunidade."
@@ -391,7 +402,20 @@ class SefinSimulada:
             sub(val, "vTotalRet", _q(v_total_ret))
         sub(val, "vLiq", _q(v_liq))
         if inf_dps.find(f"{N}IBSCBS") is not None:
-            self._ibscbs(sub(inf, "IBSCBS"), sub, c_loc, nome_mun, v_serv - v_iss, v_liq)
+            # Locação (99.03): vBC = vServ - descIncond - vCalcAjusteBCLocImoveis - vISSQN - vPIS - vCOFINS (até 2026)
+            ajuste_loc = None
+            if inf_dps.find(f"{N}IBSCBS/{N}imovel/{N}gLocacao") is not None:
+                p_cop = Decimal(t("IBSCBS/imovel/gLocacao/pCopropriedade"))
+                soma = sum(
+                    (Decimal(e.text) for e in inf_dps.iterfind(f".//{N}gAjusteBCLocImoveis/{N}vAjusteBCLocImoveis")),
+                    Decimal(0),
+                )
+                ajuste_loc = (soma * p_cop / 100).quantize(DOIS, ROUND_HALF_EVEN) if soma else None
+                pis_cofins = sum(Decimal(t(f"valores/trib/tribFed/piscofins/{c}") or 0) for c in ("vPis", "vCofins"))
+                v_bc_ibs = v_serv - desc_incond - (ajuste_loc or 0) - v_iss - pis_cofins
+            else:
+                v_bc_ibs = v_serv - v_iss
+            self._ibscbs(sub(inf, "IBSCBS"), sub, c_loc, nome_mun, v_bc_ibs, v_liq, ajuste_loc)
         inf.append(etree.fromstring(etree.tostring(dps)))
 
         assinada = assinar(nfse, self.cert_sefin, f"NFS{chave}")
@@ -413,7 +437,9 @@ class SefinSimulada:
         return nota
 
     @staticmethod
-    def _ibscbs(g, sub, c_loc: str, nome_mun: str, v_bc: Decimal, v_liq: Decimal) -> None:
+    def _ibscbs(
+        g, sub, c_loc: str, nome_mun: str, v_bc: Decimal, v_liq: Decimal, ajuste_loc: Decimal | None = None
+    ) -> None:
         v_uf = (v_bc * ALIQ_IBS_UF / 100).quantize(DOIS, ROUND_HALF_UP)
         v_mun = (v_bc * ALIQ_IBS_MUN / 100).quantize(DOIS, ROUND_HALF_UP)
         v_cbs = (v_bc * ALIQ_CBS / 100).quantize(DOIS, ROUND_HALF_UP)
@@ -421,6 +447,8 @@ class SefinSimulada:
         sub(g, "xLocalidadeIncid", nome_mun)
         val = sub(g, "valores")
         sub(val, "vBC", _q(v_bc))
+        if ajuste_loc is not None:
+            sub(val, "vCalcAjusteBCLocImoveis", _q(ajuste_loc))
         for grupo, aliq, tags in [
             ("uf", ALIQ_IBS_UF, ("pIBSUF", "pAliqEfetUF")),
             ("mun", ALIQ_IBS_MUN, ("pIBSMun", "pAliqEfetMun")),

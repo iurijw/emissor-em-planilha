@@ -13,6 +13,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from emissor.nfse import locacao as loc_imovel
 from emissor.nfse.models import normalizar_documento
 
 COLUNAS = ["Nome", "CNPJ/CPF", "Valor", "Descrição"]
@@ -61,6 +62,7 @@ class LinhaImportada:
     valor: str
     descricao: str
     cadastro: dict[str, str] = field(default_factory=dict)  # e-mail e endereço vindos da planilha
+    locacao: dict[str, str] | None = None  # colunas do imóvel (locação, nfse/locacao.py)
 
 
 @dataclass
@@ -103,6 +105,31 @@ def _mapear_cabecalho(cab: list) -> dict[str, int]:
             if campo not in mapa and n in {_norm(x) for x in nomes}:
                 mapa[campo] = i
     return mapa
+
+
+def _mapear_locacao(cab: list) -> dict[str, int]:
+    """Colunas do imóvel (locação): o rótulo da exportação ou um sinônimo, sem acento e sem caixa."""
+    mapa: dict[str, int] = {}
+    for i, c in enumerate(cab):
+        n = _norm(c)
+        for campo, rotulo in loc_imovel.CAMPOS.items():
+            nomes = {_norm(rotulo), *(_norm(x) for x in loc_imovel.SINONIMOS.get(campo, ()))}
+            if campo not in mapa and n in nomes:
+                mapa[campo] = i
+    return mapa
+
+
+def _texto_celula(v) -> str:
+    """Célula como texto: número inteiro sem ",0", data como DD/MM/AAAA."""
+    if v is None:
+        return ""
+    if hasattr(v, "strftime"):
+        return v.strftime("%d/%m/%Y")
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    if isinstance(v, int | float | Decimal):
+        return str(v)
+    return str(v).strip()
 
 
 def _coluna_comissao(cab: list) -> int | None:
@@ -258,9 +285,11 @@ def _linhas_para_resultado(linhas: list[list]) -> ResultadoImportacao:
         return comissoes
     achado = _achar_cabecalho(linhas)
     shopee = False
+    mapa_loc: dict[str, int] = {}
     if achado:
         pos, mapa, shopee = achado
         corpo = linhas[pos + 1 :]
+        mapa_loc = _mapear_locacao(linhas[pos])
     else:
         # Sem cabeçalho reconhecível: assume a ordem Nome, CNPJ, Valor, Descrição.
         mapa = {"nome": 0, "documento": 1, "valor": 2, "descricao": 3}
@@ -298,6 +327,16 @@ def _linhas_para_resultado(linhas: list[list]) -> ResultadoImportacao:
             if v not in (None, "") and str(v).strip():
                 cadastro[campo] = str(v).strip()
         descricao = _sem_apostrofo(str(cel(row, "descricao") or "").strip())
+        locacao = {}
+        for campo, i in mapa_loc.items():
+            v = row[i] if i < len(row) else None
+            if campo == "cep" and isinstance(v, int | float):
+                v = f"{int(v):08d}"
+            elif campo in loc_imovel.CAMPOS_VALOR and isinstance(v, int | float | Decimal):
+                v = f"{Decimal(str(v)):.2f}"
+            texto = _sem_apostrofo(_texto_celula(v))
+            if texto:
+                locacao[campo] = texto
         res.linhas.append(
             LinhaImportada(
                 nome=_sem_apostrofo(str(cel(row, "nome") or "").strip()),
@@ -305,7 +344,13 @@ def _linhas_para_resultado(linhas: list[list]) -> ResultadoImportacao:
                 valor=valor,
                 descricao=descricao or (DESCRICAO_SHOPEE if shopee else ""),
                 cadastro=cadastro,
+                locacao=loc_imovel.limpar(locacao),
             )
+        )
+    if mapa_loc:
+        res.informacoes.append(
+            f"Colunas do imóvel reconhecidas: {', '.join(loc_imovel.CAMPOS[c] for c in mapa_loc)}. Elas valem nas abas "
+            "de locação de imóvel."
         )
     if shopee:
         _somar_por_documento(res)
@@ -373,26 +418,36 @@ def _texto_csv(v: object) -> str:
     return "'" + v if v.startswith(_INICIO_FORMULA) else v
 
 
-def exportar_xlsx(linhas: list[dict]) -> bytes:
+# Colunas do imóvel na exportação de uma aba de locação (o município fica na tributação da aba).
+COLUNAS_LOCACAO = [c for c in loc_imovel.CAMPOS if c != "c_mun"]
+
+
+def _locacao_valores(ln: dict) -> list:
+    loc = ln.get("locacao") or {}
+    return [loc.get(c, "") for c in COLUNAS_LOCACAO]
+
+
+def exportar_xlsx(linhas: list[dict], locacao: bool = False) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Notas"
-    ws.append(COLUNAS)
+    ws.append(COLUNAS + ([loc_imovel.CAMPOS[c] for c in COLUNAS_LOCACAO] if locacao else []))
     for c in ws[1]:
         c.font = Font(bold=True, color="FFFFFF")
         c.fill = PatternFill("solid", fgColor="0098D7")
         c.alignment = Alignment(vertical="center")
     for ln in linhas:
         valor = Decimal(ln["valor"]) if ln.get("valor") else None
-        ws.append([ln.get("nome", ""), ln.get("documento", ""), valor, ln.get("descricao", "")])
-        for col in (1, 4):  # texto digitado nunca vira fórmula na planilha exportada
+        extras = _locacao_valores(ln) if locacao else []
+        ws.append([ln.get("nome", ""), ln.get("documento", ""), valor, ln.get("descricao", ""), *extras])
+        for col in (1, 4, *range(5, 5 + len(extras))):  # texto digitado nunca vira fórmula na planilha exportada
             c = ws.cell(row=ws.max_row, column=col)
             if c.data_type == "f":
                 c.data_type = "s"
     for row in ws.iter_rows(min_row=2, min_col=2, max_col=3):
         row[0].number_format = "@"
         row[1].number_format = '"R$" #,##0.00'
-    for i, larg in enumerate((45, 20, 14, 50), start=1):
+    for i, larg in enumerate((45, 20, 14, 50, *([16] * len(COLUNAS_LOCACAO) if locacao else ())), start=1):
         ws.column_dimensions[get_column_letter(i)].width = larg
     ws.freeze_panes = "A2"
     buf = io.BytesIO()
@@ -400,11 +455,14 @@ def exportar_xlsx(linhas: list[dict]) -> bytes:
     return buf.getvalue()
 
 
-def exportar_csv(linhas: list[dict]) -> bytes:
+def exportar_csv(linhas: list[dict], locacao: bool = False) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(COLUNAS)
+    w.writerow(COLUNAS + ([loc_imovel.CAMPOS[c] for c in COLUNAS_LOCACAO] if locacao else []))
     for ln in linhas:
         valor = (ln.get("valor") or "").replace(".", ",")
-        w.writerow([_texto_csv(ln.get("nome")), ln.get("documento", ""), valor, _texto_csv(ln.get("descricao"))])
+        extras = [_texto_csv(v) for v in _locacao_valores(ln)] if locacao else []
+        w.writerow(
+            [_texto_csv(ln.get("nome")), ln.get("documento", ""), valor, _texto_csv(ln.get("descricao")), *extras]
+        )
     return buf.getvalue().encode("utf-8-sig")

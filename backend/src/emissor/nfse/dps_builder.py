@@ -13,6 +13,7 @@ from lxml import etree
 
 from emissor.config import VER_APLIC
 from emissor.nfse import codes
+from emissor.nfse import locacao as loc_imovel
 from emissor.nfse.codes import TP_OPER, classe_ibscbs, exige_tp_oper
 from emissor.nfse.constants import (
     LEIAUTE_NT009,
@@ -228,13 +229,17 @@ def build_dps(inp: DpsInput) -> etree._Element:
     elif cfg.tp_ret_issqn == "3":
         raise DpsBuildError("ISS retido pelo intermediário: informe o intermediário na nota.")
 
+    erro = erro_locacao(cfg, nt009)
+    if erro:
+        raise DpsBuildError(erro)
+
     # Serviço
     serv = _sub(inf, "serv")
     loc = _sub(serv, "locPrest")
     if cfg.c_pais_prestacao:
         _sub(loc, "cPaisPrestacao", cfg.c_pais_prestacao)
     else:
-        _sub(loc, "cLocPrestacao", cfg.c_loc_prestacao or cfg.c_mun_emissor)
+        _sub(loc, "cLocPrestacao", municipio_imovel(cfg, inp.nota) or cfg.c_loc_prestacao or cfg.c_mun_emissor)
     c_serv = _sub(serv, "cServ")
     _sub(c_serv, "cTribNac", cfg.c_trib_nac)
     _opt(c_serv, "cTribMun", cfg.c_trib_mun)
@@ -344,12 +349,87 @@ def build_dps(inp: DpsInput) -> etree._Element:
         _sub(tot, "indTotTrib", "0")
 
     if cfg.ibscbs:
-        _ibscbs(inf, cfg, nt009, inp.nota)
+        _ibscbs(inf, cfg, nt009, inp.nota, inp)
 
     return dps
 
 
-def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool, nota: DadosNota) -> None:
+def municipio_imovel(cfg: ConfigFiscal, nota: DadosNota) -> str | None:
+    """Município do imóvel locado (é também o local da prestação, cIndOp 020101); None fora da locação."""
+    if not codes.eh_locacao(cfg.c_trib_nac):
+        return None
+    c_mun = somente_digitos((nota.locacao or {}).get("c_mun"))
+    return c_mun or cfg.c_loc_prestacao or cfg.c_mun_emissor
+
+
+def erro_locacao(cfg: ConfigFiscal, nt009: bool) -> str | None:
+    """Coerência da tributação de locação (99.03) e dos serviços sem ISSQN (item 99)."""
+    if codes.sem_issqn(cfg.c_trib_nac) and cfg.trib_issqn != "4":
+        return f"O serviço {cfg.c_trib_nac} não tem ISSQN: a tributação do ISSQN tem de ser “Não Incidência” (E0532)."
+    locacao = codes.eh_locacao(cfg.c_trib_nac)
+    if (cfg.ibscbs_c_ind_op in codes.C_IND_OP_IMOVEL and cfg.ibscbs) and not locacao:
+        return (
+            f"O indicador da operação {cfg.ibscbs_c_ind_op} é de operação com imóvel e exige os dados do imóvel "
+            "(E0932), que o sistema envia só na locação (99.03). Escolha outro indicador."
+        )
+    if not locacao:
+        return None
+    if not nt009:
+        return (
+            "A nota de locação de imóvel (99.03) só existe no leiaute da NT 009: na Produção Restrita desde "
+            "20/10/2026 e em produção a partir de 01/12/2026."
+        )
+    if not cfg.ibscbs:
+        return "A nota de locação de imóvel leva os dados do imóvel no grupo do IBS/CBS: ligue o IBS/CBS na tributação."
+    if not (cfg.ibscbs_c_ind_op or "").startswith("02"):
+        return "Na locação de imóvel o indicador da operação tem de ser de operação com imóvel, 020101 (E0902)."
+    return None
+
+
+def _imovel(g: etree._Element, cfg: ConfigFiscal, nota: DadosNota, inp: DpsInput) -> None:
+    """Grupo ``IBSCBS/imovel`` da locação (NT 009): município, ``gLocacao`` e uma ``gUnidImob``."""
+    dados = nota.locacao or {}
+    valores, erros = loc_imovel.calcular(
+        dados,
+        inp.valor,
+        inp.dh_emi.date(),
+        c_nbs=cfg.c_nbs,
+        v_desc_incond=nota.v_desc_incond,
+        v_desc_cond=nota.v_desc_cond,
+    )
+    erros += loc_imovel.erros_unidade(dados)
+    if erros:
+        raise DpsBuildError(" ".join(erros))
+    im = _sub(g, "imovel")
+    _sub(im, "cMun", municipio_imovel(cfg, nota))
+    gl = _sub(im, "gLocacao")
+    _sub(gl, "pCopropriedade", formatar_decimal(valores.p_copropriedade))
+    _sub(gl, "vTotOper", formatar_decimal(valores.v_tot_oper))
+    if valores.v_desc_incond_tot:
+        _sub(gl, "vDescIncondTot", formatar_decimal(valores.v_desc_incond_tot))
+    if valores.v_desc_cond_tot:
+        _sub(gl, "vDescCondTot", formatar_decimal(valores.v_desc_cond_tot))
+    _opt(gl, "dVencOrig", valores.d_venc_orig)
+    un = _sub(im, "gUnidImob")
+    _opt(un, "inscImobFisc", limpar_texto(dados.get("insc_imob_fisc"), max_len=30))
+    cib = re.sub(r"[\s.-]", "", dados.get("c_cib") or "").upper()
+    if cib:
+        _sub(un, "cCIB", cib)
+    else:
+        end = _sub(un, "end")
+        _sub(end, "CEP", somente_digitos(dados.get("cep")))
+        _sub(end, "xLgr", limpar_texto(dados.get("logradouro"), max_len=255))
+        _sub(end, "nro", limpar_texto(dados.get("numero"), max_len=60) or "S/N")
+        _opt(end, "xCpl", limpar_texto(dados.get("complemento"), max_len=156))
+        _opt(end, "xBairro", limpar_texto(dados.get("bairro"), max_len=60))
+    for tp, descricao, v in valores.ajustes:
+        aj = _sub(un, "gAjusteBCLocImoveis")
+        _sub(aj, "tpAjusteBCLocImoveis", tp)
+        _opt(aj, "xTpAjusteBCLocImoveis", limpar_texto(descricao, max_len=150))
+        _sub(aj, "vAjusteBCLocImoveis", formatar_decimal(v))
+
+
+def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool, nota: DadosNota, inp: DpsInput) -> None:
     """Grupo IBS/CBS (``TCRTCInfoIBSCBS``): NFS-e regular, destinatário = tomador.
 
     Os valores e alíquotas não vão na DPS: a Sefin calcula e devolve em ``infNFSe/IBSCBS``. No leiaute da NT 009
@@ -391,6 +471,8 @@ def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool, nota: DadosNota
     _sub(g, "indDest", "1" if dest else "0")
     if dest is not None:
         _pessoa(g, "dest", dest, "destinatário")
+    if codes.eh_locacao(cfg.c_trib_nac):
+        _imovel(g, cfg, nota, inp)
     trib = _sub(_sub(g, "valores"), "trib")
     sit = trib if nt009 else _sub(trib, "gIBSCBS")
     _sub(sit, "CST", cfg.ibscbs_c_class_trib[:3])

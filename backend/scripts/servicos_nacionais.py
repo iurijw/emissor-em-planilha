@@ -70,7 +70,7 @@ def main() -> None:
         1:
     ]:
         if r[0]:
-            atual = correlacao.setdefault(texto(r[0]), {"nbs": [], "c_class_trib": []})
+            atual = correlacao.setdefault(texto(r[0]), {"nbs": [], "c_class_trib": [], "descricao": texto(r[1])})
         if atual is None:
             continue
         if texto(r[2]):
@@ -85,6 +85,14 @@ def main() -> None:
         for n in c["nbs"]:
             n["c_ind_op"] = n["c_ind_op"] or anterior
             anterior = n["c_ind_op"]
+
+    # Locação de imóveis (99.03, NT 009): ainda fora do Anexo B, mas já no Anexo VIII. Entram com a descrição dele.
+    existentes = {s["codigo"] for s in servicos}
+    for chave, c in correlacao.items():
+        if re.fullmatch(r"99\.03\.\d\d", chave) and chave.replace(".", "") not in existentes:
+            servicos.append({"codigo": chave.replace(".", ""), "descricao": c["descricao"], "subitem": "99.03"})
+            subitens.setdefault((99, 3), "Locação, cessão onerosa e arrendamento de bens imóveis")
+    servicos.sort(key=lambda s: s["codigo"])
 
     sem_nbs = 0
     for s in servicos:

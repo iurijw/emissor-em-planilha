@@ -31,6 +31,7 @@ export interface CorpoAvulsa {
   ajuste_bc_p?: string | null;
   ajuste_bc_v?: string | null;
   obra?: Record<string, string> | null;
+  locacao?: Record<string, string> | null;
   evento?: Record<string, string> | null;
   intermediario?: Record<string, string> | null;
   destinatario?: Record<string, string> | null;

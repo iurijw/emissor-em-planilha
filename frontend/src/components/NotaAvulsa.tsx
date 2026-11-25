@@ -27,6 +27,7 @@ import {
 } from "./ObraEvento";
 import { EnderecoTomador, enderecoCompleto, enderecoDe, enderecosIguais, enderecoVazio, type Endereco } from "./EnderecoTomador";
 import { BotaoHistorico, HistoricoAvulsa } from "./HistoricoAvulsa";
+import { corpoLocacao, ehLocacao, faltaNaLocacao, locacaoDe, LocacaoNota, type DadosLocacao } from "./LocacaoImovel";
 
 type Escolha = "padrao" | "propria" | number;
 
@@ -104,6 +105,8 @@ export function NotaAvulsa({ fechar, admin, copia }: { fechar: () => void; admin
   const [comex, setComex] = useState({ v_serv_moeda: valorTela(n.v_serv_moeda), n_di: texto(n.n_di), n_re: texto(n.n_re) });
   const [obra, setObra] = useState<DadosObra>(obraVazia);
   const [evento, setEvento] = useState<DadosEvento>(eventoVazio);
+  // Aluguel se repete todo mês: o imóvel da nota copiada vem junto.
+  const [locacao, setLocacao] = useState<DadosLocacao>(locacaoDe(n.locacao as Record<string, string> | undefined));
   const [interm, setInterm] = useState<DadosPessoa>(pessoaDaCopia(n.intermediario));
   const [outroDest, setOutroDest] = useState(!!n.destinatario);
   const [dest, setDest] = useState<DadosPessoa>(pessoaDaCopia(n.destinatario));
@@ -196,6 +199,8 @@ export function NotaAvulsa({ fechar, admin, copia }: { fechar: () => void; admin
   const precisaObra = exigeObra(tributacaoDaNota?.c_trib_nac);
   const precisaEvento = exigeEvento(tributacaoDaNota?.c_trib_nac);
   const prestadoFora = (tributacaoDaNota?.c_pais_prestacao ?? null) != null;
+  // Locação de imóvel (99.03): a nota leva o imóvel e as parcelas fora da base do IBS/CBS (NT 009).
+  const precisaLocacao = ehLocacao(tributacaoDaNota?.c_trib_nac);
   // ISS retido pelo intermediário, destinatário do IBS/CBS e NFS-e referenciada (tpOper 2/3) vêm de cada nota.
   const precisaInterm = tributacaoDaNota?.tp_ret_issqn === "3";
   const comIbsCbs = !!tributacaoDaNota?.ibscbs;
@@ -221,6 +226,7 @@ export function NotaAvulsa({ fechar, admin, copia }: { fechar: () => void; admin
     ...(!descricao.trim() ? ["descrição do serviço"] : []),
     ...(precisaObra && !obraPronta(obra, prestadoFora) ? ["dados da obra"] : []),
     ...(precisaEvento && !eventoPronto(evento, prestadoFora) ? ["dados do evento"] : []),
+    ...(precisaLocacao ? faltaNaLocacao(locacao) : []),
     ...(precisaInterm && !pessoaPronta(interm, true) ? ["dados do intermediário"] : []),
     ...(comIbsCbs && outroDest && !pessoaPronta(dest, false) ? ["dados do destinatário"] : []),
     ...(precisaRefs && !(chavesRef.length > 0 && chavesRef.every((c) => /^[0-9A-Z]{50}$/.test(c)))
@@ -299,6 +305,7 @@ export function NotaAvulsa({ fechar, admin, copia }: { fechar: () => void; admin
       tomador_exterior: noExterior ? { ...exterior } : null,
       obra: precisaObra ? corpoObra(obra) : null,
       evento: precisaEvento ? corpoEvento(evento) : null,
+      locacao: precisaLocacao ? corpoLocacao(locacao) : null,
       intermediario: precisaInterm ? corpoPessoa(interm, true) : null,
       destinatario: comIbsCbs && outroDest ? corpoPessoa(dest, false) : null,
       ref_nfse: precisaRefs ? chavesRef : [],
@@ -556,6 +563,9 @@ export function NotaAvulsa({ fechar, admin, copia }: { fechar: () => void; admin
 
           {precisaObra && <ObraNota valor={obra} onChange={setObra} exterior={prestadoFora} />}
           {precisaEvento && <EventoNota valor={evento} onChange={setEvento} exterior={prestadoFora} />}
+          {precisaLocacao && (
+            <LocacaoNota valor={locacao} onChange={setLocacao} valorNota={valorNum} c_nbs={tributacaoDaNota?.c_nbs} />
+          )}
           {precisaInterm && (
             <OutraPessoa
               titulo="Intermediário"

@@ -678,7 +678,12 @@ class GeradorDanfse:
             ("NFS-e Subst.:", d("subst/chSubstda")),
             ("Doc. Ref.:", d("serv/infoCompl/docRef")),
             ("Cod. Obra:", d("serv/obra/cObra")),
-            ("Insc. Imob.:", d("serv/obra/inscImobFisc") or d("IBSCBS/imovel/inscImobFisc")),
+            (
+                "Insc. Imob.:",
+                d("serv/obra/inscImobFisc")
+                or d("IBSCBS/imovel/inscImobFisc")
+                or d("IBSCBS/imovel/gUnidImob/inscImobFisc"),
+            ),
             ("Cod. Evt.:", d("serv/atvEvento/idAtvEvt")),
             ("Doc. Tec.:", d("serv/infoCompl/idDocTec")),
             ("Núm. Ped.:", d("serv/infoCompl/gItemPed/xPed") or d("serv/infoCompl/xPed")),

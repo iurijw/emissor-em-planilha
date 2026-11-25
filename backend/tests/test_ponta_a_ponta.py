@@ -1239,6 +1239,104 @@ def test_variaveis_na_descricao_e_relatorio(api, sim, pfx_bytes, nfse_exemplo_by
     assert api.get("/api/emissoes/relatorio", params={"formato": "pdf"}).status_code == 400
 
 
+def test_locacao_de_imoveis_na_planilha_e_na_avulsa(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """Locação de imóvel (99.03, NT 009) em lote pela planilha e pela nota avulsa, com o relatório de IBS/CBS."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    _regime(api, op_simp_nac="1", reg_ap_trib_sn=None, p_tot_trib_sn=None)
+    dados = {
+        "c_trib_nac": "990301",
+        "c_trib_mun": None,
+        "c_nbs": "110022000",
+        "trib_issqn": "1",
+        "ibscbs": True,
+        "ibscbs_c_ind_op": "020101",
+        "ibscbs_c_class_trib": "200027",
+        "cst_pis_cofins": "01",
+        "p_aliq_pis": "0,65",
+        "p_aliq_cofins": "3",
+    }
+    r = api.post("/api/tributacoes", json={"nome": "Aluguéis", "dados": dados})
+    assert r.status_code == 400 and "E0532" in r.text  # 99.xx sem ISSQN
+    t = api.post("/api/tributacoes", json={"nome": "Aluguéis", "dados": dados | {"trib_issqn": "4"}}).json()
+    aba = api.post("/api/abas", json={"nome": "Aluguéis", "tributacao_id": t["id"]}).json()
+    imovel = {
+        "cep": "88010400",
+        "logradouro": "Rua das Flores",
+        "numero": "120",
+        "bairro": "Centro",
+        "insc_imob_fisc": "123456",
+        "venc": "10",
+        "iptu": "150,00",
+        "condominio": "400",
+    }
+    ids = _linhas(
+        api,
+        [
+            {"nome": "X", "documento": TOMADOR_CNPJ, "valor": "3000", "descricao": "Aluguel {mes}", "locacao": imovel},
+            {"nome": "Y", "documento": TOMADOR_CPF, "valor": "1000", "descricao": "Aluguel", "locacao": {}},
+        ],
+        aba["id"],
+    )
+    linhas = api.get("/api/tabela", params={"aba_id": aba["id"]}).json()["linhas"]
+    assert linhas[0]["locacao"]["iptu"] == "150,00" and linhas[1]["locacao"] is None
+    v = api.post("/api/tabela/validar", json={"linha_ids": ids}).json()["linhas"]
+    assert v[0]["erros"] == []
+    assert any("CEP do imóvel" in e for e in v[1]["erros"])
+
+    # Exportar e importar a aba levam as colunas do imóvel.
+    xlsx = api.get("/api/tabela/exportar", params={"aba_id": aba["id"]}).content
+    cab = next(load_workbook(io.BytesIO(xlsx)).active.iter_rows(values_only=True))
+    assert "CEP do imóvel" in cab and "IPTU" in cab and "Condomínio" in cab
+    r = api.post(
+        "/api/tabela/importar",
+        params={"aba_id": aba["id"], "modo": "substituir"},
+        files={"arquivo": ("aluguel.xlsx", xlsx)},
+    )
+    assert r.status_code == 200, r.text
+    linhas = r.json()["linhas"]
+    assert linhas[0]["locacao"]["cep"] == "88010400" and linhas[0]["locacao"]["iptu"] == "150,00"
+
+    lote = _emitir(api, [linhas[0]["id"]])
+    doc = _conferir_nota(api, sim, lote["emissoes"][0], documento=TOMADOR_CNPJ, valor="3000.00")
+    assert doc.dps("serv/cServ/cTribNac") == "990301" and doc.dps("valores/trib/tribMun/tribISSQN") == "4"
+    assert doc.dps("IBSCBS/imovel/gLocacao/vTotOper") == "3000.00"
+    assert doc.dps("IBSCBS/imovel/gUnidImob/end/CEP") == "88010400"
+    assert doc.t("IBSCBS/valores/vCalcAjusteBCLocImoveis") == "550.00"
+    # vBC = 3000 - 550 (IPTU + condomínio) - PIS 19,50 - COFINS 90,00
+    assert doc.t("IBSCBS/valores/vBC") == "2340.50"
+
+    # Nota avulsa com copropriedade: o valor da nota é a parte do locador.
+    nota = {
+        "nome": "PESSOA FISICA",
+        "documento": TOMADOR_CPF,
+        "valor": "1500",
+        "descricao": "Aluguel da sala",
+        "tributacao_id": t["id"],
+        "locacao": {"c_cib": "12345678", "p_copropriedade": "50", "condominio": "200"},
+    }
+    assert api.post("/api/avulsa/validar", json=nota).json()["linhas"][0]["erros"] == []
+    r = api.post("/api/avulsa", json=nota)
+    assert r.status_code == 200, r.text
+    api.worker.processar_lote(r.json()["id"])
+    e = api.get(f"/api/lotes/{r.json()['id']}").json()["emissoes"][0]
+    doc = _conferir_nota(api, sim, e, documento=TOMADOR_CPF, valor="1500.00")
+    assert doc.dps("IBSCBS/imovel/gLocacao/vTotOper") == "3000.00"
+    assert doc.dps("IBSCBS/imovel/gUnidImob/cCIB") == "12345678"
+    assert doc.t("IBSCBS/valores/vCalcAjusteBCLocImoveis") == "100.00"
+    assert api.get(f"/api/emissoes/{e['id']}/copia").json()["nota"]["locacao"]["p_copropriedade"] == "50"
+
+    # Relatório: valor da operação, ajustes, base, IBS e CBS por nota.
+    wb = load_workbook(io.BytesIO(api.get("/api/emissoes/relatorio").content))
+    notas = list(wb["Notas"].iter_rows(values_only=True))
+    rel = [dict(zip(notas[0], ln, strict=True)) for ln in notas[1:]]
+    primeira = next(ln for ln in rel if ln["CNPJ/CPF"] == formatar_documento(TOMADOR_CNPJ))
+    assert primeira["Valor total da operação (imóvel)"] == 3000
+    assert primeira["Ajustes da base do IBS/CBS"] == 550 and primeira["Base do IBS/CBS"] == 2340.5
+    assert primeira["IBS"] and primeira["CBS"] and primeira["cClassTrib"] == "200027"
+    segunda = next(ln for ln in rel if ln["CNPJ/CPF"] == formatar_documento(TOMADOR_CPF))
+    assert segunda["Copropriedade (%)"] == 50
+
+
 def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     """Chama cada rota da API pelo menos uma vez num uso completo; rota nova sem teste faz este teste falhar."""
 

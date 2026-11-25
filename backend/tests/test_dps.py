@@ -488,3 +488,104 @@ def test_intermediario_destinatario_e_compra_governamental(dps_input, certificad
         build_dps(replace(inp, config=replace(inp.config, ibscbs_tp_oper=None), nota=nota))
     with pytest.raises(DpsBuildError, match="IBS/CBS ligado"):
         build_dps(replace(dps_input, nota=DadosNota(destinatario={"documento": "52998224725", "nome": "M"})))
+
+
+def _locacao(dps_input, locacao: dict, **cfg):
+    from emissor.nfse.models import DadosNota
+
+    base = dict(
+        op_simp_nac="1",
+        reg_ap_trib_sn=None,
+        c_trib_nac="990301",
+        c_nbs="110022000",
+        trib_issqn="4",
+        cst_pis_cofins="01",
+        p_aliq_pis="0.65",
+        p_aliq_cofins="3.00",
+        p_tot_trib_fed="0",
+        p_tot_trib_est="0",
+        p_tot_trib_mun="0",
+        p_tot_trib_sn=None,
+        ibscbs=True,
+        ibscbs_c_ind_op="020101",
+        ibscbs_c_class_trib="200027",
+    )
+    base.update(cfg)
+    return replace(
+        dps_input,
+        config=replace(dps_input.config, **base),
+        valor=Decimal("3000.00"),
+        nota=DadosNota(locacao=locacao),
+    )
+
+
+def test_locacao_de_imovel_na_nt009(dps_input, certificado):
+    inp = _locacao(
+        dps_input,
+        {
+            "cep": "88010-400",
+            "logradouro": "Rua das Flores",
+            "numero": "120",
+            "complemento": "Sala 3",
+            "bairro": "Centro",
+            "insc_imob_fisc": "01.02.003.0456",
+            "venc": "10",
+            "iptu": "150,00",
+            "condominio": "420.50",
+        },
+    )
+    _, xml = preparar_dps(inp, certificado)  # homologação: NT 009
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    inf = root.find(f"{N}infDPS")
+    assert inf.findtext(f"{N}serv/{N}cServ/{N}cTribNac") == "990301"
+    assert inf.findtext(f"{N}valores/{N}trib/{N}tribMun/{N}tribISSQN") == "4"
+    im = inf.find(f"{N}IBSCBS/{N}imovel")
+    assert [etree.QName(c).localname for c in im] == ["cMun", "gLocacao", "gUnidImob"]
+    assert im.findtext(f"{N}cMun") == "4205407"
+    assert im.findtext(f"{N}gLocacao/{N}pCopropriedade") == "100.00"
+    assert im.findtext(f"{N}gLocacao/{N}vTotOper") == "3000.00"
+    assert im.findtext(f"{N}gLocacao/{N}dVencOrig") == "2026-09-10"
+    un = im.find(f"{N}gUnidImob")
+    assert un.findtext(f"{N}inscImobFisc") == "01.02.003.0456"
+    assert un.findtext(f"{N}end/{N}CEP") == "88010400"
+    ajustes = [
+        (a.findtext(f"{N}tpAjusteBCLocImoveis"), a.findtext(f"{N}vAjusteBCLocImoveis"))
+        for a in un.iterfind(f"{N}gAjusteBCLocImoveis")
+    ]
+    assert ajustes == [("01", "150.00"), ("03", "420.50")]
+
+
+def test_locacao_com_copropriedade_e_cib(dps_input, certificado):
+    from emissor.nfse.models import DadosNota
+
+    inp = _locacao(
+        dps_input, {"c_cib": "1234567-8", "p_copropriedade": "50", "outras": "100", "outras_descricao": "Seguro"}
+    )
+    inp = replace(inp, valor=Decimal("1500.00"), nota=replace(inp.nota, v_desc_incond=Decimal("50.00")))
+    _, xml = preparar_dps(inp, certificado)
+    root = etree.fromstring(xml)
+    assert validar_dps(root) == []
+    im = root.find(f"{N}infDPS/{N}IBSCBS/{N}imovel")
+    assert im.findtext(f"{N}gLocacao/{N}vTotOper") == "3000.00"  # 1500 = 50% x 3000 (E0433)
+    assert im.findtext(f"{N}gLocacao/{N}vDescIncondTot") == "100.00"
+    assert im.findtext(f"{N}gUnidImob/{N}cCIB") == "12345678"
+    aj = im.find(f"{N}gUnidImob/{N}gAjusteBCLocImoveis")
+    assert aj.findtext(f"{N}tpAjusteBCLocImoveis") == "99" and aj.findtext(f"{N}xTpAjusteBCLocImoveis") == "Seguro"
+    # Valor total que não bate com a copropriedade
+    ruim = replace(inp, nota=DadosNota(locacao={"c_cib": "12345678", "p_copropriedade": "50", "v_tot_oper": "2000"}))
+    with pytest.raises(DpsBuildError, match="E0433"):
+        build_dps(ruim)
+
+
+def test_locacao_recusada_sem_os_dados_ou_fora_da_nt009(dps_input):
+    with pytest.raises(DpsBuildError, match="CEP do imóvel"):
+        build_dps(_locacao(dps_input, {}))
+    with pytest.raises(DpsBuildError, match="01/12/2026"):
+        build_dps(replace(_locacao(dps_input, {"c_cib": "12345678"}), ambiente=Ambiente.PRODUCAO))
+    with pytest.raises(DpsBuildError, match="E0532"):
+        build_dps(_locacao(dps_input, {"c_cib": "12345678"}, trib_issqn="1"))
+    with pytest.raises(DpsBuildError, match="E0944"):
+        build_dps(_locacao(dps_input, {"c_cib": "12345678", "redutor_social": "600"}))
+    with pytest.raises(DpsBuildError, match="E0932"):
+        build_dps(_com_ibscbs(dps_input, ibscbs_c_ind_op="020101", ibscbs_c_class_trib="000001"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -19,6 +20,7 @@ from emissor.api.serial import cliente_dict, linha_dict
 from emissor.db import Aba, Cliente, Emissao, LinhaTabela, agora, obter_config, sessao
 from emissor.db import obter_cliente as _cliente_db
 from emissor.nfse import codes
+from emissor.nfse.locacao import limpar as limpar_locacao
 from emissor.nfse.models import limpar_texto, normalizar_documento, somente_digitos
 from emissor.services import clientes as cli_service
 from emissor.services import parametros, regras_prefeitura
@@ -62,6 +64,7 @@ class LinhaEntrada(BaseModel):
     documento: str = ""
     valor: str | float | None = ""
     descricao: str = ""
+    locacao: dict[str, str | float | None] | None = None  # só nas abas de locação de imóvel (nfse/locacao.py)
 
 
 class TabelaEntrada(BaseModel):
@@ -104,6 +107,8 @@ def salvar_tabela(entrada: TabelaEntrada, aba_id: int | None = None) -> dict[str
             ln.documento = normalizar_documento(e.documento) or ""
             ln.valor = _normalizar_valor(e.valor)
             ln.descricao = (e.descricao or "").strip()
+            locacao = limpar_locacao(e.locacao)
+            ln.locacao_json = json.dumps(locacao, ensure_ascii=False) if locacao else None
             ln.atualizado_em = agora()
             s.add(ln)
             s.flush()
@@ -143,6 +148,7 @@ def importar_tabela(
                     documento=li.documento,
                     valor=li.valor,
                     descricao=li.descricao,
+                    locacao_json=json.dumps(li.locacao, ensure_ascii=False) if li.locacao else None,
                 )
             )
         s.commit()
@@ -221,20 +227,32 @@ def _cadastrar_da_planilha(s, res: tabela_service.ResultadoImportacao) -> int:
     return n
 
 
+def _aba_de_locacao(aba: Aba) -> bool:
+    with sessao() as s:
+        base = obter_config(s).config_fiscal()
+        try:
+            dados = trib_service.tributacao_da_aba(s, aba)[1]
+        except trib_service.TributacaoError:
+            return False
+    c_trib_nac = (dados or {}).get("c_trib_nac") or (base.c_trib_nac if base else None)
+    return codes.eh_locacao(c_trib_nac)
+
+
 @router.get("/tabela/exportar")
 def exportar_tabela(formato: str = "xlsx", aba_id: int | None = None) -> Response:
     aba = _aba(aba_id)
     linhas = _listar_linhas(aba.id)
+    locacao = _aba_de_locacao(aba) or any(ln.get("locacao") for ln in linhas)
     sufixo = re.sub(r"[^0-9A-Za-z]+", "-", unicodedata.normalize("NFKD", aba.nome).encode("ascii", "ignore").decode())
     nome = f"notas-a-emitir-{sufixo.strip('-').lower() or 'aba'}-{datetime.now():%Y%m%d}"
     if formato == "csv":
         return Response(
-            tabela_service.exportar_csv(linhas),
+            tabela_service.exportar_csv(linhas, locacao),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{nome}.csv"'},
         )
     return Response(
-        tabela_service.exportar_xlsx(linhas),
+        tabela_service.exportar_xlsx(linhas, locacao),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{nome}.xlsx"'},
     )

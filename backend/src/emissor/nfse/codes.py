@@ -132,6 +132,16 @@ SERVICOS_AJUSTE_BC_SN = frozenset(
 )
 
 
+def eh_locacao(c_trib_nac: str | None) -> bool:
+    """Locação e equiparados de bem imóvel (subitem 99.03 da NT 009)."""
+    return (c_trib_nac or "")[:4] == SUBITEM_LOCACAO
+
+
+def sem_issqn(c_trib_nac: str | None) -> bool:
+    """Item 99 da lista nacional: operações sem ISSQN, que exigem tribISSQN 4 (E0532)."""
+    return (c_trib_nac or "")[:2] == "99"
+
+
 def exige_obra(c_trib_nac: str | None) -> bool:
     return (c_trib_nac or "") in SERVICOS_OBRA
 
@@ -220,6 +230,22 @@ C_IND_OP = {
     "100201": "Cessão de espaço publicitário, operação não onerosa: domicílio do destinatário (tomador)",
     "100501": "Bens móveis imateriais e direitos, operação onerosa: domicílio do adquirente (tomador)",
     "100601": "Bens móveis imateriais e direitos, operação não onerosa: domicílio do destinatário (tomador)",
+    "020101": "Operação com bem imóvel (locação, cessão onerosa, arrendamento): local do imóvel",
+}
+# cIndOp de operações com imóvel: exigem o grupo IBSCBS/imovel (E0932) e, salvo 020202/020401, a unidade
+# imobiliária (E0938). O sistema só monta esse grupo nas locações (99.03), então só 020101 está em C_IND_OP.
+C_IND_OP_IMOVEL = ("020101", "020201", "020202", "020301", "020401")
+# Locação, cessão onerosa, arrendamento, servidão/cessão de uso e permissão de uso de bem imóvel (NT 009, subitem
+# 99.03): sem ISSQN (tribISSQN 4, E0532), com o IBS/CBS e o grupo gLocacao (E0937), cIndOp 02xxxx (E0902).
+SUBITEM_LOCACAO = "9903"
+NBS_IMOVEL_RESIDENCIAL = "110021000"  # 1.1002.10.00: o único em que o redutor social é aceito (E0944)
+# tpAjusteBCLocImoveis: parcela que não entra na base do IBS/CBS (01 a 03 só com NBS 1.1002.10.00 ou 20.00).
+TP_AJUSTE_LOC_IMOVEIS = {
+    "01": "Tributos inclusos no aluguel (IPTU, contribuição de melhoria)",
+    "02": "Emolumento incluso no aluguel",
+    "03": "Condomínio incluso no aluguel",
+    "04": "Redutor social (só imóvel residencial)",
+    "99": "Outras parcelas inclusas no aluguel",
 }
 IND_FINAL = {"0": "Não", "1": "Sim (uso ou consumo pessoal)"}
 # Subitens da LC 116 que exigem tpOper (E0903) e só eles podem levá-lo sem tpEnteGov (E0904): 25.05 (cessão de

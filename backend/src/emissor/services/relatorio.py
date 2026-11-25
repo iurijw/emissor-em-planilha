@@ -55,6 +55,15 @@ class LinhaRelatorio:
     cofins: Decimal
     total_retido: Decimal
     liquido: Decimal
+    # IBS/CBS (o que a Sefin calculou) e locação de imóvel (99.03)
+    valor_operacao: Decimal | None  # gLocacao/vTotOper: valor total do aluguel (sem a proporção do coproprietário)
+    copropriedade: Decimal | None
+    desconto_incondicionado: Decimal | None
+    ajustes_ibscbs: Decimal | None  # vCalcAjusteBCLocImoveis (locação) ou vCalcAjusteBCIBSCBS
+    base_ibscbs: Decimal | None
+    ibs: Decimal | None
+    cbs: Decimal | None
+    c_class_trib: str
     tributacao: str
     ambiente: str
     chave: str
@@ -121,6 +130,16 @@ def _linha(e: Emissao, doc: NFSeDoc) -> LinhaRelatorio:
         cofins=cofins,
         total_retido=total_ret,
         liquido=liquido,
+        valor_operacao=_dec(d("IBSCBS/imovel/gLocacao/vTotOper")),
+        copropriedade=_dec(d("IBSCBS/imovel/gLocacao/pCopropriedade")),
+        desconto_incondicionado=_dec(d("valores/vDescCondIncond/vDescIncond")),
+        ajustes_ibscbs=_dec(v("IBSCBS/valores/vCalcAjusteBCLocImoveis"))
+        or _dec(v("IBSCBS/valores/vCalcAjusteBCIBSCBS"))
+        or _dec(v("IBSCBS/valores/vCalcReeRepRes")),
+        base_ibscbs=_dec(v("IBSCBS/valores/vBC")),
+        ibs=_dec(v("IBSCBS/totCIBS/gIBS/vIBSTot")),
+        cbs=_dec(v("IBSCBS/totCIBS/gCBS/vCBS")),
+        c_class_trib=d("IBSCBS/valores/trib/cClassTrib") or d("IBSCBS/valores/trib/gIBSCBS/cClassTrib") or "",
         tributacao=e.tributacao_nome or ("Só desta nota" if e.tributacao_json else "Padrão"),
         ambiente="Produção" if e.ambiente == "1" else "Homologação",
         chave=e.chave_acesso or doc.chave,
@@ -166,11 +185,19 @@ COLUNAS = [
     ("COFINS retido", 13),
     ("Total retido", 13),
     ("Valor líquido", 15),
+    ("Valor total da operação (imóvel)", 15),
+    ("Copropriedade (%)", 12),
+    ("Desconto incondicionado", 14),
+    ("Ajustes da base do IBS/CBS", 15),
+    ("Base do IBS/CBS", 15),
+    ("IBS", 13),
+    ("CBS", 13),
+    ("cClassTrib", 11),
     ("Tributação", 18),
     ("Ambiente", 13),
     ("Chave de acesso", 54),
 ]
-COLUNAS_MOEDA = {10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21}  # 1 = primeira coluna
+COLUNAS_MOEDA = {10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28}  # 1 = primeira coluna
 
 
 def _valores(r: LinhaRelatorio) -> list:
@@ -196,6 +223,14 @@ def _valores(r: LinhaRelatorio) -> list:
         r.cofins,
         r.total_retido,
         r.liquido,
+        r.valor_operacao,
+        r.copropriedade,
+        r.desconto_incondicionado,
+        r.ajustes_ibscbs,
+        r.base_ibscbs,
+        r.ibs,
+        r.cbs,
+        r.c_class_trib,
         r.tributacao,
         r.ambiente,
         r.chave,
@@ -231,6 +266,7 @@ def xlsx_bytes(rs: list[LinhaRelatorio]) -> bytes:
         for col in COLUNAS_MOEDA:
             wn.cell(row=linha, column=col).number_format = MOEDA
         wn.cell(row=linha, column=12).number_format = "0.00"
+        wn.cell(row=linha, column=23).number_format = "0.00"
         if not r.conta:
             for c in wn[linha]:
                 c.font = Font(color="8A8F94")
