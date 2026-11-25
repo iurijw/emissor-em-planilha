@@ -1517,6 +1517,11 @@ def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     assert len(zipfile.ZipFile(io.BytesIO(z.content)).namelist()) == 2
     rel = ok(api.get("/api/emissoes/relatorio", params={"formato": "csv"}))
     assert rel.content.decode("utf-8-sig").count("\n") == 3  # cabeçalho + 2 notas
+    sel = ok(api.post("/api/emissoes/relatorio", json={"ids": [itens[0]["id"], itens[0]["id"]], "formato": "csv"}))
+    assert sel.content.decode("utf-8-sig").count("\n") == 2  # cabeçalho + a nota marcada (repetida entra uma vez)
+    assert "selecionadas" in sel.headers["content-disposition"]
+    ok(api.post("/api/emissoes/relatorio", json={"ids": []}), 400)
+    ok(api.post("/api/emissoes/relatorio", json={"ids": [itens[0]["id"]], "formato": "pdf"}), 400)
     assert sim.rejeicoes == []
 
     # API de integração e webhooks

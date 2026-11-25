@@ -33,7 +33,7 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
   prefeitura". Formato das respostas conferido no ADN real (só leitura); só avisos, nunca bloqueiam.
 - **F6 (2026-11-25):** locação de imóveis (subitem 99.03, grupo `IBSCBS/imovel` da NT 009) na planilha e na nota avulsa,
   e IBS/CBS na planilha das notas; ver "Locação de imóveis". Testado só com a Sefin simulada; **validar em Produção
-  Restrita** com o certificado de um cliente que aluga imóveis (obrigatória a partir de 01/12/2026).
+  Restrita** com o certificado de um cliente que aluga imóveis (obrigatória a partir de 01/01/2027, Ato Conjunto RFB/CGIBS nº 7/2026; a Sefin aceita o leiaute da NT 009 em produção desde 01/12/2026).
 - **Leiaute da NT 009 na Produção Restrita (2026-10-22):** desde 20/10/2026 a Produção Restrita usa o pacote
   `esquemas_prod_restrita_20261020` (NT 009). A DPS de homologação sai nesse leiaute (XSD em `nfse/xsd/v1_01_nt009/`)
   e a de produção continua no anterior (`nfse/xsd/v1_01/`) até 30/11/2026. A Produção passa **sozinha** à NT 009 em
@@ -253,7 +253,7 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 | `GET/POST /api/abas`, `PUT/DELETE /api/abas/{id}`; `aba_id` em `GET/PUT /api/tabela`, importar e exportar | abas da tabela |
 | `POST /api/avulsa/validar`, `POST /api/avulsa`, `GET /api/avulsa/historico?documento=`, `GET /api/emissoes/{id}/copia` | nota avulsa (histórico e cópia de nota emitida) |
 | `POST /api/lotes`, `GET /api/lotes`, `GET /api/lotes/{id}`, `POST /api/lotes/{id}/cancelar` | emissão em lote |
-| `GET /api/emissoes/relatorio?formato=xlsx\|csv` (mesmos filtros da lista) | planilha das notas filtradas |
+| `GET /api/emissoes/relatorio?formato=xlsx\|csv` (mesmos filtros da lista), `POST /api/emissoes/relatorio` `{ids, formato}` | planilha das notas filtradas ou das marcadas |
 | `GET /api/emissoes?status&ambiente&de&ate&q&lote_id&pagina`, `GET /api/emissoes/{id}`, `.../xml`, `.../pdf`, `POST /api/emissoes/zip` (ids), `GET /api/emissoes/zip?conteudo=` (todas as do filtro, até 20.000), `POST /api/emissoes/{id}/verificar`, `POST /api/emissoes/excluir` (ids; só notas não emitidas) | emissões |
 | `POST /api/emissoes/{id}/cancelar` `{c_motivo, x_motivo}`, `POST /api/emissoes/{id}/situacao`, `GET /api/emissoes/{id}/eventos/{evento_id}/xml` | cancelamento e eventos |
 | `GET /api/sincronizacao`, `POST /api/sincronizacao?forcar=` | situação das notas pelo ADN (segundo plano) |
@@ -503,7 +503,8 @@ mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliqu
   `GET /api/config/opcoes` (`variaveis_descricao`, com o exemplo de hoje); a tela repete a troca para a prévia
   (`components/Variaveis.tsx`), então mudar a regra de caixa exige mudar os dois.
 - **Planilha das notas** (`services/relatorio.py`, `GET /api/emissoes/relatorio?formato=xlsx|csv` com os filtros da
-  lista; botão "Exportar notas (Excel)"): uma linha por nota, valores lidos do XML autorizado (`vBC`, `pAliqAplic`,
+  lista, botão "Excel de todo o filtro" no topo; `POST /api/emissoes/relatorio` `{ids, formato}` só das marcadas, botão
+  "Excel das selecionadas" na barra de baixo, desde 2026-11-25): uma linha por nota, valores lidos do XML autorizado (`vBC`, `pAliqAplic`,
   `vISSQN`, `vTotalRet`, `vLiq`, retenções federais; PIS/COFINS só quando retidos, por `RETENCOES_PIS_COFINS`);
   canceladas/substituídas em cinza. Até 20.000 notas. Um resumo por competência foi feito e retirado a pedido do Iuri.
   Desde 2026-11-25 também valor total da operação do imóvel, copropriedade, desconto incondicionado, ajustes da base do
@@ -547,7 +548,7 @@ digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 d�
 
 ### Locação de imóveis (99.03, NT 009, 2026-11-25)
 
-Pedido do Iuri (cliente com ~60 notas de aluguel por mês em lote, Lucro Presumido); obrigatória desde 01/12/2026. Base:
+Pedido do Iuri (cliente com ~60 notas de aluguel por mês em lote, Lucro Presumido); obrigatória a partir de 01/01/2027 (Ato Conjunto RFB/CGIBS nº 7/2026, que adiou 01/12/2026). Base:
 XSD `v1_01_nt009`, Anexo I da Produção Restrita (2026-10-20, aba RN DPS_NFS-e) e Anexo VIII v1.02 (99.03.01 a 05, NBS
 1.1002.10.00 residencial e 1.1002.20.00 não residencial, cIndOp 020101, cClassTrib 200027 com redução de 70%).
 - **DPS** (`nfse/locacao.py` + `dps_builder._imovel`): `IBSCBS/imovel` depois de `dest`: `cMun` (do imóvel: o da
@@ -1094,6 +1095,6 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-16 | Modo escuro seguindo o sistema, com escolha Automático/Claro/Escuro por navegador em Minha conta; produção em claro sobre escuro | Pedido do Iuri; guias do Chrome (escolha numa tela de ajustes, não um botão fixo no topo); o aviso de produção precisa continuar o mais forte também no escuro |
 | 2026-11-17 | "Arredondar os centavos sempre para cima" por imposto (`arredondar_cima`: IRRF, CSLL, CP, contribuições digitadas e a parte retida de PIS/COFINS somada no `vRetCSLL`), desligado por padrão; `vPis`/`vCofins` continuam meio para cima | Pedido do Iuri; a Sefin exige `vPis`/`vCofins` = base x alíquota (E0694/E0696), os retidos só precisam ficar abaixo do valor |
 | 2026-11-17 | Preferências por usuário no servidor (`usuario.preferencias_json`): aviso do 2FA dispensado e ordem das colunas da tabela (arrastar); tributação da aba trocada pela barra da tabela; cópia de nota emitida e histórico discreto (ícone) na nota avulsa, sem copiar obra/evento; excluir da lista de emissões as notas não emitidas (recusada, não enviada ou erro sem Id da DPS; a com erro depois do envio pede "Verificar na Sefin" antes), mantendo o XML da DPS e os logs; nome da tributação padrão em `configuracao.tributacao_padrao_nome` (vazio = "Tributação padrão"; sem repetir o nome de outra) e "Copiar" em cada tributação (abre uma nova com os mesmos campos) | Pedido do Iuri (melhorias da emissão) |
-| 2026-11-25 | Locação de imóveis (99.03) pelo grupo `imovel` da NT 009, na planilha (colunas do imóvel na aba com tributação de locação) e na nota avulsa; valor da nota = parte do locador, parcelas fora da base digitadas pelo valor total; uma unidade por nota; planilha das notas com base, IBS e CBS | Pedido do Iuri: notas de aluguel obrigatórias em 01/12/2026 e um cliente que emite ~60 por mês em lote |
+| 2026-11-25 | Locação de imóveis (99.03) pelo grupo `imovel` da NT 009, na planilha (colunas do imóvel na aba com tributação de locação) e na nota avulsa; valor da nota = parte do locador, parcelas fora da base digitadas pelo valor total; uma unidade por nota; planilha das notas com base, IBS e CBS | Pedido do Iuri: notas de aluguel obrigatórias em 01/01/2027 (eram 01/12/2026) e um cliente que emite ~60 por mês em lote |
 | 2026-11-22 | Logo nova: três folhas em lote (#B3E0F3, #66C1E7, #0098D7) com a grade vazada atravessando as três e o canto dobrado preto (claro no escuro); `logo.svg`, `Logo` em `ui.tsx`, `sw.js`, `favicon.png` e `docs/img/logo.png` | Pedido do Iuri: a anterior parecia básica; conceito gerado no Higgsfield e redesenhado à mão |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

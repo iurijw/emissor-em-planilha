@@ -171,7 +171,8 @@ texto que foi na nota. Uma variável escrita errado impede a emissão da linha. 
 **Variáveis na descrição**, acima da tabela.
 
 **Notas em Excel.** Na aba **Emissões**, escolha o período (e, se quiser, a situação, o ambiente ou uma busca) e
-clique em **Exportar notas (Excel)**. A planilha tem uma linha por nota do filtro, com valor, base e alíquota do ISS,
+clique em **Excel de todo o filtro** (todas as páginas). Para só algumas notas, marque-as na lista e use **Excel das
+selecionadas**, na barra de baixo. A planilha tem uma linha por nota, com valor, base e alíquota do ISS,
 ISS retido, IRRF, CSLL, INSS, PIS e COFINS retidos, total retido e valor líquido, lidos do XML autorizado. Canceladas e
 substituídas aparecem com a situação, em cinza.
 
