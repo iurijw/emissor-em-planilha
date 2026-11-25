@@ -19,7 +19,16 @@ from emissor.nfse.models import normalizar_documento
 COLUNAS = ["Nome do cliente", "CNPJ/CPF", "Valor", "Descrição"]
 
 _SINONIMOS = {
-    "nome": ("nome", "empresa", "razao social", "razão social", "cliente", "tomador", "nome da empresa", "nome do cliente"),
+    "nome": (
+        "nome",
+        "empresa",
+        "razao social",
+        "razão social",
+        "cliente",
+        "tomador",
+        "nome da empresa",
+        "nome do cliente",
+    ),
     "documento": ("cnpj", "cpf", "cnpj/cpf", "cpf/cnpj", "documento", "cnpj cpf"),
     "valor": ("valor", "valor (r$)", "valor r$", "preco", "preço", "total", "honorarios", "honorários"),
     "descricao": ("descricao", "descrição", "servico", "serviço", "descricao do servico", "discriminacao"),
