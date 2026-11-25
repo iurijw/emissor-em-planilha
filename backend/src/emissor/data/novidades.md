@@ -7,6 +7,12 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.20.0 (25/11/2026)
+
+- Notas de aluguel de imóveis (obrigatórias a partir de 01/12): na aba com a tributação de locação, a tabela ganha as colunas do imóvel (endereço, IPTU, condomínio, vencimento...), também na importação e na nota avulsa.
+- A configuração inicial traz o imóvel das notas de aluguel já emitidas.
+- Emissões: uma nota com erro pode ser excluída depois que "Verificar na Sefin" confirma que ela não existe.
+
 ## 0.19.2 (24/11/2026)
 
 - Logo nova: três folhas em lote com a grade da planilha.
