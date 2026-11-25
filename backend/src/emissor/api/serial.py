@@ -119,9 +119,14 @@ def cliente_dict(c: Cliente) -> dict[str, Any]:
 def excluivel(e: Emissao) -> bool:
     """Nota que não existe na Sefin: recusada, não enviada ou com erro antes de a DPS sair (sem Id da DPS).
 
-    Com erro de comunicação depois do envio a nota pode ter sido gerada: primeiro "Verificar na Sefin".
+    Com erro de comunicação depois do envio a nota pode ter sido gerada: primeiro "Verificar na Sefin", que grava
+    ``nao_encontrada`` quando a Sefin confirma que a DPS não gerou NFS-e (aí ela pode sair da lista).
     """
-    return e.status in ("rejeitada", "nao_enviada") or (e.status == "erro" and not e.id_dps)
+    if e.status in ("rejeitada", "nao_enviada"):
+        return True
+    if e.status != "erro":
+        return False
+    return not e.id_dps or (e.erro() or {}).get("tipo") == "nao_encontrada"
 
 
 def lote_dict(lote: Lote, emissoes: list[Emissao] | None = None) -> dict[str, Any]:
