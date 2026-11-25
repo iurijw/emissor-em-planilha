@@ -220,6 +220,7 @@ def coerencia(t: dict[str, Any], base: ConfigFiscal | None = None) -> list[str]:
     if c_nbs and (not c_nbs.isdigit() or len(c_nbs) != 9):
         erros.append("Código NBS deve ter 9 dígitos.")
     erros += _coerencia_issqn(t)
+    erros += _coerencia_locacao(t)
     if t.get("ibscbs"):
         if not c_nbs:
             erros.append("Para informar o IBS/CBS, o código NBS do serviço é obrigatório.")
@@ -237,6 +238,25 @@ def coerencia(t: dict[str, Any], base: ConfigFiscal | None = None) -> list[str]:
                 "Este serviço ou a compra governamental exige o tipo de operação do IBS/CBS (quando o serviço é "
                 "prestado e quando é pago): escolha um na lista."
             )
+    return erros
+
+
+def _coerencia_locacao(t: dict[str, Any]) -> list[str]:
+    """Serviços sem ISSQN (item 99) e locação de imóvel (99.03): ver ``dps_builder.erro_locacao``."""
+    c_trib_nac = t.get("c_trib_nac")
+    erros = []
+    if codes.sem_issqn(c_trib_nac) and (t.get("trib_issqn") or "1") != "4":
+        erros.append(f"O serviço {c_trib_nac} não tem ISSQN: escolha “Não Incidência” na tributação do ISSQN (E0532).")
+    locacao = codes.eh_locacao(c_trib_nac)
+    if locacao and not t.get("ibscbs"):
+        erros.append("A locação de imóvel leva os dados do imóvel no grupo do IBS/CBS: ligue o IBS/CBS.")
+    if locacao and t.get("ibscbs") and not (t.get("ibscbs_c_ind_op") or "").startswith("02"):
+        erros.append("Na locação de imóvel o indicador da operação é o de operação com imóvel, 020101 (E0902).")
+    if not locacao and t.get("ibscbs") and t.get("ibscbs_c_ind_op") in codes.C_IND_OP_IMOVEL:
+        erros.append(
+            "O indicador 020101 é de operação com imóvel e exige os dados do imóvel (E0932), que o sistema envia só "
+            "na locação (99.03). Escolha outro indicador."
+        )
     return erros
 
 

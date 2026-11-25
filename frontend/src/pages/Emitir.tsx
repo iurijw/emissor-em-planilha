@@ -19,7 +19,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, baixar, type Aba, type Cliente, type ColunaTabela, type Linha, type Status } from "../api";
 import { documentoValido, formatarDocumento, moeda, parseTSV, parseValor, soDocumento, STATUS_ROTULO } from "../format";
-import { AbasPlanilha, EditorAba, useNomePadrao } from "../components/Abas";
+import { AbasPlanilha, EditorAba, useNomePadrao, useTributacoes } from "../components/Abas";
 import { EditorNomeCliente } from "../components/EditorNomeCliente";
 import { NotaAvulsa } from "../components/NotaAvulsa";
 import { BotaoVariaveis } from "../components/Variaveis";
@@ -96,8 +96,11 @@ const TEMA_ESCURO: Partial<Theme> = {
 };
 const MONO = "'Martian Mono Variable', Consolas, monospace";
 
-type ColId = ColunaTabela;
+// Colunas do imóvel (só na aba com tributação de locação, 99.03): "loc:<chave>", depois das de sempre.
+type LocId = `loc:${string}`;
+type ColId = ColunaTabela | LocId;
 type Coluna = GridColumn & { id: ColId };
+const ehLoc = (id: ColId): id is LocId => id.startsWith("loc:");
 // Ordem de fábrica; cada usuário pode arrastar os títulos para outra (fica nas preferências dele).
 const COLUNAS_PADRAO: Coluna[] = [
   { id: "nome", title: "Nome da empresa", width: 300 },
@@ -107,10 +110,46 @@ const COLUNAS_PADRAO: Coluna[] = [
   { id: "situacao", title: "Última emissão", width: 230 },
 ];
 const EDITAVEIS: ColId[] = ["nome", "documento", "valor", "descricao"];
+const editavel = (id: ColId) => ehLoc(id) || EDITAVEIS.includes(id);
 const POR_ID = new Map(COLUNAS_PADRAO.map((c) => [c.id, c]));
 
+// Mesmas chaves e títulos das colunas da planilha (emissor/nfse/locacao.py, CAMPOS).
+const COLUNAS_LOCACAO: { chave: string; title: string; width: number; numero?: boolean }[] = [
+  { chave: "cep", title: "CEP do imóvel", width: 120 },
+  { chave: "logradouro", title: "Endereço do imóvel", width: 240 },
+  { chave: "numero", title: "Nº do imóvel", width: 100 },
+  { chave: "complemento", title: "Complemento do imóvel", width: 160 },
+  { chave: "bairro", title: "Bairro do imóvel", width: 160 },
+  { chave: "insc_imob_fisc", title: "Inscrição imobiliária", width: 170 },
+  { chave: "c_cib", title: "CIB", width: 110 },
+  { chave: "p_copropriedade", title: "% copropriedade", width: 130, numero: true },
+  { chave: "v_tot_oper", title: "Valor total do aluguel", width: 170, numero: true },
+  { chave: "venc", title: "Vencimento", width: 120 },
+  { chave: "iptu", title: "IPTU", width: 110, numero: true },
+  { chave: "condominio", title: "Condomínio", width: 120, numero: true },
+  { chave: "emolumentos", title: "Emolumentos", width: 120, numero: true },
+  { chave: "redutor_social", title: "Redutor social", width: 130, numero: true },
+  { chave: "outras", title: "Outras parcelas", width: 130, numero: true },
+  { chave: "outras_descricao", title: "Descrição das outras parcelas", width: 220 },
+];
+const COLUNAS_IMOVEL: Coluna[] = COLUNAS_LOCACAO.map((c) => ({
+  id: `loc:${c.chave}` as LocId,
+  title: c.title,
+  width: c.width,
+}));
+const NUMERICAS_LOC = new Set(COLUNAS_LOCACAO.filter((c) => c.numero).map((c) => c.chave));
+const SUBITEM_LOCACAO = "9903";
+
+const textoLoc = (ln: Linha, id: LocId) => ln.locacao?.[id.slice(4)] ?? "";
+const mesmaLocacao = (a: Linha, b: Linha) => {
+  const x = a.locacao ?? {};
+  const y = b.locacao ?? {};
+  const chaves = new Set([...Object.keys(x), ...Object.keys(y)]);
+  return [...chaves].every((k) => (x[k] ?? "") === (y[k] ?? ""));
+};
+
 /** Colunas na ordem salva pelo usuário (lista incompleta ou com coluna desconhecida = ordem de fábrica). */
-function colunasNaOrdem(ordem: ColId[] | undefined): Coluna[] {
+function colunasNaOrdem(ordem: ColunaTabela[] | undefined): Coluna[] {
   if (!ordem || ordem.length !== COLUNAS_PADRAO.length || !ordem.every((id) => POR_ID.has(id))) return COLUNAS_PADRAO;
   return ordem.map((id) => POR_ID.get(id)!);
 }
@@ -123,6 +162,14 @@ function aplicarValor(ln: LinhaLocal, col: ColId, texto: string): LinhaLocal {
   }
   if (col === "nome") return { ...ln, nome: texto.trim() };
   if (col === "descricao") return { ...ln, descricao: texto.trim() };
+  if (ehLoc(col)) {
+    const chave = col.slice(4);
+    const locacao = { ...(ln.locacao ?? {}) };
+    const t = texto.trim();
+    if (t) locacao[chave] = t;
+    else delete locacao[chave];
+    return { ...ln, locacao: Object.keys(locacao).length ? locacao : null };
+  }
   return ln;
 }
 
@@ -142,6 +189,12 @@ function chaveOrdem(ln: LinhaLocal, col: ColId, cli: Cliente | undefined): strin
     const e = ln.ultima_emissao;
     if (e?.status === "autorizada") return `0 ${e.dh_emissao ?? ""}`; // autorizadas juntas, por data
     return situacaoTexto(ln, cli).texto || null;
+  }
+  if (ehLoc(col)) {
+    const t = textoLoc(ln, col);
+    if (t === "") return null;
+    const n = NUMERICAS_LOC.has(col.slice(4)) ? parseValor(t) : null;
+    return n !== null ? Number(n) : t;
   }
   const t = col === "nome" ? ln.nome : col === "documento" ? ln.documento : ln.descricao;
   return t === "" ? null : t;
@@ -167,7 +220,8 @@ function ordenar(ls: LinhaLocal[], { col, dir }: Ordem, clientes: Map<string, Cl
 type Passo = { linhas: LinhaLocal[]; ordem: Ordem | null; rotulo: string };
 const LIMITE_PASSOS = 100;
 const CAMPOS: (keyof Linha)[] = ["id", "nome", "documento", "valor", "descricao"];
-const mesmaLinha = (a: LinhaLocal | undefined, b: LinhaLocal | undefined) => !!a && !!b && CAMPOS.every((k) => a[k] === b[k]);
+const mesmaLinha = (a: LinhaLocal | undefined, b: LinhaLocal | undefined) =>
+  !!a && !!b && CAMPOS.every((k) => a[k] === b[k]) && mesmaLocacao(a, b);
 const mesmoConteudo = (a: LinhaLocal[], b: LinhaLocal[]) => a.length === b.length && a.every((l, i) => mesmaLinha(l, b[i]));
 const plural = (n: number, um: string, varios: string) => (n === 1 ? um : `${n} ${varios}`);
 
@@ -211,11 +265,9 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const [editarAba, setEditarAba] = useState<Aba | "nova" | null>(null);
   const [avulsa, setAvulsa] = useState(false);
   const [preferencias, salvarPreferencias] = usePreferencias();
-  const COLUNAS = useMemo(() => colunasNaOrdem(preferencias.colunas_tabela), [preferencias.colunas_tabela]);
   const nomePadrao = useNomePadrao();
   // Callbacks da grade (criados uma vez) leem a ordem atual por aqui.
-  const colunasRef = useRef(COLUNAS);
-  colunasRef.current = COLUNAS;
+  const colunasRef = useRef<Coluna[]>(COLUNAS_PADRAO);
   const linhasRef = useRef(linhas);
   linhasRef.current = linhas;
   const ordemRef = useRef(ordem);
@@ -238,6 +290,16 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const abas = abasQ.data ?? [];
   const aba = abas.find((a) => a.id === abaId) ?? null;
   const abaRef = useRef<number | null>(null);
+
+  // Aba com tributação de locação de imóvel (99.03): a grade ganha as colunas do imóvel.
+  const tributacoesQ = useTributacoes();
+  const servicoDaAba = aba?.tributacao_id
+    ? tributacoesQ.data?.itens.find((t) => t.id === aba.tributacao_id)?.dados.c_trib_nac
+    : tributacoesQ.data?.padrao?.c_trib_nac;
+  const abaDeLocacao = !!servicoDaAba?.startsWith(SUBITEM_LOCACAO) || (!!aba && linhas.some((l) => l.locacao));
+  const BASE = useMemo(() => colunasNaOrdem(preferencias.colunas_tabela), [preferencias.colunas_tabela]);
+  const COLUNAS = useMemo(() => (abaDeLocacao ? [...BASE, ...COLUNAS_IMOVEL] : BASE), [BASE, abaDeLocacao]);
+  colunasRef.current = COLUNAS;
 
   const clientesQ = useQuery({ queryKey: ["clientes"], queryFn: () => api.get<Cliente[]>("/api/clientes") });
   const clientes = useMemo(() => new Map((clientesQ.data ?? []).map((c) => [c.documento, c])), [clientesQ.data]);
@@ -301,12 +363,13 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         fila.current = fila.current.then(async () => {
           try {
             const r = await api.put<{ linhas: Linha[] }>(`/api/tabela${destino ? `?aba_id=${destino}` : ""}`, {
-              linhas: estado.map(({ id, nome, documento, valor, descricao, ultima_emissao }) => ({
+              linhas: estado.map(({ id, nome, documento, valor, descricao, locacao, ultima_emissao }) => ({
                 id,
                 nome,
                 documento,
                 valor,
                 descricao,
+                locacao: locacao ?? null,
                 ultima_emissao_id: ultima_emissao?.id ?? null,
               })),
             });
@@ -371,11 +434,11 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       let x0 = Infinity, x1 = -1, y0 = Infinity, y1 = -1;
       if (atual.length === novo.length) {
         novo.forEach((l, y) =>
-          EDITAVEIS.forEach((id) => {
+          colunasRef.current.forEach(({ id }, x) => {
+            if (!editavel(id)) return;
             const a = atual[y];
-            const campo = id as Exclude<ColId, "situacao">;
-            if (a && l[campo] === a[campo]) return;
-            const x = colunasRef.current.findIndex((c) => c.id === id);
+            const valorDe = (ln: LinhaLocal) => (ehLoc(id) ? textoLoc(ln, id) : ln[id as Exclude<ColunaTabela, "situacao">]);
+            if (a && valorDe(l) === valorDe(a)) return;
             x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
           }),
         );
@@ -477,6 +540,19 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
           themeOverride: { fontFamily: MONO, baseFontStyle: "12px", ...(ln.valor !== "" && !numero ? erroCelula : {}) },
         };
       }
+      if (ehLoc(id)) {
+        const t = textoLoc(ln, id);
+        const numero = NUMERICAS_LOC.has(id.slice(4));
+        const invalido = numero && t !== "" && parseValor(t.replace("%", "")) === null;
+        return {
+          kind: GridCellKind.Text,
+          data: t,
+          displayData: t,
+          allowOverlay: true,
+          contentAlign: numero ? "right" : undefined,
+          themeOverride: numero || invalido ? { ...(numero ? { fontFamily: MONO, baseFontStyle: "12px" } : {}), ...(invalido ? erroCelula : {}) } : undefined,
+        };
+      }
       const texto = id === "nome" ? ln.nome : ln.descricao;
       return { kind: GridCellKind.Text, data: texto, displayData: texto, allowOverlay: true };
     },
@@ -493,7 +569,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         const r = [...atual];
         for (const { location: [c, row], value } of novos) {
           const id = colunasRef.current[c]?.id;
-          if (!id || !EDITAVEIS.includes(id)) continue;
+          if (!id || !editavel(id)) continue;
           while (r.length <= row) r.push(vazia());
           r[row] = aplicarValor(r[row], id, value.kind === GridCellKind.Text ? value.data : "");
           // CNPJ já cadastrado em linha sem nome: completa o nome pelo cadastro.
@@ -666,7 +742,10 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const onColumnMoved = useCallback(
     (de: number, para: number) => {
       if (de === para) return;
-      const ids = colunasRef.current.map((c) => c.id);
+      // As colunas do imóvel ficam sempre depois das de sempre, na ordem da planilha.
+      const base = colunasRef.current.filter((c) => !ehLoc(c.id)).length;
+      if (de >= base || para >= base) return;
+      const ids = colunasRef.current.slice(0, base).map((c) => c.id as ColunaTabela);
       const [movida] = ids.splice(de, 1);
       ids.splice(para, 0, movida);
       setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
@@ -676,7 +755,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
     },
     [salvarPreferencias, toast],
   );
-  const ordemDeFabrica = COLUNAS.every((c, i) => c.id === COLUNAS_PADRAO[i].id);
+  const ordemDeFabrica = BASE.every((c, i) => c.id === COLUNAS_PADRAO[i].id);
 
   // ---- seleção e totais ----
   const linhasMarcadas = selecao.rows.toArray().filter((i) => i < linhas.length);
@@ -873,7 +952,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             <button
               type="button"
               className="btn-texto"
-              onClick={() => salvarPreferencias({ colunas_tabela: COLUNAS_PADRAO.map((c) => c.id) }).catch(() => undefined)}
+              onClick={() => salvarPreferencias({ colunas_tabela: COLUNAS_PADRAO.map((c) => c.id as ColunaTabela) }).catch(() => undefined)}
             >
               Voltar as colunas para a ordem original
             </button>

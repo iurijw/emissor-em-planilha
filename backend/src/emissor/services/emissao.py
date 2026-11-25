@@ -33,9 +33,10 @@ from emissor import empresas
 from emissor.db import Emissao, LinhaTabela, Lote, agora, obter_cliente, obter_config, para_local, sessao
 from emissor.logging_setup import bind_context
 from emissor.nfse import codes, dps_builder
+from emissor.nfse import locacao as loc_imovel
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
-from emissor.nfse.constants import Ambiente
+from emissor.nfse.constants import LEIAUTE_NT009, Ambiente, leiaute
 from emissor.nfse.documentos import documento_valido, formatar_documento
 from emissor.nfse.dps_builder import DpsBuildError
 from emissor.nfse.emissao import (
@@ -133,7 +134,7 @@ def validar_linhas(
             v.erros.extend(erros_aba.get(aba.id, []))
         cfg_ef = efetiva(aba)
         iss_retido = cfg_ef is not None and cfg_ef.tp_ret_issqn in ("2", "3")
-        nota = (notas or {}).get(ln.id) or DadosNota()
+        nota = (notas or {}).get(ln.id) or DadosNota(locacao=ln.locacao())
         exterior = nota.tomador()
         doc = "" if exterior else normalizar_documento(ln.documento) or ""
         cli = obter_cliente(s, doc) if doc else None
@@ -186,6 +187,7 @@ def validar_linhas(
                 )
         if cfg_ef is not None:
             v.erros.extend(_erros_obra_evento(cfg_ef, nota, na_tabela=ln.aba_id is not None))
+            v.erros.extend(_erros_locacao(cfg_ef, nota, valor, ambiente))
         ajuste = nota.ajuste_bc(valor) if valor is not None else None
         if cfg_ef is not None and ajuste is not None and (erro := dps_builder.erro_ajuste_bc(cfg_ef)):
             v.erros.append(erro)
@@ -276,6 +278,27 @@ def _erros_obra_evento(cfg: ConfigFiscal, nota: DadosNota, *, na_tabela: bool) -
             montar(serv, cfg, nota)
         except DpsBuildError as e:
             erros.append(str(e))
+    return erros
+
+
+def _erros_locacao(cfg: ConfigFiscal, nota: DadosNota, valor: Decimal | None, ambiente: Ambiente) -> list[str]:
+    """Locação de imóvel (99.03): leiaute, tributação e os dados do imóvel de cada nota (coluna ou nota avulsa)."""
+    dh = agora_emissao()
+    erro = dps_builder.erro_locacao(cfg, leiaute(ambiente, dh) == LEIAUTE_NT009)
+    if erro:
+        return [erro]
+    if not codes.eh_locacao(cfg.c_trib_nac):
+        return []
+    erros = loc_imovel.erros_unidade(nota.locacao)
+    if valor is not None:
+        erros += loc_imovel.calcular(
+            nota.locacao,
+            valor,
+            dh.date(),
+            c_nbs=cfg.c_nbs,
+            v_desc_incond=nota.v_desc_incond,
+            v_desc_cond=nota.v_desc_cond,
+        )[1]
     return erros
 
 
@@ -422,11 +445,15 @@ def criar_lote(linha_ids: list[int]) -> Lote:
             raise LoteError(f"{len(com_erro)} linha(s) com erro. Corrija antes de emitir.", com_erro)
         _exigir_aliquotas(aliquotas_iss(s, linhas))
         abas = {a.id: a for a in trib_service.garantir_abas(s)}
-        itens = []
+        itens, extras = [], []
         for ln in linhas:
             nome_trib, dados_trib = trib_service.tributacao_da_aba(s, abas.get(ln.aba_id))
             itens.append((ln.id, ln.nome, ln.documento, ln.valor, ln.descricao, nome_trib, dados_trib))
-        lote = _gravar_lote(s, cfg.ambiente, itens)
+            # Os dados do imóvel vão com a nota (cópia, como a tributação): só nas abas de locação.
+            cfg_ln = aplicar_tributacao(cfg.config_fiscal(), dados_trib)
+            locacao = ln.locacao() if codes.eh_locacao(cfg_ln.c_trib_nac) else None
+            extras.append({"nota": DadosNota(locacao=locacao)})
+        lote = _gravar_lote(s, cfg.ambiente, itens, extras=extras)
     worker().enfileirar(lote.id)
     return lote
 

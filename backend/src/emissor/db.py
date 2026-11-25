@@ -190,8 +190,13 @@ class LinhaTabela(SQLModel, table=True):
     documento: str = ""
     valor: str = ""  # decimal em texto ("450.00")
     descricao: str = ""
+    # Locação de imóvel (99.03): imóvel, copropriedade, vencimento e parcelas fora da base (nfse/locacao.py)
+    locacao_json: str | None = None
     ultima_emissao_id: int | None = Field(default=None, index=True)
     atualizado_em: NaiveDatetime = Field(default_factory=agora)
+
+    def locacao(self) -> dict[str, Any] | None:
+        return json.loads(self.locacao_json) if self.locacao_json else None
 
 
 class Lote(SQLModel, table=True):

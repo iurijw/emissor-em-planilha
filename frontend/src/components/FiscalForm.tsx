@@ -892,7 +892,27 @@ export function CamposTributacao({
             codigo={valor.c_trib_nac}
             onChange={(c) => {
               servicoTrocado.current = c;
-              set("c_trib_nac", c);
+              // Locação de imóvel (99.03): sem ISSQN (E0532) e com o IBS/CBS do imóvel (NT 009, E0902).
+              if (c.startsWith("9903"))
+                onChange({
+                  ...valor,
+                  c_trib_nac: c,
+                  trib_issqn: "4",
+                  tp_ret_issqn: "1",
+                  tp_imunidade: null,
+                  c_pais_result: null,
+                  tp_susp: null,
+                  n_processo: null,
+                  n_bm: null,
+                  p_red_bcbm: null,
+                  v_red_bcbm: null,
+                  ibscbs: true,
+                  ibscbs_c_ind_op: "020101",
+                });
+              else if (valor.c_trib_nac.startsWith("9903"))
+                // Saindo da locação: volta à operação tributável e ao indicador dos serviços em geral.
+                onChange({ ...valor, c_trib_nac: c, trib_issqn: "1", ibscbs_c_ind_op: "100301" });
+              else set("c_trib_nac", c);
             }}
             servico={servico}
           />

@@ -95,6 +95,8 @@ export interface Linha {
   documento: string;
   valor: string;
   descricao: string;
+  /** Dados do imóvel (locação, 99.03): chaves das colunas da planilha (cep, logradouro, iptu...). */
+  locacao?: Record<string, string> | null;
   ultima_emissao?: Emissao | null;
 }
 

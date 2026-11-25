@@ -91,6 +91,7 @@ def linha_dict(ln: LinhaTabela, ultima: Emissao | None) -> dict[str, Any]:
         "documento": ln.documento,
         "valor": ln.valor,
         "descricao": ln.descricao,
+        "locacao": ln.locacao(),
         "ultima_emissao": emissao_resumo(ultima) if ultima else None,
     }
 

@@ -14,6 +14,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from emissor.nfse.constants import Ambiente
+from emissor.nfse.locacao import limpar as limpar_locacao
 
 
 @dataclass
@@ -335,6 +336,8 @@ class DadosNota:
     intermediario: dict | None = None
     destinatario: dict | None = None
     ref_nfse: list[str] = field(default_factory=list)  # IBSCBS/gRefNFSe: chaves das NFS-e referenciadas (tpOper 2/3)
+    # Locação de imóvel (99.03): imóvel, copropriedade, vencimento e parcelas fora da base (ver nfse/locacao.py)
+    locacao: dict | None = None
 
     @classmethod
     def de_dict(cls, d: dict | None) -> DadosNota:
@@ -360,6 +363,7 @@ class DadosNota:
             intermediario=d.get("intermediario") or None,
             destinatario=d.get("destinatario") or None,
             ref_nfse=[str(c) for c in d.get("ref_nfse") or [] if str(c).strip()],
+            locacao=limpar_locacao(d.get("locacao")),
         )
 
     def para_dict(self) -> dict:
@@ -380,6 +384,7 @@ class DadosNota:
             "intermediario": self.intermediario or None,
             "destinatario": self.destinatario or None,
             "ref_nfse": self.ref_nfse or None,
+            "locacao": self.locacao or None,
         }
         return {k: v for k, v in d.items() if v is not None}
 

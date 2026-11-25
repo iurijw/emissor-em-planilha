@@ -214,6 +214,8 @@ def alvos(
         else:
             nome, dados = nome_avulsa or ("só desta nota" if tributacao_avulsa else None), tributacao_avulsa
         cfg = aplicar_tributacao(base, dados)
+        if codes.sem_issqn(cfg.c_trib_nac):
+            continue  # item 99 (locação de imóvel, sem ISSQN): a prefeitura não parametriza
         # O que muda as regras da prefeitura (retenção, benefício) separa as tributações; a consulta é a mesma.
         chave = (cfg.c_trib_nac, cfg.c_loc_prestacao, cfg.c_pais_prestacao, cfg.trib_issqn, cfg.tp_ret_issqn,
                  cfg.n_bm, cfg.p_red_bcbm)  # fmt: skip

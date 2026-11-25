@@ -365,6 +365,10 @@ class AvulsaEntrada(BaseModel):
     intermediario: dict[str, str | None] | None = None
     destinatario: dict[str, str | None] | None = None
     ref_nfse: list[str] | None = None
+    # Locação de imóvel (99.03): cep, logradouro, numero, complemento, bairro, c_mun, insc_imob_fisc, c_cib,
+    # p_copropriedade, v_tot_oper, venc (DD/MM/AAAA ou o dia), iptu, condominio, emolumentos, redutor_social, outras,
+    # outras_descricao (valores totais, sem a proporção do coproprietário)
+    locacao: dict[str, str | float | None] | None = None
 
 
 def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
@@ -419,6 +423,7 @@ def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
             "intermediario": _limpo(entrada.intermediario, _CAMPOS_PESSOA),
             "destinatario": _limpo(entrada.destinatario, _CAMPOS_PESSOA),
             "ref_nfse": [c.strip().upper() for c in entrada.ref_nfse or [] if c and c.strip()],
+            "locacao": entrada.locacao,
             **{k: v for k, v in descontos.items() if v and Decimal(v) != 0},
         }
     )

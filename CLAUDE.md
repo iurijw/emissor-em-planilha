@@ -31,6 +31,9 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
 - **F6 (2026-11-15):** avisos do que a prefeitura cadastrou no Sistema Nacional (retenções do ISSQN, regimes especiais,
   histórico de alíquotas, benefício municipal), lidos da parametrização do ADN com o certificado; ver "Regras da
   prefeitura". Formato das respostas conferido no ADN real (só leitura); só avisos, nunca bloqueiam.
+- **F6 (2026-11-25):** locação de imóveis (subitem 99.03, grupo `IBSCBS/imovel` da NT 009) na planilha e na nota avulsa,
+  e IBS/CBS na planilha das notas; ver "Locação de imóveis". Testado só com a Sefin simulada; **validar em Produção
+  Restrita** com o certificado de um cliente que aluga imóveis (obrigatória a partir de 01/12/2026).
 - **Leiaute da NT 009 na Produção Restrita (2026-10-22):** desde 20/10/2026 a Produção Restrita usa o pacote
   `esquemas_prod_restrita_20261020` (NT 009). A DPS de homologação sai nesse leiaute (XSD em `nfse/xsd/v1_01_nt009/`)
   e a de produção continua no anterior (`nfse/xsd/v1_01/`) até 30/11/2026. A Produção passa **sozinha** à NT 009 em
@@ -424,7 +427,7 @@ a NT 005 previa retirar e a NT 009 o reinseriu), `cIndOp`, `indDest=0` e `valore
 - Bloqueios locais com mensagem: sem `cNBS` (E0322). `cTribNac` 25.05/15.09/17.12/10.05 exige `tpOper` (E0903) e os
   demais não podem tê-lo (E0904): campo `ibscbs_tp_oper` da tributação (desde 2026-11-12), só 1, 4 e 5 (`codes.TP_OPER`;
   2 e 3 exigem `gRefNFSe`, não enviado). A tela troca um `cIndOp` fora de `C_IND_OP` (ex.: 020301 de imóveis) pelo do
-  NBS ou 100301, porque o `<select>` mostrava a 1ª opção com o valor antigo salvo. Fora do escopo: `imovel`, `gReeRepRes`, `cCredPres` e a NT 009 (`gTribSN`, ainda sem cronograma); `dest`,
+  NBS ou 100301, porque o `<select>` mostrava a 1ª opção com o valor antigo salvo. Fora do escopo: `imovel` fora da locação (ver "Locação de imóveis"), `gReeRepRes`, `cCredPres` e a NT 009 (`gTribSN`, ainda sem cronograma); `dest`,
   `gRefNFSe`, `tpEnteGov`, `gTribRegular` e `gDif` entraram em 2026-11-12 (ver "Opções fiscais que faltavam").
 
 **Tributação** = os `CAMPOS_TRIBUTACAO` de `ConfigFiscal` (local da prestação, cTribNac/cTribMun/cNBS, ISSQN,
@@ -503,6 +506,9 @@ mudam no Anexo VI v1.04.01 da NT 009). Estudo: `/mnt/project-files/estudos/aliqu
   lista; botão "Exportar notas (Excel)"): uma linha por nota, valores lidos do XML autorizado (`vBC`, `pAliqAplic`,
   `vISSQN`, `vTotalRet`, `vLiq`, retenções federais; PIS/COFINS só quando retidos, por `RETENCOES_PIS_COFINS`);
   canceladas/substituídas em cinza. Até 20.000 notas. Um resumo por competência foi feito e retirado a pedido do Iuri.
+  Desde 2026-11-25 também valor total da operação do imóvel, copropriedade, desconto incondicionado, ajustes da base do
+  IBS/CBS (`vCalcAjusteBCLocImoveis`, ou `vCalcAjusteBCIBSCBS`/`vCalcReeRepRes`), base (`IBSCBS/valores/vBC`), IBS
+  (`vIBSTot`), CBS (`vCBS`) e cClassTrib.
 
 ### Código do serviço e tela de tributação (2026-10-27)
 
@@ -538,6 +544,35 @@ digitado com o nacional junto (`080101003`), que o XSD recusa (`cTribMun` = 3 d�
   (substitui o "o tomador retém" de 2026-10-12); IBS/CBS com CST e cClassTrib em listas (sugestões do Anexo VIII
   primeiro); valor aproximado dos tributos; "Prévia dos valores da NFS-e" numa nota de exemplo. Nada mudou nos dados
   (`DadosTributacao`), só a tela. A tabela e o resto da nota avulsa ficaram como estavam (escolha do Iuri).
+
+### Locação de imóveis (99.03, NT 009, 2026-11-25)
+
+Pedido do Iuri (cliente com ~60 notas de aluguel por mês em lote, Lucro Presumido); obrigatória desde 01/12/2026. Base:
+XSD `v1_01_nt009`, Anexo I da Produção Restrita (2026-10-20, aba RN DPS_NFS-e) e Anexo VIII v1.02 (99.03.01 a 05, NBS
+1.1002.10.00 residencial e 1.1002.20.00 não residencial, cIndOp 020101, cClassTrib 200027 com redução de 70%).
+- **DPS** (`nfse/locacao.py` + `dps_builder._imovel`): `IBSCBS/imovel` depois de `dest`: `cMun` (do imóvel: o da
+  locação, senão o local da prestação, senão o do prestador; o mesmo vai em `cLocPrestacao`), `gLocacao` {`pCopropriedade`,
+  `vTotOper`, `vDescIncondTot`/`vDescCondTot` (desconto da nota ÷ copropriedade), `dVencOrig`} e **uma** `gUnidImob`
+  (`inscImobFisc`, `cCIB` **ou** `end` com CEP/logradouro, número vazio = "S/N", e `gAjusteBCLocImoveis` por parcela:
+  01 IPTU, 02 emolumentos, 03 condomínio, 04 redutor social, 99 outras com descrição).
+- **Valores:** o valor da nota (`vServ`) é a parte do locador. Sem "Valor total do aluguel", `vTotOper` = valor ÷
+  copropriedade (meio para o par); com ele, confere `vServ = vTotOper x p` com R$ 0,01 de tolerância (E0433). As
+  parcelas são do aluguel inteiro: a Sefin tira `Σ parcelas x p` da base (`vCalcAjusteBCLocImoveis`). Vencimento: só o
+  dia (no mês da emissão), DD/MM/AAAA ou ISO.
+- **Regras locais** (`_coerencia_locacao`, `erro_locacao`, `_erros_locacao`): 99.xx exige `tribISSQN 4` (E0532, sem
+  ISSQN; a consulta da prefeitura pula esses serviços); 99.03 exige IBS/CBS e cIndOp 02xxxx (E0902/E0937); cIndOp de
+  imóvel só com locação (E0932); unidade com CIB de 8 caracteres ou CEP + logradouro (E0938/E0933); copropriedade
+  0,01–100 (E0940); redutor social só com NBS residencial (E0944); parcela ≤ total (E0966/E1547). **Só na NT 009**: na
+  produção, até 30/11/2026, a nota é recusada com a mensagem de que vale a partir de 01/12.
+- **Planilha:** `linha_tabela.locacao_json` (dicionário com as chaves de `locacao.CAMPOS`, texto como digitado). Na aba
+  cuja tributação é 99.03 a grade mostra as colunas do imóvel depois das de sempre (não entram na ordem das colunas do
+  usuário) e a exportação as inclui; a importação reconhece os títulos e sinônimos (`SINONIMOS`). O lote copia a locação
+  da linha para `emissao.nota_json`.
+- **Nota avulsa:** `DadosNota.locacao` (`components/LocacaoImovel.tsx`, seção "Imóvel e locação"); copiar uma nota de
+  aluguel traz o imóvel junto. Na tela de tributação, escolher um 99.03 liga IBS/CBS, põe `tribISSQN 4` e cIndOp 020101.
+- DANFSe: a inscrição imobiliária cai para a de `gUnidImob`. `sefin_simulada.py` recusa E0532/E0937/E0433/E0902 e
+  calcula a base do IBS/CBS com os ajustes do imóvel.
+- Fora: mais de uma unidade imobiliária por nota, `bensMoveis`, cIndOp 0202xx–0204xx (cessão de direitos, obras).
 
 ### Regras da prefeitura (2026-11-15)
 
@@ -604,7 +639,7 @@ enviava. Primeira parte (as regras estão em `services/tributacao.py`, `_coerenc
   (1–4) é da tributação e passa a exigir `tpOper` (E0903, `codes.exige_tp_oper(c_trib_nac, tp_ente_gov)`); `tpOper` 2/3
   agora são aceitos e pedem `DadosNota.ref_nfse` (`gRefNFSe`, E0905). Intermediário e NFS-e referenciada são de cada
   nota: aba com `tp_ret_issqn 3` ou `tpOper` 2/3 dá erro ("emita pela nota avulsa"). Ainda fora: tomador/intermediário
-  como emitente (`tpEmit` 2/3), imóvel (`imovel`), `bensMoveis` e `cCredPres`.
+  como emitente (`tpEmit` 2/3), imóvel fora da locação, `bensMoveis` e `cCredPres`.
 - **Campos obrigatórios na tela** (pedido do Iuri): classe `campo--obrigatorio` (asterisco vermelho no rótulo; no CEP,
   `campo-cep--obrigatorio`) nos campos sem os quais a Sefin recusa a nota, só quando valem (ex.: tipo de imunidade só com
   imunidade, endereço do tomador só com ISS retido, E0237); `LegendaObrigatorio` explica o asterisco. Na nota avulsa,
@@ -1051,5 +1086,6 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-16 | Modo escuro seguindo o sistema, com escolha Automático/Claro/Escuro por navegador em Minha conta; produção em claro sobre escuro | Pedido do Iuri; guias do Chrome (escolha numa tela de ajustes, não um botão fixo no topo); o aviso de produção precisa continuar o mais forte também no escuro |
 | 2026-11-17 | "Arredondar os centavos sempre para cima" por imposto (`arredondar_cima`: IRRF, CSLL, CP, contribuições digitadas e a parte retida de PIS/COFINS somada no `vRetCSLL`), desligado por padrão; `vPis`/`vCofins` continuam meio para cima | Pedido do Iuri; a Sefin exige `vPis`/`vCofins` = base x alíquota (E0694/E0696), os retidos só precisam ficar abaixo do valor |
 | 2026-11-17 | Preferências por usuário no servidor (`usuario.preferencias_json`): aviso do 2FA dispensado e ordem das colunas da tabela (arrastar); tributação da aba trocada pela barra da tabela; cópia de nota emitida e histórico discreto (ícone) na nota avulsa, sem copiar obra/evento; excluir da lista de emissões as notas não emitidas (recusada, não enviada ou erro sem Id da DPS; a com erro depois do envio pede "Verificar na Sefin" antes), mantendo o XML da DPS e os logs; nome da tributação padrão em `configuracao.tributacao_padrao_nome` (vazio = "Tributação padrão"; sem repetir o nome de outra) e "Copiar" em cada tributação (abre uma nova com os mesmos campos) | Pedido do Iuri (melhorias da emissão) |
+| 2026-11-25 | Locação de imóveis (99.03) pelo grupo `imovel` da NT 009, na planilha (colunas do imóvel na aba com tributação de locação) e na nota avulsa; valor da nota = parte do locador, parcelas fora da base digitadas pelo valor total; uma unidade por nota; planilha das notas com base, IBS e CBS | Pedido do Iuri: notas de aluguel obrigatórias em 01/12/2026 e um cliente que emite ~60 por mês em lote |
 | 2026-11-22 | Logo nova: três folhas em lote (#B3E0F3, #66C1E7, #0098D7) com a grade vazada atravessando as três e o canto dobrado preto (claro no escuro); `logo.svg`, `Logo` em `ui.tsx`, `sw.js`, `favicon.png` e `docs/img/logo.png` | Pedido do Iuri: a anterior parecia básica; conceito gerado no Higgsfield e redesenhado à mão |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
