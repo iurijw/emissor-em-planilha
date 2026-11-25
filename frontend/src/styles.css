@@ -1220,3 +1220,5 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 .importar__shopee { margin-top: 14px; color: var(--grafite); font-size: 0.8125rem; }
 .importar__shopee summary { cursor: pointer; font-weight: 550; width: fit-content; }
 .importar__shopee p { margin: 6px 0 0; }
+.dica-grade .legenda-obrigatorio, .importar__dica .legenda-obrigatorio { font-size: inherit; }
+.importar__obrigatorio { color: var(--erro); }

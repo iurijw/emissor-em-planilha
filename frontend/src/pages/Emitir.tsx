@@ -5,6 +5,7 @@ import {
   DataEditor,
   GridCellKind,
   type DataEditorRef,
+  type DrawHeaderCallback,
   type EditableGridCell,
   type GridCell,
   type GridColumn,
@@ -103,7 +104,7 @@ type Coluna = GridColumn & { id: ColId };
 const ehLoc = (id: ColId): id is LocId => id.startsWith("loc:");
 // Ordem de fábrica; cada usuário pode arrastar os títulos para outra (fica nas preferências dele).
 const COLUNAS_PADRAO: Coluna[] = [
-  { id: "nome", title: "Nome da empresa", width: 300 },
+  { id: "nome", title: "Nome do cliente", width: 300 },
   { id: "documento", title: "CNPJ / CPF", width: 190 },
   { id: "valor", title: "Valor", width: 140 },
   { id: "descricao", title: "Descrição do serviço", width: 360, grow: 1 },
@@ -114,29 +115,37 @@ const editavel = (id: ColId) => ehLoc(id) || EDITAVEIS.includes(id);
 const POR_ID = new Map(COLUNAS_PADRAO.map((c) => [c.id, c]));
 
 // Mesmas chaves e títulos das colunas da planilha (emissor/nfse/locacao.py, CAMPOS).
-const COLUNAS_LOCACAO: { chave: string; title: string; width: number; numero?: boolean }[] = [
-  { chave: "cep", title: "CEP do imóvel", width: 120 },
-  { chave: "logradouro", title: "Endereço do imóvel", width: 240 },
-  { chave: "numero", title: "Nº do imóvel", width: 100 },
-  { chave: "complemento", title: "Complemento do imóvel", width: 160 },
-  { chave: "bairro", title: "Bairro do imóvel", width: 160 },
-  { chave: "insc_imob_fisc", title: "Inscrição imobiliária", width: 170 },
-  { chave: "c_cib", title: "CIB", width: 110 },
-  { chave: "p_copropriedade", title: "% copropriedade", width: 130, numero: true },
-  { chave: "v_tot_oper", title: "Valor total do aluguel", width: 170, numero: true },
-  { chave: "venc", title: "Vencimento", width: 120 },
-  { chave: "iptu", title: "IPTU", width: 110, numero: true },
-  { chave: "condominio", title: "Condomínio", width: 120, numero: true },
-  { chave: "emolumentos", title: "Emolumentos", width: 120, numero: true },
-  { chave: "redutor_social", title: "Redutor social", width: 130, numero: true },
-  { chave: "outras", title: "Outras parcelas", width: 130, numero: true },
-  { chave: "outras_descricao", title: "Descrição das outras parcelas", width: 220 },
+const COLUNAS_LOCACAO: { chave: string; title: string; width: number; numero?: boolean; obrigatorio?: boolean; exemplo: [string, string] }[] = [
+  // Ordem de importância (a mesma da planilha exportada): o imóvel, as parcelas mais comuns e o resto.
+  { chave: "cep", title: "CEP do imóvel", width: 120, obrigatorio: true, exemplo: ["88010-400", "88015-200"] },
+  { chave: "logradouro", title: "Endereço do imóvel", width: 240, obrigatorio: true, exemplo: ["Rua das Flores", "Avenida Rio Branco"] },
+  { chave: "numero", title: "Nº do imóvel", width: 100, exemplo: ["120", "45"] },
+  { chave: "bairro", title: "Bairro do imóvel", width: 160, exemplo: ["Centro", "Centro"] },
+  { chave: "complemento", title: "Complemento do imóvel", width: 160, exemplo: ["Ap 301", "Sala 2"] },
+  { chave: "iptu", title: "IPTU", width: 110, numero: true, exemplo: ["180,00", ""] },
+  { chave: "condominio", title: "Condomínio", width: 120, numero: true, exemplo: ["520,00", "350,00"] },
+  { chave: "venc", title: "Vencimento", width: 120, exemplo: ["10", "5"] },
+  { chave: "p_copropriedade", title: "% copropriedade", width: 130, numero: true, exemplo: ["", "50"] },
+  { chave: "v_tot_oper", title: "Valor total do aluguel", width: 170, numero: true, exemplo: ["", "2.400,00"] },
+  { chave: "insc_imob_fisc", title: "Inscrição imobiliária", width: 170, exemplo: ["", ""] },
+  { chave: "c_cib", title: "CIB", width: 110, exemplo: ["", ""] },
+  { chave: "emolumentos", title: "Emolumentos", width: 120, numero: true, exemplo: ["", ""] },
+  { chave: "redutor_social", title: "Redutor social", width: 130, numero: true, exemplo: ["", ""] },
+  { chave: "outras", title: "Outras parcelas", width: 130, numero: true, exemplo: ["", ""] },
+  { chave: "outras_descricao", title: "Descrição das outras parcelas", width: 220, exemplo: ["", ""] },
 ];
 const COLUNAS_IMOVEL: Coluna[] = COLUNAS_LOCACAO.map((c) => ({
   id: `loc:${c.chave}` as LocId,
   title: c.title,
   width: c.width,
 }));
+// Sem estes a nota não sai (no imóvel: CEP e endereço, ou o CIB). O título leva um asterisco vermelho.
+const OBRIGATORIAS = new Set<ColId>([
+  "documento",
+  "valor",
+  "descricao",
+  ...COLUNAS_LOCACAO.filter((c) => c.obrigatorio).map((c) => `loc:${c.chave}` as LocId),
+]);
 const NUMERICAS_LOC = new Set(COLUNAS_LOCACAO.filter((c) => c.numero).map((c) => c.chave));
 const SUBITEM_LOCACAO = "9903";
 
@@ -298,7 +307,12 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
     : tributacoesQ.data?.padrao?.c_trib_nac;
   const abaDeLocacao = !!servicoDaAba?.startsWith(SUBITEM_LOCACAO) || (!!aba && linhas.some((l) => l.locacao));
   const BASE = useMemo(() => colunasNaOrdem(preferencias.colunas_tabela), [preferencias.colunas_tabela]);
-  const COLUNAS = useMemo(() => (abaDeLocacao ? [...BASE, ...COLUNAS_IMOVEL] : BASE), [BASE, abaDeLocacao]);
+  // As colunas do imóvel entram antes de "Última emissão" quando ela é a última (a ordem de fábrica); senão, no fim.
+  const COLUNAS = useMemo(() => {
+    if (!abaDeLocacao) return BASE;
+    const fim = BASE.at(-1)?.id === "situacao" ? BASE.length - 1 : BASE.length;
+    return [...BASE.slice(0, fim), ...COLUNAS_IMOVEL, ...BASE.slice(fim)];
+  }, [BASE, abaDeLocacao]);
   colunasRef.current = COLUNAS;
 
   const clientesQ = useQuery({ queryKey: ["clientes"], queryFn: () => api.get<Cliente[]>("/api/clientes") });
@@ -742,18 +756,35 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
   const onColumnMoved = useCallback(
     (de: number, para: number) => {
       if (de === para) return;
-      // As colunas do imóvel ficam sempre depois das de sempre, na ordem da planilha.
-      const base = colunasRef.current.filter((c) => !ehLoc(c.id)).length;
-      if (de >= base || para >= base) return;
-      const ids = colunasRef.current.slice(0, base).map((c) => c.id as ColunaTabela);
-      const [movida] = ids.splice(de, 1);
-      ids.splice(para, 0, movida);
+      // As colunas do imóvel ficam juntas, na ordem da planilha: só as de sempre mudam de lugar (arrastar uma do
+      // imóvel não muda nada). A ordem salva é só a das de sempre.
+      const todas = colunasRef.current.map((c) => c.id);
+      if (ehLoc(todas[de])) return;
+      const [movida] = todas.splice(de, 1);
+      todas.splice(para, 0, movida);
+      const ids = todas.filter((id): id is ColunaTabela => !ehLoc(id));
       setSelecao({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
       salvarPreferencias({ colunas_tabela: ids }).catch((e) =>
         toast(`A nova ordem das colunas não foi salva: ${e instanceof Error ? e.message : e}`, "erro"),
       );
     },
     [salvarPreferencias, toast],
+  );
+  // Asterisco vermelho depois do título das colunas obrigatórias (a grade desenha em canvas, sem CSS).
+  const desenharTitulo = useCallback<DrawHeaderCallback>(
+    ({ ctx, column, theme, rect }, desenharConteudo) => {
+      desenharConteudo();
+      const id = (column as Coluna).id;
+      if (!id || !OBRIGATORIAS.has(id)) return;
+      ctx.save();
+      ctx.font = `${theme.headerFontStyle} ${theme.fontFamily}`;
+      const x = rect.x + theme.cellHorizontalPadding + ctx.measureText(column.title).width + 3;
+      ctx.fillStyle = cores.erro;
+      ctx.textBaseline = "middle";
+      ctx.fillText("*", x, rect.y + rect.height / 2);
+      ctx.restore();
+    },
+    [cores],
   );
   const ordemDeFabrica = BASE.every((c, i) => c.id === COLUNAS_PADRAO[i].id);
 
@@ -907,6 +938,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
             columns={colunas}
             onHeaderClicked={onHeaderClicked}
             onColumnMoved={onColumnMoved}
+            drawHeader={desenharTitulo}
             rows={linhas.length}
             getCellContent={getCellContent}
             onCellsEdited={onCellsEdited}
@@ -941,6 +973,9 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
         editar={(a) => setEditarAba(a)}
       />
       <p className="dica-grade">
+        <span className="legenda-obrigatorio">
+          <b aria-hidden="true">*</b> Obrigatório{abaDeLocacao ? " (do imóvel: CEP e endereço, ou só o CIB)" : ""}.
+        </span>{" "}
         Selecione várias células arrastando ou com <kbd>Shift</kbd>, digite e tecle <kbd>Enter</kbd> para aplicar o valor a todas.
         Cole direto do Excel com <kbd>Ctrl</kbd>+<kbd>V</kbd>, desfaça com <kbd>Ctrl</kbd>+<kbd>Z</kbd> (refaça com
         <kbd>Ctrl</kbd>+<kbd>Y</kbd>), arraste o canto da seleção para repetir valores e use
@@ -963,6 +998,7 @@ export function Emitir({ status, admin }: { status: Status; admin: boolean }) {
       {importar && (
         <Importar
           abaId={abaId}
+          locacao={abaDeLocacao}
           fechar={() => setImportar(false)}
           concluido={(ls) => {
             // Já está salva no servidor; entra no histórico para poder voltar à tabela de antes.
@@ -1074,19 +1110,57 @@ const EXEMPLO_IMPORTAR: [string, string, string, string][] = [
   ["Padaria Pão Dourado Ltda", "11.222.333/0001-81", "1.250,00", "Assessoria contábil de {mes}/{ano}"],
   ["Maria da Silva", "529.982.247-25", "380,00", "Consultoria tributária"],
 ];
+const EXEMPLO_ALUGUEL: [string, string, string, string][] = [
+  ["Padaria Pão Dourado Ltda", "11.222.333/0001-81", "2.500,00", "Aluguel de {mes_anterior}/{ano_mes_anterior} - Rua das Flores, 120"],
+  ["Maria da Silva", "529.982.247-25", "1.200,00", "Aluguel de {mes_anterior}/{ano_mes_anterior} - Av. Rio Branco, 45 (50%)"],
+];
+// Títulos iguais aos da exportação (o mesmo arquivo exportado volta pela importação).
+const TITULOS_BASE: { titulo: string; obrigatorio?: boolean; num?: boolean }[] = [
+  { titulo: "Nome do cliente" },
+  { titulo: "CNPJ/CPF", obrigatorio: true, num: true },
+  { titulo: "Valor", obrigatorio: true, num: true },
+  { titulo: "Descrição", obrigatorio: true },
+];
 
-/** Modelo em CSV (separado por ";", com BOM para o Excel abrir os acentos). */
-function baixarModelo() {
-  const linhas = [["Nome", "CNPJ/CPF", "Valor", "Descrição"], ...EXEMPLO_IMPORTAR];
-  const csv = "\ufeff" + linhas.map((l) => l.map((c) => (/[;"\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(";")).join("\r\n");
+/** Colunas e linhas de exemplo do modelo: as de sempre e, na aba de aluguel, as do imóvel. */
+function modeloImportar(locacao: boolean) {
+  const titulos = [
+    ...TITULOS_BASE,
+    ...(locacao ? COLUNAS_LOCACAO.map((c) => ({ titulo: c.title, obrigatorio: c.obrigatorio, num: c.numero })) : []),
+  ];
+  const linhas = (locacao ? EXEMPLO_ALUGUEL : EXEMPLO_IMPORTAR).map((l, i) => [
+    ...l,
+    ...(locacao ? COLUNAS_LOCACAO.map((c) => c.exemplo[i]) : []),
+  ]);
+  return { titulos, linhas };
+}
+
+const letraColuna = (i: number): string => (i < 26 ? String.fromCharCode(65 + i) : letraColuna(Math.floor(i / 26) - 1) + letraColuna(i % 26));
+
+/** Modelo em CSV (separado por ";", com BOM para o Excel abrir os acentos), com as mesmas colunas da prévia. */
+function baixarModelo(locacao: boolean) {
+  const { titulos, linhas } = modeloImportar(locacao);
+  const tabela = [titulos.map((t) => t.titulo), ...linhas];
+  const csv = "\ufeff" + tabela.map((l) => l.map((c) => (/[;"\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(";")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  a.download = "modelo-notas.csv";
+  a.download = locacao ? "modelo-notas-aluguel.csv" : "modelo-notas.csv";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: () => void; concluido: (l: Linha[]) => void }) {
+function Importar({
+  abaId,
+  locacao,
+  fechar,
+  concluido,
+}: {
+  abaId: number | null;
+  locacao: boolean;
+  fechar: () => void;
+  concluido: (l: Linha[]) => void;
+}) {
+  const modelo = modeloImportar(locacao);
   const [modo, setModo] = useState<"substituir" | "acrescentar">("substituir");
   const [erro, setErro] = useState<unknown>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -1114,38 +1188,52 @@ function Importar({ abaId, fechar, concluido }: { abaId: number | null; fechar: 
   }
   return (
     <Dialogo titulo="Importar planilha" fechar={fechar}>
-      <p className="importar__intro">Excel (.xlsx) ou CSV com uma nota por linha, assim:</p>
-      <div className="importar__exemplo" role="region" aria-label="Exemplo de planilha">
+      <p className="importar__intro">
+        Excel (.xlsx) ou CSV com uma nota por linha, assim{locacao ? " (esta aba é de aluguel: entram também as colunas do imóvel)" : ""}:
+      </p>
+      <div className="importar__exemplo" role="region" aria-label="Exemplo de planilha" tabIndex={0}>
         <table>
           <thead>
             <tr>
-              <th className="importar__col">A</th>
-              <th className="importar__col">B</th>
-              <th className="importar__col">C</th>
-              <th className="importar__col">D</th>
+              {modelo.titulos.map((t, i) => (
+                <th key={t.titulo} className="importar__col">
+                  {letraColuna(i)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             <tr className="importar__titulos">
-              <td>Nome</td>
-              <td>CNPJ/CPF</td>
-              <td>Valor</td>
-              <td>Descrição</td>
+              {modelo.titulos.map((t) => (
+                <td key={t.titulo}>
+                  {t.titulo}
+                  {t.obrigatorio && (
+                    <b className="importar__obrigatorio" aria-label="obrigatório">
+                      {" "}*
+                    </b>
+                  )}
+                </td>
+              ))}
             </tr>
-            {EXEMPLO_IMPORTAR.map((l) => (
+            {modelo.linhas.map((l) => (
               <tr key={l[1]}>
-                <td>{l[0]}</td>
-                <td className="num">{l[1]}</td>
-                <td className="num importar__valor">{l[2]}</td>
-                <td>{l[3]}</td>
+                {l.map((c, i) => (
+                  <td key={i} className={modelo.titulos[i].num ? (i === 1 ? "num" : "num importar__valor") : undefined}>
+                    {c}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <p className="importar__dica">
-        A linha de títulos é opcional (sem ela, vale a ordem acima). O nome pode ficar vazio: o sistema busca pelo CNPJ.{" "}
-        <button type="button" className="btn-texto" onClick={baixarModelo}>
+        <span className="legenda-obrigatorio">
+          <b aria-hidden="true">*</b> Obrigatório{locacao ? " (do imóvel: CEP e endereço, ou só o CIB)" : ""}.
+        </span>{" "}
+        A linha de títulos é opcional (sem ela, vale a ordem acima{locacao ? ", só para as 4 primeiras colunas" : ""}). O nome pode ficar vazio: o
+        sistema busca pelo CNPJ.{" "}
+        <button type="button" className="btn-texto" onClick={() => baixarModelo(locacao)}>
           Baixar modelo
         </button>
       </p>
