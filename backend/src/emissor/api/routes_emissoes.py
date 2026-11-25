@@ -166,9 +166,36 @@ def relatorio(
         )
     if not emissoes:
         raise HTTPException(400, "Nenhuma nota autorizada nos filtros escolhidos.")
-    linhas = relatorio_service.linhas(emissoes)
     periodo = f"{de:%Y%m%d}-{ate:%Y%m%d}" if de and ate else f"{datetime.now():%Y%m%d-%H%M}"
-    nome = f"notas-nfse-{periodo}"
+    return _planilha_notas(emissoes, f"notas-nfse-{periodo}", formato)
+
+
+class RelatorioEntrada(BaseModel):
+    ids: list[int] = Field(max_length=relatorio_service.MAX_NOTAS * 2)
+    formato: str = "xlsx"  # xlsx | csv
+
+
+@router.post("/emissoes/relatorio")
+def relatorio_selecionadas(entrada: RelatorioEntrada) -> Response:
+    """A mesma planilha, só das notas marcadas na lista (as que não têm XML ficam de fora)."""
+    if entrada.formato not in ("xlsx", "csv"):
+        raise HTTPException(400, "Formato deve ser xlsx ou csv.")
+    if not entrada.ids:
+        raise HTTPException(400, "Selecione ao menos uma nota.")
+    ids = list(dict.fromkeys(entrada.ids))
+    if len(ids) > relatorio_service.MAX_NOTAS:
+        raise HTTPException(400, f"Selecione no máximo {relatorio_service.MAX_NOTAS} notas por planilha.")
+    with sessao() as s:
+        emissoes = s.exec(
+            select(Emissao).where(Emissao.id.in_(ids), Emissao.status.in_(COM_ARQUIVOS)).order_by(Emissao.id)
+        ).all()
+    if not emissoes:
+        raise HTTPException(400, "Nenhuma das notas selecionadas foi autorizada.")
+    return _planilha_notas(emissoes, f"notas-nfse-selecionadas-{datetime.now():%Y%m%d-%H%M}", entrada.formato)
+
+
+def _planilha_notas(emissoes, nome: str, formato: str) -> Response:
+    linhas = relatorio_service.linhas(emissoes)
     if formato == "csv":
         return _anexo(f"{nome}.csv", relatorio_service.csv_bytes(linhas), "text/csv; charset=utf-8")
     return _anexo(

@@ -111,6 +111,18 @@ export function Emissoes({ admin = false, podeEmitir = true }: { admin?: boolean
     setTodoFiltro(false);
   }
 
+  async function excelSelecionadas() {
+    if (todoFiltro) return baixarNotas(); // "todas do filtro" marcadas: é a planilha do filtro
+    setBaixando("selecionadas");
+    try {
+      await baixar("/api/emissoes/relatorio", { ids: [...marcadas.keys()] });
+    } catch (e) {
+      toast((e as Error).message, "erro");
+    } finally {
+      setBaixando(null);
+    }
+  }
+
   async function baixarZip(conteudo: "xml" | "pdf" | "ambos") {
     if (todoFiltro) {
       // Download do próprio navegador: vai direto para o disco e mostra o progresso, mesmo com milhares de PDFs.
@@ -153,10 +165,10 @@ export function Emissoes({ admin = false, podeEmitir = true }: { admin?: boolean
             <button
               className="btn btn--pequeno"
               disabled={!!baixando}
-              title="Uma linha por nota deste filtro, com ISS, retenções e valor líquido"
+              title="Uma linha por nota de todo o filtro (todas as páginas), com ISS, retenções e valor líquido"
               onClick={baixarNotas}
             >
-              {baixando === "notas" && <Spinner />} Exportar notas (Excel)
+              {baixando === "notas" && <Spinner />} Excel de todo o filtro
             </button>
           </div>
         )}
@@ -236,6 +248,14 @@ export function Emissoes({ admin = false, podeEmitir = true }: { admin?: boolean
         </button>
         <button className="btn btn--pequeno" disabled={!comArquivos || !!baixando} onClick={() => baixarZip("pdf")}>
           {baixando === "pdf" && <Spinner />} Só PDF
+        </button>
+        <button
+          className="btn btn--pequeno"
+          disabled={!comArquivos || !!baixando}
+          title="Planilha só das notas selecionadas, com ISS, retenções e valor líquido"
+          onClick={excelSelecionadas}
+        >
+          {baixando === "selecionadas" && <Spinner />} Excel das selecionadas
         </button>
         <span className="barra__sep" />
         <button
