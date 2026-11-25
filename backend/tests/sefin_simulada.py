@@ -133,6 +133,9 @@ class SefinSimulada:
         self.fora_do_ar: bool = False  # 503 em tudo
         # (município, cTribNac) que a prefeitura não administra: E0312 na emissão e nada na parametrização.
         self.servicos_nao_administrados: set[tuple[str, str]] = set()
+        # (município, cTribNac) → cTribMun: a prefeitura cadastrou o serviço só com o desdobramento municipal
+        # (06.04.01.604 em Barretos, ADN real em 25/11/2026): ``.000`` responde 404 e outro desdobramento também.
+        self.so_desdobramento: dict[tuple[str, str], str] = {}
         # Parametrização do município no ADN (formato conferido no ADN real em 15/11/2026):
         # município → [(descrição, tiposRetencao, [cTribNac])] das retenções municipais
         self.retencoes: dict[str, list[tuple[str, list[int], list[str]]]] = {}
@@ -635,12 +638,18 @@ class SefinSimulada:
             },
         )
 
+    def _fora_do_cadastro(self, c_mun: str, c_trib: str, servico: str) -> bool:
+        desdobramento = self.so_desdobramento.get((c_mun, c_trib))
+        return (c_mun, c_trib) in self.servicos_nao_administrados or (
+            desdobramento is not None and servico[-3:] != desdobramento
+        )
+
     def _parametrizacao(self, c_mun: str, servico: str, competencia: str) -> httpx.Response:
         """Alíquota do serviço no município, como o ADN real: serviço ``17.19.01.000``, data ``AAAA-MM-DD``."""
         c_trib = self._servico9(servico)
         if c_trib is None or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", competencia):
             return self._mal_formada("aliquotas")
-        if (c_mun, c_trib) in self.servicos_nao_administrados:
+        if self._fora_do_cadastro(c_mun, c_trib, servico):
             return httpx.Response(
                 404, json={"mensagem": "Nenhuma alíquota encontrada para o serviço.", "aliquotas": None}
             )
@@ -651,7 +660,7 @@ class SefinSimulada:
         c_trib = self._servico9(servico)
         if c_trib is None:
             return self._mal_formada("aliquotas")
-        if (c_mun, c_trib) in self.servicos_nao_administrados:
+        if self._fora_do_cadastro(c_mun, c_trib, servico):
             return httpx.Response(404, json={"aliquotas": None, "mensagem": "Alíquotas não encontradas."})
         hist = self.historico_aliquotas.get((c_mun, c_trib)) or [(float(ALIQ_ISS), "2025-01-01", None)]
         lista = [

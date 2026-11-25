@@ -408,6 +408,8 @@ def servico(codigo: str) -> dict[str, Any]:
 
 class ConferirServico(BaseModel):
     c_trib_nac: str
+    # Código de tributação municipal (desdobramento, 3 dígitos): a prefeitura pode cadastrar só ele (06.04.01.604).
+    c_trib_mun: str | None = None
     c_loc_prestacao: str | None = None
     # Município do prestador ainda não salvo (onboarding); sem ele, o das configurações.
     c_mun_emissor: str | None = None
@@ -429,6 +431,7 @@ def conferir_servico(entrada: ConferirServico) -> dict[str, Any]:
         c_mun,
         somente_digitos(entrada.c_trib_nac) or "",
         somente_digitos(entrada.c_loc_prestacao) or None,
+        c_trib_mun=somente_digitos(entrada.c_trib_mun) or None,
         usar_cache=not entrada.forcar,
     )
     return {**c.as_dict(), "ambiente": cfg.amb.descricao}

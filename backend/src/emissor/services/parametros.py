@@ -95,14 +95,20 @@ def conferir(
     c_loc_prestacao: str | None = None,
     competencia: date | None = None,
     *,
+    c_trib_mun: str | None = None,
     client_factory: ClientFactory | None = None,
     usar_cache: bool = True,
 ) -> Conferencia:
-    """O município de incidência tem o serviço ``c_trib_nac`` cadastrado na competência (padrão: hoje)?"""
+    """O município de incidência tem o serviço ``c_trib_nac`` cadastrado na competência (padrão: hoje)?
+
+    Com ``c_trib_mun`` (desdobramento municipal, 3 dígitos) a consulta é a do código completo (``06.04.01.604``).
+    """
     competencia = competencia or agora().date()
     mes = f"{competencia:%m/%Y}"
     c_trib_nac = (c_trib_nac or "").strip()
-    servico = codes.formatar_c_trib_nac(c_trib_nac)
+    c_trib_mun = (c_trib_mun or "").strip()
+    c_trib_mun = c_trib_mun if c_trib_mun.isdigit() and len(c_trib_mun) == 3 and c_trib_mun != "000" else ""
+    servico = codes.formatar_c_trib_nac(c_trib_nac) + (f".{c_trib_mun}" if c_trib_mun else "")
     if not (c_trib_nac.isdigit() and len(c_trib_nac) == 6):
         return Conferencia(NAO_CONFERIDO, "Informe o código de tributação nacional (6 dígitos).", c_trib_nac)
     mun, motivo = municipio_incidencia(c_mun_emissor, c_trib_nac, c_loc_prestacao)
@@ -113,7 +119,7 @@ def conferir(
     if not ATIVA:
         base.mensagem = "Conferência com a prefeitura desligada."
         return base
-    chave = (ambiente.value, mun, c_trib_nac, mes)
+    chave = (ambiente.value, mun, c_trib_nac + c_trib_mun, mes)
     with _lock:
         guardada = _cache.get(chave)
     if usar_cache and guardada and guardada[0] > time.monotonic():
@@ -126,7 +132,7 @@ def conferir(
     fabrica = client_factory or SefinClient
     try:
         with fabrica(ambiente, cert) as client:
-            r = client.aliquota_municipal(mun, c_trib_nac, competencia)
+            r = client.aliquota_municipal(mun, c_trib_nac, competencia, c_trib_mun or None)
     except SefinError as err:
         log.warning("conferência do serviço na prefeitura falhou", extra={"c_mun": mun, "c_trib_nac": c_trib_nac})
         base.mensagem = f"Não foi possível conferir agora: {err.resumo}."
@@ -154,7 +160,12 @@ def conferir(
         res = Conferencia(
             NAO_ENCONTRADO,
             f"{onde} não tem o serviço {servico} cadastrado {sistema} para {mes}: a Sefin deve recusar a nota com "
-            "E0312. Confirme o código com a contabilidade ou com a prefeitura.",
+            "E0312. Confirme o código com a contabilidade ou com a prefeitura."
+            + (
+                ""
+                if c_trib_mun
+                else " Se a prefeitura usa código municipal para este serviço, informe-o na tributação."
+            ),
             c_trib_nac,
             mun,
             mes,
@@ -192,6 +203,7 @@ class Alvo:
     c_trib_nac: str
     c_loc_prestacao: str | None
     origem: str
+    c_trib_mun: str | None = None
     # Tributação completa (prestador incluído), para as regras da prefeitura (``regras_prefeitura``).
     cfg: ConfigFiscal | None = field(default=None, compare=False)
 
@@ -217,11 +229,15 @@ def alvos(
         if codes.sem_issqn(cfg.c_trib_nac):
             continue  # item 99 (locação de imóvel, sem ISSQN): a prefeitura não parametriza
         # O que muda as regras da prefeitura (retenção, benefício) separa as tributações; a consulta é a mesma.
-        chave = (cfg.c_trib_nac, cfg.c_loc_prestacao, cfg.c_pais_prestacao, cfg.trib_issqn, cfg.tp_ret_issqn,
+        chave = (cfg.c_trib_nac, cfg.c_trib_mun, cfg.c_loc_prestacao, cfg.c_pais_prestacao, cfg.trib_issqn, cfg.tp_ret_issqn,
                  cfg.n_bm, cfg.p_red_bcbm)  # fmt: skip
         if chave not in vistos:
             vistos[chave] = Alvo(
-                cfg.c_trib_nac, cfg.c_loc_prestacao, f"tributação “{nome}”" if nome else "tributação padrão", cfg
+                cfg.c_trib_nac,
+                cfg.c_loc_prestacao,
+                f"tributação “{nome}”" if nome else "tributação padrão",
+                cfg.c_trib_mun,
+                cfg,
             )
     return base.c_mun_emissor, list(vistos.values())
 
@@ -232,14 +248,14 @@ def avisos(ambiente: Ambiente, c_mun_emissor: str | None, lista: list[Alvo], ate
         return []
     res = []
     limite = ate if ate is not None else time.monotonic() + ORCAMENTO_VALIDACAO
-    vistos: set[tuple[str, str | None]] = set()
+    vistos: set[tuple[str, str | None, str | None]] = set()
     for a in lista:
-        if (a.c_trib_nac, a.c_loc_prestacao) in vistos:
+        if (a.c_trib_nac, a.c_trib_mun, a.c_loc_prestacao) in vistos:
             continue
-        vistos.add((a.c_trib_nac, a.c_loc_prestacao))
+        vistos.add((a.c_trib_nac, a.c_trib_mun, a.c_loc_prestacao))
         if time.monotonic() > limite:
             break
-        c = conferir(ambiente, c_mun_emissor, a.c_trib_nac, a.c_loc_prestacao)
+        c = conferir(ambiente, c_mun_emissor, a.c_trib_nac, a.c_loc_prestacao, c_trib_mun=a.c_trib_mun)
         if c.situacao == NAO_ENCONTRADO:
             res.append(f"{c.mensagem} ({a.origem})")
     return res

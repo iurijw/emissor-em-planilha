@@ -130,6 +130,16 @@ def test_aliquota_municipal_nao_encontrada_tenta_o_formato_alternativo(certifica
         assert c.aliquota_municipal("4205407", "080101", COMPETENCIA).aliquota == "2.00"
 
 
+def test_aliquota_municipal_pelo_desdobramento(certificado):
+    """Barretos (ADN real, 25/11/2026): 06.04.01.000 → 404, 06.04.01.604 → alíquota de 3%."""
+    corpo = {"aliquotas": {"06.04.01.604": [{"Incidencia": "SIM", "Aliq": 3.0, "DtIni": "2024-09-29T00:00:00"}]}}
+    urls: list[str] = []
+    with _client(certificado, [httpx.Response(200, json=corpo)], urls) as c:
+        r = c.aliquota_municipal("3505500", "060401", COMPETENCIA, "604")
+    assert r.encontrado is True and r.aliquota == "3.00"
+    assert urls == ["https://adn.producaorestrita.nfse.gov.br/parametrizacao/3505500/06.04.01.604/2026-10-27/aliquota"]
+
+
 @pytest.mark.parametrize(
     "resposta",
     [

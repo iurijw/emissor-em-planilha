@@ -494,13 +494,22 @@ function CampoNbs(props: {
  * Pergunta ao Sistema Nacional, com o certificado, o que a prefeitura cadastrou para o serviço (alíquota). Sem o
  * cadastro a Sefin recusa a nota (E0312). Só leitura; o servidor guarda a resposta por algumas horas.
  */
-function useConferencia(codigo: string, local: string | null, municipioPrestador?: string | null) {
+function useConferencia(
+  codigo: string,
+  local: string | null,
+  municipioPrestador?: string | null,
+  codigoMunicipal?: string | null,
+) {
   const [forcar, setForcar] = useState(false);
+  // A prefeitura pode cadastrar o serviço só com o desdobramento municipal (06.04.01.604): vai junto quando completo.
+  const digitosMun = (codigoMunicipal ?? "").replace(/\D/g, "");
+  const cTribMun = digitosMun.length === 3 ? digitosMun : "";
   const q = useQuery({
-    queryKey: ["conferir-servico", codigo, local ?? "", municipioPrestador ?? "", forcar],
+    queryKey: ["conferir-servico", codigo, cTribMun, local ?? "", municipioPrestador ?? "", forcar],
     queryFn: () =>
       api.post<ConferenciaServico>("/api/config/conferir-servico", {
         c_trib_nac: codigo,
+        c_trib_mun: cTribMun || null,
         c_loc_prestacao: local,
         c_mun_emissor: municipioPrestador || null,
         forcar,
@@ -520,6 +529,8 @@ function useRegrasPrefeitura(valor: DadosTributacao, municipioPrestador?: string
   const n_bm = valor.n_bm && /^\d{14}$/.test(valor.n_bm) ? valor.n_bm : null;
   const tributacao = {
     c_trib_nac: valor.c_trib_nac,
+    // Desdobramento municipal (06.04.01.604): o ADN guarda alíquotas e regimes por ele.
+    c_trib_mun: /^\d{3}$/.test(valor.c_trib_mun ?? "") ? valor.c_trib_mun : null,
     c_loc_prestacao: valor.c_loc_prestacao,
     c_pais_prestacao: valor.c_pais_prestacao,
     trib_issqn: valor.trib_issqn,
@@ -746,7 +757,7 @@ export function CamposTributacao({
 }) {
   const op = useOpcoes().data;
   const servico = useServico(valor.c_trib_nac).data;
-  const prefeitura = useConferencia(valor.c_trib_nac, valor.c_loc_prestacao, municipioPrestador);
+  const prefeitura = useConferencia(valor.c_trib_nac, valor.c_loc_prestacao, municipioPrestador, valor.c_trib_mun);
   const conferencia = prefeitura.data;
   const regrasPrefeitura = useRegrasPrefeitura(valor, municipioPrestador);
   const set = <K extends keyof DadosTributacao>(k: K, v: DadosTributacao[K]) => onChange({ ...valor, [k]: v });
@@ -1644,7 +1655,7 @@ export function ValoresDaNota({
   /** Dedução/redução da base do ISSQN, em R$. */
   ajuste?: number;
 }) {
-  const conferencia = useConferencia(tributacao.c_trib_nac, tributacao.c_loc_prestacao).data;
+  const conferencia = useConferencia(tributacao.c_trib_nac, tributacao.c_loc_prestacao, null, tributacao.c_trib_mun).data;
   const incide = tributacao.trib_issqn === "1";
   const aliquotaPrefeitura = conferencia?.situacao === "encontrado" ? conferencia.aliquota : null;
   const aliquotaIss = !incide ? null : issExigeAliquota(regime, tributacao) ? tributacao.p_aliq_iss : aliquotaPrefeitura;
