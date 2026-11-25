@@ -292,9 +292,12 @@ def concluir_onboarding(entrada: ConcluirOnboarding, admin: AdminEmpresa) -> dic
         cfg.onboarding_concluido = True
         s.add(cfg)
         if entrada.linhas and not s.exec(select(LinhaTabela)).first():
+            # Já na primeira aba: sem ela, as consultas da tela que chegam juntas criavam duas abas "Notas".
+            aba_id = trib_service.garantir_abas(s)[0].id
             for i, ln in enumerate(entrada.linhas):
                 s.add(
                     LinhaTabela(
+                        aba_id=aba_id,
                         ordem=i,
                         nome=str(ln.get("nome") or ""),
                         documento=normalizar_documento(str(ln.get("documento") or "")) or "",

@@ -567,7 +567,12 @@ XSD `v1_01_nt009`, Anexo I da Produção Restrita (2026-10-20, aba RN DPS_NFS-e)
 - **Planilha:** `linha_tabela.locacao_json` (dicionário com as chaves de `locacao.CAMPOS`, texto como digitado). Na aba
   cuja tributação é 99.03 a grade mostra as colunas do imóvel depois das de sempre (não entram na ordem das colunas do
   usuário) e a exportação as inclui; a importação reconhece os títulos e sinônimos (`SINONIMOS`). O lote copia a locação
-  da linha para `emissao.nota_json`.
+  da linha para `emissao.nota_json`. Ordem das colunas (2026-11-25, pedido do Iuri): CEP, endereço, número, bairro,
+  complemento, IPTU, condomínio, vencimento, copropriedade, valor total, inscrição, CIB, emolumentos, redutor social,
+  outras (`CAMPOS` e `COLUNAS_LOCACAO` em `Emitir.tsx`, sempre antes de "Última emissão"). Colunas obrigatórias
+  (CNPJ/CPF, Valor, Descrição, CEP e endereço do imóvel) com asterisco vermelho no título (`drawHeader`); a importação
+  ignora o asterisco nos títulos. O modelo da importação ("Baixar modelo") e a prévia do diálogo têm as mesmas colunas
+  da exportação da aba (com as do imóvel na aba de aluguel).
 - **Nota avulsa:** `DadosNota.locacao` (`components/LocacaoImovel.tsx`, seção "Imóvel e locação"); copiar uma nota de
   aluguel traz o imóvel junto. Na tela de tributação, escolher um 99.03 liga IBS/CBS, põe `tribISSQN 4` e cIndOp 020101.
 - **Onboarding** (`locacao.de_nfse`): a tributação vem das notas de aluguel como as outras (99.03, tribISSQN 4, cIndOp

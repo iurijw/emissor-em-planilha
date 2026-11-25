@@ -27,18 +27,20 @@ AJUSTES = (("iptu", "01"), ("emolumentos", "02"), ("condominio", "03"), ("reduto
 
 # Chave → rótulo (colunas da planilha e mensagens).
 CAMPOS = {
+    # Na ordem das colunas (planilha e tela): o imóvel (obrigatório: CEP e endereço, ou o CIB), as parcelas mais comuns
+    # e o resto.
     "cep": "CEP do imóvel",
     "logradouro": "Endereço do imóvel",
     "numero": "Nº do imóvel",
-    "complemento": "Complemento do imóvel",
     "bairro": "Bairro do imóvel",
-    "insc_imob_fisc": "Inscrição imobiliária",
-    "c_cib": "CIB",
-    "p_copropriedade": "% copropriedade",
-    "v_tot_oper": "Valor total do aluguel",
-    "venc": "Vencimento",
+    "complemento": "Complemento do imóvel",
     "iptu": "IPTU",
     "condominio": "Condomínio",
+    "venc": "Vencimento",
+    "p_copropriedade": "% copropriedade",
+    "v_tot_oper": "Valor total do aluguel",
+    "insc_imob_fisc": "Inscrição imobiliária",
+    "c_cib": "CIB",
     "emolumentos": "Emolumentos",
     "redutor_social": "Redutor social",
     "outras": "Outras parcelas",

@@ -16,10 +16,19 @@ from openpyxl.utils import get_column_letter
 from emissor.nfse import locacao as loc_imovel
 from emissor.nfse.models import normalizar_documento
 
-COLUNAS = ["Nome", "CNPJ/CPF", "Valor", "Descrição"]
+COLUNAS = ["Nome do cliente", "CNPJ/CPF", "Valor", "Descrição"]
 
 _SINONIMOS = {
-    "nome": ("nome", "empresa", "razao social", "razão social", "cliente", "tomador", "nome da empresa"),
+    "nome": (
+        "nome",
+        "empresa",
+        "razao social",
+        "razão social",
+        "cliente",
+        "tomador",
+        "nome da empresa",
+        "nome do cliente",
+    ),
     "documento": ("cnpj", "cpf", "cnpj/cpf", "cpf/cnpj", "documento", "cnpj cpf"),
     "valor": ("valor", "valor (r$)", "valor r$", "preco", "preço", "total", "honorarios", "honorários"),
     "descricao": ("descricao", "descrição", "servico", "serviço", "descricao do servico", "discriminacao"),
@@ -74,7 +83,8 @@ class ResultadoImportacao:
 
 
 def _norm(s: str) -> str:
-    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
+    """Sem acento, sem caixa e sem o asterisco de campo obrigatório ("CNPJ/CPF *")."""
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower().replace("*", "")
     return re.sub(r"\s+", " ", s).strip()
 
 
