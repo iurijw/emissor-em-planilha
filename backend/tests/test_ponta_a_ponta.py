@@ -1336,6 +1336,24 @@ def test_locacao_de_imoveis_na_planilha_e_na_avulsa(api, sim, pfx_bytes, nfse_ex
     segunda = next(ln for ln in rel if ln["CNPJ/CPF"] == formatar_documento(TOMADOR_CPF))
     assert segunda["Copropriedade (%)"] == 50
 
+    # Onboarding com as notas de aluguel: a tributação e o imóvel de cada nota vêm para a tabela sugerida.
+    xmls = [
+        ("arquivos", (f"{x['id']}.xml", api.get(f"/api/emissoes/{x['id']}/xml").content, "application/xml"))
+        for x in (lote["emissoes"][0], e)
+    ]
+    r = api.post("/api/onboarding/xmls", files=xmls).json()
+    assert r["fiscal"]["c_trib_nac"] == "990301" and r["fiscal"]["trib_issqn"] == "4"
+    assert r["fiscal"]["ibscbs"] and r["fiscal"]["ibscbs_c_ind_op"] == "020101"
+    sugeridas = {ln["documento"]: ln["locacao"] for ln in r["linhas_sugeridas"]}
+    assert sugeridas[TOMADOR_CNPJ]["cep"] == "88010400" and sugeridas[TOMADOR_CNPJ]["iptu"] == "150,00"
+    assert sugeridas[TOMADOR_CPF] == {
+        "c_cib": "12345678",
+        "p_copropriedade": "50,00",
+        "v_tot_oper": "3000,00",
+        "condominio": "200,00",
+        "c_mun": sugeridas[TOMADOR_CPF]["c_mun"],
+    }
+
 
 def test_todas_as_rotas(api, sim, chamadas, pfx_bytes, nfse_exemplo_bytes):
     """Chama cada rota da API pelo menos uma vez num uso completo; rota nova sem teste faz este teste falhar."""

@@ -29,6 +29,8 @@ from emissor.nfse.constants import SERIE_API_MAX, SERIE_API_MIN, Ambiente
 from emissor.nfse.documentos import cnpj_valido, formatar_documento
 from emissor.nfse.dps_builder import id_dps
 from emissor.nfse.errors import SefinError
+from emissor.nfse.locacao import de_nfse as locacao_de_nfse
+from emissor.nfse.locacao import limpar as limpar_locacao
 from emissor.nfse.models import (
     CAMPOS_TRIBUTACAO,
     ConfigFiscal,
@@ -155,12 +157,20 @@ async def importar_xmls(_admin: AdminEmpresa, arquivos: list[UploadFile] = File(
                 continue
             c = cli_service.upsert(s, cli_service.de_tomador(t, "xml"))
             clientes.append(c)
-            # Sugestão de tabela: última nota de cada cliente (valor e descrição mais recentes).
-            linhas[c.documento] = {
+            # Sugestão de tabela: última nota de cada cliente (valor e descrição mais recentes). Na locação, uma linha
+            # por imóvel do cliente, com os dados do imóvel.
+            loc = locacao_de_nfse(d)
+            imovel = (
+                (loc or {}).get("c_cib")
+                or (loc or {}).get("insc_imob_fisc")
+                or (f"{(loc or {}).get('cep', '')} {(loc or {}).get('logradouro', '')} {(loc or {}).get('numero', '')}")
+            )
+            linhas[(c.documento, imovel if loc else "")] = {
                 "nome": t.nome,
                 "documento": c.documento,
                 "valor": f"{d.valor_servico:.2f}",
                 "descricao": d.dps("serv/cServ/xDescServ") or "",
+                "locacao": loc,
             }
         s.commit()
     log.info("XMLs importados no onboarding", extra={"qtd": len(docs), "erros": len(erros), "clientes": len(linhas)})
@@ -290,6 +300,9 @@ def concluir_onboarding(entrada: ConcluirOnboarding, admin: AdminEmpresa) -> dic
                         documento=normalizar_documento(str(ln.get("documento") or "")) or "",
                         valor=str(ln.get("valor") or ""),
                         descricao=str(ln.get("descricao") or ""),
+                        locacao_json=json.dumps(loc, ensure_ascii=False)
+                        if (loc := limpar_locacao(ln.get("locacao") if isinstance(ln.get("locacao"), dict) else None))
+                        else None,
                     )
                 )
         s.commit()
