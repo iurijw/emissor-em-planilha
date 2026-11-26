@@ -233,7 +233,8 @@ def test_producao_passa_a_nt009_em_01_12_2026(dps_input):
     depois = datetime(2026, 12, 1, 0, 0, 0, tzinfo=sp)
     assert leiaute(Ambiente.PRODUCAO, antes) == "v1_01"
     assert leiaute(Ambiente.PRODUCAO, depois) == "v1_01_nt009"
-    assert leiaute(Ambiente.HOMOLOGACAO, antes) == "v1_01_nt009"
+    assert leiaute(Ambiente.HOMOLOGACAO, datetime(2026, 11, 24, 23, 59, tzinfo=sp)) == "v1_01_nt009"
+    assert leiaute(Ambiente.HOMOLOGACAO, antes) == "v1_01_nt009_20261124"
 
     inp = replace(dps_input, ambiente=Ambiente.PRODUCAO)
     velha = build_dps(replace(inp, dh_emi=antes))
@@ -589,3 +590,57 @@ def test_locacao_recusada_sem_os_dados_ou_fora_da_nt009(dps_input):
         build_dps(_locacao(dps_input, {"c_cib": "12345678", "redutor_social": "600"}))
     with pytest.raises(DpsBuildError, match="E0932"):
         build_dps(_com_ibscbs(dps_input, ibscbs_c_ind_op="020101", ibscbs_c_class_trib="000001"))
+
+
+def test_homologacao_no_pacote_de_24_11_2026(dps_input, certificado):
+    """Produção Restrita desde 25/11/2026: indDest (obrigatório) e dest em infDPS, logo depois de toma."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    quando = datetime(2026, 11, 26, 9, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    inp = replace(dps_input, dh_emi=quando)
+    sem = build_dps(inp).find(f"{N}infDPS")
+    nomes = [etree.QName(e).localname for e in sem]
+    assert nomes[nomes.index("toma") + 1] == "indDest" and sem.findtext(f"{N}indDest") == "0"
+    novo = validar_dps(sem.getparent(), leiaute="v1_01_nt009_20261124")
+    assert [e for e in novo if "Signature" not in e.mensagem] == []
+    # a DPS do pacote de 20/10 não passa mais no XSD novo (o erro que a Sefin passou a dar)
+    velha = build_dps(dps_input)
+    assert any("indDest" in e.mensagem for e in validar_dps(velha, leiaute="v1_01_nt009_20261124"))
+
+    com = _com_ibscbs(inp)
+    dps = build_dps(com)
+    inf = dps.find(f"{N}infDPS")
+    assert inf.find(f"{N}IBSCBS/{N}indDest") is None and inf.findtext(f"{N}indDest") == "0"
+    _, xml = preparar_dps(com, certificado)
+    assert b"<indDest>0</indDest><serv>" in xml.replace(b"\n", b"")
+
+
+def test_exportacao_no_pacote_de_24_11_2026(dps_input, certificado):
+    """comExt do pacote de 24/11/2026: vFatura no lugar de vServMoeda e DU-E (14) no lugar do RE."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from emissor.nfse.models import DadosNota
+
+    externo = {
+        "nif": "98-7654321",
+        "nome": "EXAMPLE LLC",
+        "c_pais": "US",
+        "c_end_post": "10001",
+        "cidade": "NY",
+        "estado": "NY",
+        "logradouro": "5th Avenue",
+        "numero": "100",
+        "bairro": "Manhattan",
+    }
+    quando = datetime(2026, 11, 26, 9, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    nota = DadosNota(tomador_exterior=externo, v_serv_moeda=Decimal("90.00"), n_re="26BR0000000011")
+    cfg = replace(dps_input.config, trib_issqn="3", c_pais_result="US", cst_pis_cofins=None, **COMEX)
+    inp = replace(dps_input, dh_emi=quando, config=cfg, nota=nota, tomador=nota.tomador())
+    _, xml = preparar_dps(inp, certificado)
+    c = etree.fromstring(xml).find(f"{N}infDPS/{N}serv/{N}comExt")
+    assert c.findtext(f"{N}vFatura") == "90.00" and c.find(f"{N}vServMoeda") is None
+    assert c.findtext(f"{N}nDUE") == "26BR0000000011"
+    with pytest.raises(DpsBuildError, match="DU-E"):
+        build_dps(replace(inp, nota=replace(nota, n_re="123456789012")))

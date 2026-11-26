@@ -1,8 +1,8 @@
 """Validação local contra os XSD oficiais v1.01 (ver ``xsd/*/LEIAME.txt``).
 
-A NT 009 (``xsd/v1_01_nt009``) vale na Produção Restrita desde 20/10/2026 e na Produção a partir de 01/12/2026; antes
-disso vale o leiaute anterior (``xsd/v1_01``). O leiaute de cada documento sai do seu ``tpAmb`` e da sua data
-(``leiaute()``).
+A NT 009 (``xsd/v1_01_nt009``) vale na Produção Restrita desde 20/10/2026 (desde 25/11/2026 no pacote
+``xsd/v1_01_nt009_20261124``) e na Produção a partir de 01/12/2026; antes disso vale o leiaute anterior
+(``xsd/v1_01``). O leiaute de cada documento sai do seu ``tpAmb`` e da sua data (``leiaute()``).
 """
 
 from __future__ import annotations
