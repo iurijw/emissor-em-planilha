@@ -234,7 +234,8 @@ def test_producao_passa_a_nt009_em_01_12_2026(dps_input):
     assert leiaute(Ambiente.PRODUCAO, antes) == "v1_01"
     assert leiaute(Ambiente.PRODUCAO, depois) == "v1_01_nt009"
     assert leiaute(Ambiente.HOMOLOGACAO, datetime(2026, 11, 24, 23, 59, tzinfo=sp)) == "v1_01_nt009"
-    assert leiaute(Ambiente.HOMOLOGACAO, antes) == "v1_01_nt009_20261124"
+    # a Produção Restrita recusou o pacote de 24/11 em 26/11/2026 (E1235 com indDest em infDPS)
+    assert leiaute(Ambiente.HOMOLOGACAO, antes) == "v1_01_nt009"
 
     inp = replace(dps_input, ambiente=Ambiente.PRODUCAO)
     velha = build_dps(replace(inp, dh_emi=antes))
@@ -592,7 +593,15 @@ def test_locacao_recusada_sem_os_dados_ou_fora_da_nt009(dps_input):
         build_dps(_com_ibscbs(dps_input, ibscbs_c_ind_op="020101", ibscbs_c_class_trib="000001"))
 
 
-def test_homologacao_no_pacote_de_24_11_2026(dps_input, certificado):
+@pytest.fixture
+def pacote_20261124(monkeypatch):
+    """Homologação no pacote de 24/11/2026 (publicado, mas recusado pela Produção Restrita em 26/11/2026)."""
+    from emissor.nfse import constants
+
+    monkeypatch.setattr(constants, "LEIAUTE_NT009_HOMOLOGACAO", constants.LEIAUTE_NT009_20261124)
+
+
+def test_homologacao_no_pacote_de_24_11_2026(dps_input, certificado, pacote_20261124):
     """Produção Restrita desde 25/11/2026: indDest (obrigatório) e dest em infDPS, logo depois de toma."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -606,6 +615,7 @@ def test_homologacao_no_pacote_de_24_11_2026(dps_input, certificado):
     assert [e for e in novo if "Signature" not in e.mensagem] == []
     # a DPS do pacote de 20/10 não passa mais no XSD novo (o erro que a Sefin passou a dar)
     velha = build_dps(dps_input)
+    velha.find(f"{N}infDPS").remove(velha.find(f"{N}infDPS/{N}indDest"))
     assert any("indDest" in e.mensagem for e in validar_dps(velha, leiaute="v1_01_nt009_20261124"))
 
     com = _com_ibscbs(inp)
@@ -616,7 +626,7 @@ def test_homologacao_no_pacote_de_24_11_2026(dps_input, certificado):
     assert b"<indDest>0</indDest><serv>" in xml.replace(b"\n", b"")
 
 
-def test_exportacao_no_pacote_de_24_11_2026(dps_input, certificado):
+def test_exportacao_no_pacote_de_24_11_2026(dps_input, certificado, pacote_20261124):
     """comExt do pacote de 24/11/2026: vFatura no lugar de vServMoeda e DU-E (14) no lugar do RE."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
