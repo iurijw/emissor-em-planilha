@@ -238,9 +238,14 @@ def _fluxo_api_v1(api, sim) -> None:
     import hmac
     import json as json_
 
+    from emissor.api import docs_v1
     from emissor.services import webhooks
 
     recebidos: list[httpx.Request] = []
+
+    def mesmas_chaves(resposta: dict, exemplo: dict) -> None:
+        """Os exemplos de /api/v1/docs têm de ter as mesmas chaves das respostas de verdade."""
+        assert set(resposta) == set(exemplo), (sorted(set(resposta) ^ set(exemplo)), resposta)
 
     def destino(req: httpx.Request) -> httpx.Response:
         recebidos.append(req)
@@ -266,9 +271,25 @@ def _fluxo_api_v1(api, sim) -> None:
         assert anonimo.get("/api/status", headers=h).status_code == 401
         assert anonimo.get("/api/v1/openapi.json").status_code == 200
         assert anonimo.get("/api/v1/docs").status_code == 200
+        doc = anonimo.get("/api/v1/openapi.json").json()
+    for caminho, ops in doc["paths"].items():
+        for metodo, op in ops.items():
+            sucesso = next(v for k, v in op["responses"].items() if k.startswith("2"))
+            tipos = sucesso.get("content", {})
+            assert op.get("description") or caminho.endswith(("/xml", "/pdf")) or metodo == "get", (metodo, caminho)
+            assert any("example" in t or "examples" in t for t in tipos.values()) or caminho.endswith(
+                ("/xml", "/pdf")
+            ), f"{metodo} {caminho} sem exemplo de resposta"
+            if "requestBody" in op:
+                assert "examples" in op["requestBody"]["content"]["application/json"], f"{metodo} {caminho}"
+    assert set(doc["webhooks"]) == set(webhooks.EVENTOS)
+    exemplo = doc["paths"]["/api/v1/notas"]["post"]["responses"]["202"]["content"]["application/json"]["example"]
+    assert exemplo["numero_nfse"] is None  # o FastAPI tira as chaves None; docs_v1.ajustar põe de volta
+    assert "HTTPValidationError" not in str(doc)
 
     emp = ok(api.get("/api/v1/empresa", headers=h)).json()
     assert emp["pronta_para_emitir"] is True and emp["ambiente_token"] == "homologacao", emp
+    mesmas_chaves(emp, docs_v1.EMPRESA)
     ok(api.get("/api/v1/tributacoes", headers=h))
 
     wh = ok(
@@ -288,17 +309,21 @@ def _fluxo_api_v1(api, sim) -> None:
     nota = {"documento": TOMADOR_CPF, "nome": "P", "valor": "7,50", "descricao": "Cobrança {mes}"}
     v = ok(api.post("/api/v1/notas/validar", json=nota, headers=h)).json()
     assert v["pode_emitir"] is True, v
+    mesmas_chaves(v, docs_v1.VALIDACAO_OK)
     criada = ok(api.post("/api/v1/notas", json=nota | {"referencia_externa": "cob_1"}, headers=h), 202).json()
     assert criada["status"] == "pendente" and criada["repetida"] is False
+    mesmas_chaves(criada, docs_v1.NOTA_PENDENTE | {"repetida": False})
     repetida = ok(api.post("/api/v1/notas", json=nota, headers=h | {"Idempotency-Key": "cob_1"})).json()
     assert repetida["id"] == criada["id"] and repetida["repetida"] is True
     api.worker.processar_lote(criada["lote_id"])
     n = ok(api.get(f"/api/v1/notas/{criada['id']}", headers=h)).json()
     assert n["status"] == "autorizada" and n["numero_nfse"] and n["origem"].startswith("api:"), n
+    mesmas_chaves(n, docs_v1.NOTA_AUTORIZADA)
     ok(api.get(f"/api/v1/notas/{n['id']}/xml", headers=h))
     assert ok(api.get(f"/api/v1/notas/{n['id']}/pdf", headers=h)).content.startswith(b"%PDF")
     lista = ok(api.get("/api/v1/notas", params={"referencia_externa": "cob_1"}, headers=h)).json()
     assert [i["id"] for i in lista["itens"]] == [n["id"]]
+    mesmas_chaves(lista, {"itens": [], "total": 0, "pagina": 1, "por_pagina": 50})
 
     lote = ok(
         api.post(
@@ -308,6 +333,7 @@ def _fluxo_api_v1(api, sim) -> None:
         ),
         202,
     ).json()
+    mesmas_chaves(lote, docs_v1.LOTE)
     ok(api.post("/api/v1/lotes", json={"notas": [nota | {"referencia_externa": "cob_2"}]}, headers=h), 409)
     api.worker.processar_lote(lote["id"])
     assert ok(api.get(f"/api/v1/lotes/{lote['id']}", headers=h)).json()["contagem"] == {"autorizada": 2}
@@ -321,6 +347,7 @@ def _fluxo_api_v1(api, sim) -> None:
         esperado = hmac.new(segredo.encode(), f"{t}.{r.content.decode()}".encode(), hashlib.sha256).hexdigest()
         assert hmac.compare_digest(v1, esperado)
         assert json_.loads(r.content)["id"] == r.headers["X-Emissor-Entrega"]
+        mesmas_chaves(json_.loads(r.content), docs_v1.EVENTO_WEBHOOK)
     entregas = ok(api.get(f"/api/integracoes/webhooks/{wh['id']}/entregas")).json()
     assert {e["status"] for e in entregas} == {"entregue"}
     ok(api.post(f"/api/integracoes/entregas/{entregas[0]['id']}/reenviar"))
@@ -335,14 +362,18 @@ def _fluxo_api_v1(api, sim) -> None:
         )
     ).json()
     assert c["status"] == "cancelada"
+    mesmas_chaves(c, docs_v1.NOTA_AUTORIZADA | {"aviso": None})
     ok(api.put(f"/api/v1/clientes/{TOMADOR_CPF}", json={"nome": "Pessoa Teste"}, headers=h))
-    assert ok(api.get(f"/api/v1/clientes/{TOMADOR_CPF}", headers=h)).json()["nome"] == "Pessoa Teste"
+    cli = ok(api.get(f"/api/v1/clientes/{TOMADOR_CPF}", headers=h)).json()
+    assert cli["nome"] == "Pessoa Teste"
+    mesmas_chaves(cli, docs_v1.CLIENTE)
     w = ok(
         api.post(
             "/api/v1/webhooks", json={"url": "https://exemplo.com.br/x", "eventos": ["nota.cancelada"]}, headers=h
         ),
         201,
     ).json()
+    mesmas_chaves(w, docs_v1.WEBHOOK | {"segredo": ""})
     assert [x["id"] for x in ok(api.get("/api/v1/webhooks", headers=h)).json()] == [w["id"]]
     ok(api.delete(f"/api/v1/webhooks/{w['id']}", headers=h))
 

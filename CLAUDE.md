@@ -720,6 +720,12 @@ Plano: https://claude.ai/artifact/XUXxFhdRMq8K9LGgRzVejU. Camada fina e versiona
   é ignorado. `Acesso` ganhou `token_id`, `escopos` e `ambiente_token`; o e-mail na auditoria é `token:<nome>`.
   Limites em memória: 60 req/min por token (429 com `Retry-After`) e 1.000 notas/dia (`EMISSOR_API_LIMITE_MINUTO`,
   `EMISSOR_API_LIMITE_NOTAS_DIA`). Suspensão da hospedagem vale igual (`exigir_login`).
+- **Documentação** (`api/docs_v1.py`, 2026-11-26, pedido do Iuri): texto de abertura (primeiros passos com curl,
+  permissões, situações, erros, assinatura do webhook em Python), descrição de cada campo (inclusive `AvulsaEntrada`),
+  pedidos de exemplo escolhíveis e respostas de exemplo por código (modelos só de documentação em `responses=`) e a
+  seção `webhooks` do OpenAPI (um item por evento). Só dados fictícios. O FastAPI tira as chaves `None` dos exemplos:
+  `ajustar` as põe de volta e troca o 422 padrão (`detail`) pelo nosso (`mensagem`). O teste ponta a ponta confere que
+  as chaves dos exemplos são as das respostas reais: mudou uma resposta, mude o exemplo.
 - **Ambiente:** emitir e cancelar com token de outro ambiente que o da empresa → 409; consultas só veem notas do
   ambiente do token.
 - **Notas:** `POST /notas` (mesmos campos da nota avulsa + `referencia_externa`, ou o cabeçalho `Idempotency-Key`) →

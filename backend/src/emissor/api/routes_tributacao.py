@@ -9,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import func, select
 
 from emissor import auth
@@ -337,38 +337,114 @@ def excluir_aba(aba_id: int, acesso: UsuarioAtual) -> dict[str, bool]:
 
 
 class AvulsaEntrada(BaseModel):
-    nome: str = ""
-    documento: str = ""
-    valor: str | float | None = ""
-    descricao: str = ""
-    tributacao_id: int | None = None  # tributação predefinida
-    tributacao: dict[str, Any] | None = None  # tributação só desta nota (completa, partindo dos padrões)
+    """Uma nota: tomador, valor, descrição e, se precisar, a tributação e os dados que valem só para ela.
+
+    As descrições abaixo aparecem na documentação da API (``/api/v1/docs``) e na da tela (``/docs``).
+    """
+
+    nome: str = Field(
+        "",
+        description="Nome ou razão social do tomador. Pode ficar vazio se o CNPJ/CPF já está no cadastro de "
+        "clientes (vale o nome do cadastro) ou se o CNPJ é encontrado na Receita.",
+        examples=["Cliente Exemplo Ltda"],
+    )
+    documento: str = Field(
+        "",
+        description="CNPJ ou CPF do tomador, com ou sem pontuação (CNPJ alfanumérico aceito). O endereço da nota vem "
+        "do cadastro de clientes; CNPJ sem cadastro é buscado na Receita na hora. Deixe vazio só com "
+        "`tomador_exterior`.",
+        examples=["11.222.333/0001-81"],
+    )
+    valor: str | float | None = Field(
+        "",
+        description='Valor do serviço em R$. Aceita número (`1500.5`) ou texto (`"1500,50"`, `"1.500,50"`, '
+        '`"1500.50"`). Não use vírgula como separador de milhar: `"1,500.00"` é lido como R$ 1,50.',
+        examples=["1500,00"],
+    )
+    descricao: str = Field(
+        "",
+        description="Descrição do serviço (vai na nota como está). Aceita as variáveis da tabela, trocadas pela data "
+        "da emissão: `{mes}`, `{mes_numero}`, `{ano}`, `{competencia}`, `{mes_anterior}`, `{mes_anterior_numero}`, "
+        "`{ano_mes_anterior}`, `{competencia_anterior}` e `{data}`. Texto entre chaves que não seja variável "
+        "recusa a nota.",
+        examples=["Honorários contábeis de {mes_anterior}/{ano_mes_anterior}"],
+    )
+    tributacao_id: int | None = Field(
+        None,
+        description="Id de uma tributação predefinida (lista em `GET /tributacoes`). Vazio = tributação padrão da "
+        "empresa. Não envie junto com `tributacao`.",
+        examples=[3],
+    )
+    tributacao: dict[str, Any] | None = Field(
+        None,
+        description="Tributação só desta nota, com os campos de *Configurações → Tributações* (ex.: `c_trib_nac`, "
+        "`c_nbs`, `tp_ret_issqn`, `p_ret_irrf`). Os campos que faltarem vêm da tributação padrão. Prefira cadastrar "
+        "a tributação na tela e usar `tributacao_id`.",
+        examples=[{"c_trib_nac": "171901", "tp_ret_issqn": "2", "p_aliq_iss": "2.00"}],
+    )
     # Só desta nota: informações complementares e descontos (valores em R$, como o valor)
-    x_inf_comp: str | None = None
-    x_ped: str | None = None
-    itens_pedido: list[str] | None = None
-    v_desc_incond: str | float | None = None
-    v_desc_cond: str | float | None = None
+    x_inf_comp: str | None = Field(
+        None, description="Informações complementares impressas na nota (até 2.000 caracteres, sem quebra de linha)."
+    )
+    x_ped: str | None = Field(None, description="Número do pedido ou da ordem de compra do tomador.")
+    itens_pedido: list[str] | None = Field(None, description="Itens do pedido (até 99).")
+    v_desc_incond: str | float | None = Field(
+        None, description="Desconto incondicionado em R$: reduz a base de cálculo do ISSQN e dos tributos."
+    )
+    v_desc_cond: str | float | None = Field(
+        None, description="Desconto condicionado em R$ (ex.: pagamento antecipado): só reduz o valor líquido."
+    )
     # Tomador no exterior (no lugar de documento/nome): nif ou c_nao_nif, nome, c_pais, c_end_post, cidade, estado,
     # logradouro, numero, complemento, bairro, email, fone
-    tomador_exterior: dict[str, str | None] | None = None
-    v_serv_moeda: str | float | None = None  # comércio exterior: valor na moeda estrangeira
-    n_di: str | None = None
-    n_re: str | None = None
+    tomador_exterior: dict[str, str | None] | None = Field(
+        None,
+        description="Tomador no exterior, no lugar de `documento`: `nif` (ou `c_nao_nif`: 1 = dispensado, 2 = não exigido), "
+        "`nome`, `c_pais` (ISO, ex. `US`), `c_end_post`, `cidade`, `estado`, `logradouro`, `numero`, `complemento`, "
+        "`bairro`, `email`, `fone`. Não entra no cadastro de clientes.",
+    )
+    v_serv_moeda: str | float | None = Field(
+        None, description="Comércio exterior: valor do serviço na moeda estrangeira da tributação."
+    )
+    n_di: str | None = Field(None, description="Comércio exterior: número da declaração de importação.")
+    n_re: str | None = Field(None, description="Comércio exterior: número do registro de exportação.")
     # Dedução/redução da base do ISSQN: percentual (texto "10,5") ou valor em R$
-    ajuste_bc_p: str | float | None = None
-    ajuste_bc_v: str | float | None = None
+    ajuste_bc_p: str | float | None = Field(None, description="Dedução/redução da base do ISSQN em percentual.")
+    ajuste_bc_v: str | float | None = Field(None, description="Dedução/redução da base do ISSQN em R$.")
     # Obra (construção civil) e atividade/evento (item 12): ver DadosNota
-    obra: dict[str, str | None] | None = None
-    evento: dict[str, str | None] | None = None
+    obra: dict[str, str | None] | None = Field(
+        None,
+        description="Obra de construção civil (obrigatória nesses serviços): `insc_imob_fisc` e um de `c_obra` "
+        "(CNO/CEI), `c_cib` ou o endereço (`cep`, `logradouro`, `numero`, `complemento`, `bairro`).",
+    )
+    evento: dict[str, str | None] | None = Field(
+        None,
+        description="Atividade ou evento (serviços do item 12): `nome`, `dt_ini`, `dt_fim` (AAAA-MM-DD) e "
+        "`id_atv_evt` ou o endereço (como o da obra).",
+    )
     # Intermediário e destinatário (IBS/CBS) diferente do tomador; chaves de NFS-e referenciadas (tpOper 2/3)
-    intermediario: dict[str, str | None] | None = None
-    destinatario: dict[str, str | None] | None = None
-    ref_nfse: list[str] | None = None
+    intermediario: dict[str, str | None] | None = Field(
+        None,
+        description="Intermediário do serviço: `documento`, `nome`, `im`, `c_mun`, `cep`, `logradouro`, `numero`, "
+        "`complemento`, `bairro`, `email`, `fone` (CNPJ exige o endereço).",
+    )
+    destinatario: dict[str, str | None] | None = Field(
+        None,
+        description="Destinatário do IBS/CBS quando não é o tomador (mesmas chaves do intermediário, sem `im`).",
+    )
+    ref_nfse: list[str] | None = Field(
+        None, description="Chaves de acesso (50 caracteres) das NFS-e referenciadas, quando a tributação pede."
+    )
     # Locação de imóvel (99.03): cep, logradouro, numero, complemento, bairro, c_mun, insc_imob_fisc, c_cib,
     # p_copropriedade, v_tot_oper, venc (DD/MM/AAAA ou o dia), iptu, condominio, emolumentos, redutor_social, outras,
     # outras_descricao (valores totais, sem a proporção do coproprietário)
-    locacao: dict[str, str | float | None] | None = None
+    locacao: dict[str, str | float | None] | None = Field(
+        None,
+        description="Locação de imóvel (subitem 99.03). Imóvel: `cep`, `logradouro`, `numero`, `complemento`, "
+        "`bairro`, `c_mun` (IBGE), `insc_imob_fisc` ou `c_cib`. Locação: `p_copropriedade` (% do locador, padrão "
+        "100), `v_tot_oper` (aluguel inteiro), `venc` (DD/MM/AAAA ou só o dia). Parcelas fora da base do IBS/CBS, "
+        "pelo valor total: `iptu`, `condominio`, `emolumentos`, `redutor_social`, `outras` + `outras_descricao`.",
+        examples=[{"cep": "88010-000", "logradouro": "Rua Exemplo", "numero": "100", "venc": "10", "iptu": "85,00"}],
+    )
 
 
 def _nota(s, entrada: AvulsaEntrada) -> NotaAvulsa:
