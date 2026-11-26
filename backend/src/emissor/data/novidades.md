@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.20.3 (26/11/2026)
+
+- Homologação: as notas de teste voltam ao leiaute que a Produção Restrita aceita (a Sefin recusava as da 0.20.2).
+- Integrações: a documentação da API ganhou exemplos e a explicação de cada campo.
+
 ## 0.20.2 (26/11/2026)
 
 - Homologação: as notas seguem o leiaute novo da Produção Restrita, publicado em 25/11/2026 (sem ele a Sefin recusava as notas de teste).
