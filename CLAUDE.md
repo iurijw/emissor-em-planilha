@@ -308,6 +308,10 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
 - Tabela salva sozinha (debounce 500 ms, fila sequencial de PUTs); CNPJs novos são consultados automaticamente
   (uma vez por sessão) e preenchem o nome só se estiver vazio — **o nome da tabela prevalece** sobre o da Receita.
 - `index.html` servido com `Cache-Control: no-cache` (atualizações chegam aos navegadores; `/assets` tem hash).
+  Aba aberta antes de uma atualização pede o arquivo antigo da tela de emissão (carregada à parte), que sumiu
+  ("Failed to fetch dynamically imported module", Antares 26/11/2026): `versaoNova.tsx` recarrega a página uma vez
+  (no máximo 1 por minuto, `sessionStorage`), também no `vite:preloadError`; se não der, `LimiteFalhaDeModulo` mostra
+  um aviso com "Recarregar a página" em vez da página em branco.
 - **Guias do Chrome (Modern Web Guidance, 2026-11-15):** em tela nova ou alterada, ler os guias do tema em
   `github.com/GoogleChrome/modern-web-guidance-src` (`guides/`; clonar numa pasta temporária, nada vai para o repo).
   Aplicado: `Dialogo`/`Gaveta` são `<dialog>` nativos com `showModal()` (camada superior, página inerte, Esc e voltar
