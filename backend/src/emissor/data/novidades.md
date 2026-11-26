@@ -7,6 +7,11 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.21.0 (26/11/2026)
+
+- Avisos: um sino no topo mostra as novidades e os avisos importantes da hospedagem.
+- Suporte: um ícone de conversa no topo abre um chat direto com o suporte. A resposta fica guardada e aparece na próxima vez que você abrir o sistema.
+
 ## 0.20.3 (26/11/2026)
 
 - Homologação: as notas de teste voltam ao leiaute que a Produção Restrita aceita (a Sefin recusava as da 0.20.2).
