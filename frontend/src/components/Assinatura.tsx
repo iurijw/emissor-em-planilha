@@ -16,6 +16,8 @@ export interface SituacaoAssinatura {
   dias_ate_parar?: number;
   valor?: string;
   cartao?: string | null;
+  /** Teste grátis sem cartão: o cartão é cadastrado na página do Stripe ao confirmar. */
+  sem_cartao?: boolean;
   /** Suspensa (fora do teste): "pagamento" = mensalidade em aberto; "encerrada" = assinatura nova. */
   motivo?: "pagamento" | "encerrada" | null;
   em_aberto?: string | null;
@@ -155,7 +157,8 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
   const encerrado = s.situacao === "teste_encerrado" || s.situacao === "suspensa";
   const emAberto = s.situacao === "suspensa" && s.motivo === "pagamento";
   const valor = emAberto && s.em_aberto ? s.em_aberto.replace(" ", "\u00a0") : valorCurto(s);
-  const cartao = s.cartao ?? "o cartão cadastrado na assinatura";
+  const semCartao = !!s.sem_cartao;
+  const cartao = semCartao ? "Você cadastra na página segura do Stripe, no próximo passo" : (s.cartao ?? "o cartão cadastrado na assinatura");
   // No teste a primeira cobrança é no fim dele; depois que ele acabou, é na hora.
   const fim = !encerrado && s.teste_ate ? new Date(s.teste_ate) : null;
   const dataCobranca = fim ? fim.toLocaleDateString("pt-BR") : null;
@@ -190,16 +193,20 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
   /** Pagamento na página do Stripe (outra aba): o emissor religa sozinho quando o pagamento chega ao painel. */
   async function pagarFora() {
     setPagandoFora(true);
-    await aguardarReativacao(30 * 60_000);
+    // No teste, cadastrar o cartão não reinicia o emissor: espera o painel dizer que a assinatura tem cartão.
+    if (semCartao && !encerrado) await aguardarCartao(30 * 60_000);
+    else await aguardarReativacao(30 * 60_000);
     location.reload();
   }
 
   if (pagandoFora)
     return (
-      <Dialogo titulo="Pagar com outro cartão">
+      <Dialogo titulo={semCartao ? "Cadastrar o cartão" : "Pagar com outro cartão"}>
         <p className="assinatura-reativando">
-          <Spinner /> Conclua o pagamento na página do Stripe, que abriu em outra aba. Assim que ele for aprovado, o emissor
-          religa sozinho e esta página recarrega.
+          <Spinner />{" "}
+          {semCartao && !encerrado
+            ? "Conclua o cadastro do cartão na página do Stripe, que abriu em outra aba. Depois disso, esta página recarrega e o aviso some."
+            : "Conclua o pagamento na página do Stripe, que abriu em outra aba. Assim que ele for aprovado, o emissor religa sozinho e esta página recarrega."}
         </p>
       </Dialogo>
     );
@@ -223,7 +230,7 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
             Agora não
           </button>
           <button className="btn btn--primario" onClick={confirmar} disabled={!acordo || ocupado}>
-            {ocupado && <Spinner />} {dataCobranca ? "Confirmar a assinatura" : `Confirmar e pagar ${valor}`}
+            {ocupado && <Spinner />} {semCartao ? "Continuar para o cartão" : dataCobranca ? "Confirmar a assinatura" : `Confirmar e pagar ${valor}`}
           </button>
         </>
       }
@@ -258,7 +265,17 @@ function DialogoConfirmar({ s, fechar }: { s: SituacaoAssinatura; fechar: () => 
         Estou de acordo com a cobrança de {valor} {dataCobranca ? `em ${dataCobranca}` : "agora"} e com a renovação automática
         todo mês.
       </label>
-      {recusado ? (
+      {recusado && semCartao && pagarUrl ? (
+        <div className="assinatura-texto" role="status">
+          <p>
+            <strong>Falta só o cartão.</strong> Cadastre na página segura do Stripe, que abre em outra aba.
+            {dataCobranca ? ` Nada é cobrado antes de ${dataCobranca}.` : ""}
+          </p>
+          <a className="btn btn--primario" href={pagarUrl} target="_blank" rel="noreferrer" onClick={pagarFora}>
+            Cadastrar o cartão no Stripe
+          </a>
+        </div>
+      ) : recusado ? (
         <div className="erro-caixa" role="alert">
           <div>
             <strong>{(erro as ApiError).message}</strong>
@@ -291,6 +308,20 @@ async function aguardarReativacao(espera = 3 * 60_000): Promise<void> {
       if (r.ok && (await r.json()).suspenso === false) return;
     } catch {
       /* reiniciando */
+    }
+  }
+}
+
+/** Teste sem cartão: espera o cartão cadastrado no Stripe chegar ao painel. */
+async function aguardarCartao(espera: number): Promise<void> {
+  const limite = Date.now() + espera;
+  while (Date.now() < limite) {
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const s = await api.get<SituacaoAssinatura>("/api/assinatura?atualizar=true");
+      if (s.disponivel && !s.sem_cartao) return;
+    } catch {
+      /* painel fora do ar: tenta de novo */
     }
   }
 }
@@ -334,8 +365,8 @@ function DialogoNaoContinuar({ s, fechar }: { s: SituacaoAssinatura; fechar: () 
         fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 35} dias.
       </p>
       <p className="assinatura-texto">
-        Se mudar de ideia, é só clicar em <strong>Continuar e assinar</strong> no aviso do topo, a qualquer momento: a
-        cobrança usa o mesmo cartão e a emissão volta na hora.
+        Se mudar de ideia, é só clicar em <strong>Continuar e assinar</strong> no aviso do topo, a qualquer momento:{" "}
+        {s.sem_cartao ? "você cadastra o cartão no Stripe" : "a cobrança usa o mesmo cartão"} e a emissão volta na hora.
       </p>
       <ErroCaixa erro={erro} />
     </Dialogo>
