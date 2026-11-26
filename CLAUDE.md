@@ -45,6 +45,10 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
   `nDI`/`nRE` viram `nDUIMP` (15)/`nDUE` (14). A DPS de homologação com `dhEmi` desde 25/11 sai nesse pacote
   (`INICIO_20261124_HOMOLOGACAO`); a produção continua indo para `v1_01_nt009` (20/10) em 01/12. **Se a Sefin publicar
   o pacote de produção igual ao de 24/11, trocar `LEIAUTE_NT009_PRODUCAO` em `nfse/constants.py`.**
+- **Pacote de 24/11 recusado (2026-11-26):** a Produção Restrita recusou a DPS da 0.20.2 com E1235 ("infDPS has invalid
+  child element indDest", esperado `interm, serv`): o pacote foi publicado mas não está em uso. A homologação voltou a
+  `v1_01_nt009` (`LEIAUTE_NT009_HOMOLOGACAO`); trocar para `LEIAUTE_NT009_20261124` só quando a Sefin aceitar
+  (testes do pacote usam a fixture `pacote_20261124`).
 - Se a Sefin rejeitar a assinatura da DPS, trocar `C14N` em `backend/src/emissor/nfse/signer.py` para C14N 1.0
   inclusiva e registrar aqui.
 - Ambientes: o sistema alterna entre **Produção Restrita (homologação)** e **Produção** nas configurações.
@@ -1112,4 +1116,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-25 | Locação de imóveis (99.03) pelo grupo `imovel` da NT 009, na planilha (colunas do imóvel na aba com tributação de locação) e na nota avulsa; valor da nota = parte do locador, parcelas fora da base digitadas pelo valor total; uma unidade por nota; planilha das notas com base, IBS e CBS | Pedido do Iuri: notas de aluguel obrigatórias em 01/01/2027 (eram 01/12/2026) e um cliente que emite ~60 por mês em lote |
 | 2026-11-22 | Logo nova: três folhas em lote (#B3E0F3, #66C1E7, #0098D7) com a grade vazada atravessando as três e o canto dobrado preto (claro no escuro); `logo.svg`, `Logo` em `ui.tsx`, `sw.js`, `favicon.png` e `docs/img/logo.png` | Pedido do Iuri: a anterior parecia básica; conceito gerado no Higgsfield e redesenhado à mão |
 | 2026-11-26 | Terceiro leiaute (`v1_01_nt009_20261124`) só para a homologação desde 25/11; produção segue no pacote de 20/10 a partir de 01/12 | A Produção Restrita trocou o pacote em 25/11 (indDest obrigatório em infDPS) e a DPS antiga passou a ser recusada; não há pacote de produção publicado para saber qual vale em 01/12 |
+| 2026-11-26 | Homologação de volta ao pacote de 20/10 | A Produção Restrita recusou indDest em infDPS (E1235) numa instância de cliente: o pacote de 24/11 ainda não vale lá |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
