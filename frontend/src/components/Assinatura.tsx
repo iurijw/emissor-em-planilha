@@ -18,6 +18,8 @@ export interface SituacaoAssinatura {
   cartao?: string | null;
   /** Teste grátis sem cartão: o cartão é cadastrado na página do Stripe ao confirmar. */
   sem_cartao?: boolean;
+  /** Teste sem cartão que nunca assinou: no fim do prazo de consulta o emissor é apagado com os dados. */
+  excluir_ao_fim?: boolean;
   /** Suspensa (fora do teste): "pagamento" = mensalidade em aberto; "encerrada" = assinatura nova. */
   motivo?: "pagamento" | "encerrada" | null;
   em_aberto?: string | null;
@@ -110,7 +112,8 @@ export function FaixaAssinatura() {
                     : "A assinatura foi encerrada."}
               </strong>{" "}
               A emissão está bloqueada; as notas emitidas continuam disponíveis para consulta e download
-              {disponivelAte(s) ? ` até ${disponivelAte(s)}` : ""}.
+              {disponivelAte(s) ? ` até ${disponivelAte(s)}` : ""}
+              {s.excluir_ao_fim ? "; depois disso, o emissor é apagado com todos os dados" : ""}.
             </>
           ) : recusou ? (
             <>
@@ -362,7 +365,8 @@ function DialogoNaoContinuar({ s, fechar }: { s: SituacaoAssinatura; fechar: () 
     >
       <p className="assinatura-texto">
         Nada é cobrado. O sistema funciona normalmente até o fim do teste, {quandoTermina(s.teste_ate!)}. Depois, a emissão
-        fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 35} dias.
+        fica bloqueada e as notas emitidas ficam disponíveis para consulta e download por {s.dias_ate_parar ?? 35} dias
+        {s.excluir_ao_fim ? "; depois disso, o emissor é apagado com todos os dados (notas, clientes, usuários e certificado)" : ""}.
       </p>
       <p className="assinatura-texto">
         Se mudar de ideia, é só clicar em <strong>Continuar e assinar</strong> no aviso do topo, a qualquer momento:{" "}
