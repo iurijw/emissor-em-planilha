@@ -39,6 +39,12 @@ recorrentes (escritórios de contabilidade, consultorias, prestadores com cartei
   e a de produção continua no anterior (`nfse/xsd/v1_01/`) até 30/11/2026. A Produção passa **sozinha** à NT 009 em
   01/12/2026 00:00 (comunicado do CGNFS-e de 20/10/2026): `leiaute(ambiente, quando)` em `nfse/constants.py` decide pelo
   `dhEmi` da DPS (`INICIO_NT009_PRODUCAO`). Antes de 01/12, conferir o pacote de produção contra `v1_01_nt009`.
+- **Pacote de 24/11/2026 na Produção Restrita (2026-11-26):** desde 25/11/2026 a Produção Restrita usa
+  `esquemas-xsd-producao-restrita-20261124` (XSD em `nfse/xsd/v1_01_nt009_20261124/`): `indDest` (obrigatório em toda
+  DPS) e `dest` passam de `IBSCBS` para `infDPS`, logo depois de `toma`; no `comExt`, `vServMoeda` vira `vFatura` e
+  `nDI`/`nRE` viram `nDUIMP` (15)/`nDUE` (14). A DPS de homologação com `dhEmi` desde 25/11 sai nesse pacote
+  (`INICIO_20261124_HOMOLOGACAO`); a produção continua indo para `v1_01_nt009` (20/10) em 01/12. **Se a Sefin publicar
+  o pacote de produção igual ao de 24/11, trocar `LEIAUTE_NT009_PRODUCAO` em `nfse/constants.py`.**
 - Se a Sefin rejeitar a assinatura da DPS, trocar `C14N` em `backend/src/emissor/nfse/signer.py` para C14N 1.0
   inclusiva e registrar aqui.
 - Ambientes: o sistema alterna entre **Produção Restrita (homologação)** e **Produção** nas configurações.
@@ -1099,4 +1105,5 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-17 | Preferências por usuário no servidor (`usuario.preferencias_json`): aviso do 2FA dispensado e ordem das colunas da tabela (arrastar); tributação da aba trocada pela barra da tabela; cópia de nota emitida e histórico discreto (ícone) na nota avulsa, sem copiar obra/evento; excluir da lista de emissões as notas não emitidas (recusada, não enviada ou erro sem Id da DPS; a com erro depois do envio pede "Verificar na Sefin" antes), mantendo o XML da DPS e os logs; nome da tributação padrão em `configuracao.tributacao_padrao_nome` (vazio = "Tributação padrão"; sem repetir o nome de outra) e "Copiar" em cada tributação (abre uma nova com os mesmos campos) | Pedido do Iuri (melhorias da emissão) |
 | 2026-11-25 | Locação de imóveis (99.03) pelo grupo `imovel` da NT 009, na planilha (colunas do imóvel na aba com tributação de locação) e na nota avulsa; valor da nota = parte do locador, parcelas fora da base digitadas pelo valor total; uma unidade por nota; planilha das notas com base, IBS e CBS | Pedido do Iuri: notas de aluguel obrigatórias em 01/01/2027 (eram 01/12/2026) e um cliente que emite ~60 por mês em lote |
 | 2026-11-22 | Logo nova: três folhas em lote (#B3E0F3, #66C1E7, #0098D7) com a grade vazada atravessando as três e o canto dobrado preto (claro no escuro); `logo.svg`, `Logo` em `ui.tsx`, `sw.js`, `favicon.png` e `docs/img/logo.png` | Pedido do Iuri: a anterior parecia básica; conceito gerado no Higgsfield e redesenhado à mão |
+| 2026-11-26 | Terceiro leiaute (`v1_01_nt009_20261124`) só para a homologação desde 25/11; produção segue no pacote de 20/10 a partir de 01/12 | A Produção Restrita trocou o pacote em 25/11 (indDest obrigatório em infDPS) e a DPS antiga passou a ser recusada; não há pacote de produção publicado para saber qual vale em 01/12 |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |

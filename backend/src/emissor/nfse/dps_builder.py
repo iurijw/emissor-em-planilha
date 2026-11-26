@@ -16,11 +16,12 @@ from emissor.nfse import codes
 from emissor.nfse import locacao as loc_imovel
 from emissor.nfse.codes import TP_OPER, classe_ibscbs, exige_tp_oper
 from emissor.nfse.constants import (
-    LEIAUTE_NT009,
     NS_NFSE,
     SERIE_API_MAX,
     SERIE_API_MIN,
     VERSAO_LEIAUTE,
+    dest_em_infdps,
+    eh_nt009,
     leiaute,
 )
 from emissor.nfse.documentos import documento_valido
@@ -111,7 +112,7 @@ def _pessoa_exterior(parent: etree._Element, tag: str, t: Tomador) -> None:
     _opt(el, "email", limpar_texto(t.email, max_len=80))
 
 
-def _comext(serv: etree._Element, cfg: ConfigFiscal, nota: DadosNota) -> None:
+def _comext(serv: etree._Element, cfg: ConfigFiscal, nota: DadosNota, novo: bool = False) -> None:
     campos = {
         "modo de prestação": cfg.comex_md_prestacao,
         "vínculo entre as partes": cfg.comex_vinc_prest,
@@ -133,13 +134,32 @@ def _comext(serv: etree._Element, cfg: ConfigFiscal, nota: DadosNota) -> None:
     _sub(c, "mdPrestacao", cfg.comex_md_prestacao)
     _sub(c, "vincPrest", cfg.comex_vinc_prest)
     _sub(c, "tpMoeda", cfg.comex_tp_moeda)
-    _sub(c, "vServMoeda", formatar_decimal(nota.v_serv_moeda))
+    if novo:  # pacote de 24/11/2026: vServMoeda vira vFatura (valor da fatura na moeda), nDI/nRE viram DUIMP/DU-E
+        _sub(c, "vFatura", formatar_decimal(nota.v_serv_moeda))
+    else:
+        _sub(c, "vServMoeda", formatar_decimal(nota.v_serv_moeda))
     _sub(c, "mecAFComexP", cfg.comex_mec_af_p)
     _sub(c, "mecAFComexT", cfg.comex_mec_af_t)
     _sub(c, "movTempBens", cfg.comex_mov_temp_bens)
-    _opt(c, "nDI", limpar_texto(nota.n_di, max_len=12))
-    _opt(c, "nRE", limpar_texto(nota.n_re, max_len=12))
+    if novo:
+        n_duimp = re.sub(r"\W", "", nota.n_di or "").upper()
+        n_due = re.sub(r"\W", "", nota.n_re or "").upper()
+        if n_duimp and len(n_duimp) != 15:
+            raise DpsBuildError("Número da importação: o leiaute novo pede o número da DUIMP, com 15 caracteres.")
+        if n_due and len(n_due) != 14:
+            raise DpsBuildError("Número da exportação: o leiaute novo pede o número da DU-E, com 14 caracteres.")
+        _opt(c, "nDUIMP", n_duimp or None)
+        _opt(c, "nDUE", n_due or None)
+    else:
+        _opt(c, "nDI", limpar_texto(nota.n_di, max_len=12))
+        _opt(c, "nRE", limpar_texto(nota.n_re, max_len=12))
     _sub(c, "mdic", cfg.comex_mdic)
+
+
+def _destinatario(parent: etree._Element, dest: Tomador | None) -> None:
+    _sub(parent, "indDest", "1" if dest else "0")
+    if dest is not None:
+        _pessoa(parent, "dest", dest, "destinatário")
 
 
 def _pessoa(parent: etree._Element, tag: str, t: Tomador, papel: str = "tomador") -> None:
@@ -199,7 +219,9 @@ def build_dps(inp: DpsInput) -> etree._Element:
     # Competência = data da emissão (requisito do usuário).
     _sub(inf, "dCompet", inp.dh_emi.date().isoformat())
     _sub(inf, "tpEmit", cfg.tp_emit)
-    nt009 = leiaute(inp.ambiente, inp.dh_emi) == LEIAUTE_NT009
+    pasta = leiaute(inp.ambiente, inp.dh_emi)
+    nt009 = eh_nt009(pasta)
+    dest_inf = dest_em_infdps(pasta)
     if nt009:
         _sub(inf, "finNFSe", "0")  # NT 009: obrigatório em infDPS (antes ficava no grupo IBSCBS)
     _sub(inf, "cLocEmi", cfg.c_mun_emissor)
@@ -220,6 +242,10 @@ def build_dps(inp: DpsInput) -> etree._Element:
     # Tomador
     if inp.tomador is not None:
         _pessoa(inf, "toma", inp.tomador)
+    if dest_inf:  # pacote de 24/11/2026: indDest (obrigatório) e dest logo depois de toma
+        if inp.nota.destinatario and not cfg.ibscbs:
+            raise DpsBuildError("O destinatário diferente do tomador só vai com o IBS/CBS ligado na tributação.")
+        _destinatario(inf, inp.nota.destinatario_pessoa() if cfg.ibscbs else None)
     interm = inp.nota.intermediario_pessoa()
     if interm is not None:
         doc = normalizar_documento(interm.documento) or ""
@@ -253,7 +279,7 @@ def build_dps(inp: DpsInput) -> etree._Element:
         raise DpsBuildError("O destinatário diferente do tomador só vai com o IBS/CBS ligado na tributação.")
     exterior = inp.tomador is not None and inp.tomador.exterior is not None
     if exige_comext(cfg, exterior):
-        _comext(serv, cfg, inp.nota)
+        _comext(serv, cfg, inp.nota, dest_inf)
     montar_obra(serv, cfg, inp.nota)
     montar_evento(serv, cfg, inp.nota)
     _info_compl(serv, inp.nota)
@@ -349,7 +375,7 @@ def build_dps(inp: DpsInput) -> etree._Element:
         _sub(tot, "indTotTrib", "0")
 
     if cfg.ibscbs:
-        _ibscbs(inf, cfg, nt009, inp.nota, inp)
+        _ibscbs(inf, cfg, nt009, inp.nota, inp, dest_inf)
 
     return dps
 
@@ -429,7 +455,9 @@ def _imovel(g: etree._Element, cfg: ConfigFiscal, nota: DadosNota, inp: DpsInput
         _sub(aj, "vAjusteBCLocImoveis", formatar_decimal(v))
 
 
-def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool, nota: DadosNota, inp: DpsInput) -> None:
+def _ibscbs(
+    inf: etree._Element, cfg: ConfigFiscal, nt009: bool, nota: DadosNota, inp: DpsInput, dest_inf: bool = False
+) -> None:
     """Grupo IBS/CBS (``TCRTCInfoIBSCBS``): NFS-e regular, destinatário = tomador.
 
     Os valores e alíquotas não vão na DPS: a Sefin calcula e devolve em ``infNFSe/IBSCBS``. No leiaute da NT 009
@@ -468,9 +496,8 @@ def _ibscbs(inf: etree._Element, cfg: ConfigFiscal, nt009: bool, nota: DadosNota
         for c in refs:
             _sub(ref, "refNFSe", c)
     _opt(g, "tpEnteGov", cfg.ibscbs_tp_ente_gov)
-    _sub(g, "indDest", "1" if dest else "0")
-    if dest is not None:
-        _pessoa(g, "dest", dest, "destinatário")
+    if not dest_inf:
+        _destinatario(g, dest)
     if codes.eh_locacao(cfg.c_trib_nac):
         _imovel(g, cfg, nota, inp)
     trib = _sub(_sub(g, "valores"), "trib")

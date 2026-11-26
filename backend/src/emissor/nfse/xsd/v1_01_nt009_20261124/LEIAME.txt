@@ -1,0 +1,16 @@
+Fonte: https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/producao-restrita/esquemas-xsd-producao-restrita-20261124.zip
+("Esquemas XSD Producao Restrita 20261124"; implantado na Producao Restrita em 25/11/2026 segundo
+https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/atualizacoes-e-implantacoes). Usado nas DPS de
+homologacao (tpAmb=2) com dhEmi a partir de 25/11/2026 (leiaute() em nfse/constants.py).
+
+Em relacao ao pacote de 20/10/2026 (../v1_01_nt009), so mudam tiposSimples e tiposComplexos:
+- indDest (obrigatorio em toda DPS) e dest saem do grupo IBSCBS e vao para infDPS, logo depois de toma;
+- comExt: vServMoeda (obrigatorio) sai; entram nFatura/vFatura (opcionais), nDUIMP (15) e nDUE (14) no lugar de
+  nDI/nRE, e nContCambio; TSModoPrestacao ganha o 5 (consumo concomitante no Brasil e no exterior);
+- novo grupo IBSCBS/condominios (cobrancas e descontos condominiais), cMun opcional em atvEvento,
+  vAjusteBCIBSCBSComExt em vAjusteBC e verCalcIBSCBS na NFS-e.
+Os demais arquivos sao identicos aos de ../v1_01_nt009. Finais de linha convertidos para LF.
+
+Unico patch local, o mesmo de ../v1_01 (TSChaveNFSe em tiposSimples_v1.01.xsd): o padrao oficial
+'[0-9]{6}([0-9A-Z]{14})[0-9]{30}' poe as letras nas posicoes 7-20 da chave, mas a inscricao federal fica nas
+posicoes 10-23. Trocado por '[0-9]{9}[0-9A-Z]{14}[0-9]{27}'.

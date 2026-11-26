@@ -36,7 +36,7 @@ from emissor.nfse import codes, dps_builder
 from emissor.nfse import locacao as loc_imovel
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
-from emissor.nfse.constants import LEIAUTE_NT009, Ambiente, leiaute
+from emissor.nfse.constants import Ambiente, eh_nt009, leiaute
 from emissor.nfse.documentos import documento_valido, formatar_documento
 from emissor.nfse.dps_builder import DpsBuildError
 from emissor.nfse.emissao import (
@@ -284,7 +284,7 @@ def _erros_obra_evento(cfg: ConfigFiscal, nota: DadosNota, *, na_tabela: bool) -
 def _erros_locacao(cfg: ConfigFiscal, nota: DadosNota, valor: Decimal | None, ambiente: Ambiente) -> list[str]:
     """Locação de imóvel (99.03): leiaute, tributação e os dados do imóvel de cada nota (coluna ou nota avulsa)."""
     dh = agora_emissao()
-    erro = dps_builder.erro_locacao(cfg, leiaute(ambiente, dh) == LEIAUTE_NT009)
+    erro = dps_builder.erro_locacao(cfg, eh_nt009(leiaute(ambiente, dh)))
     if erro:
         return [erro]
     if not codes.eh_locacao(cfg.c_trib_nac):

@@ -356,10 +356,12 @@ class GeradorDanfse:
             )
         )
 
-        tem_dest = self.doc.el("DPS/infDPS/IBSCBS/dest") is not None
+        # indDest/dest ficam em IBSCBS até o pacote de 24/11/2026 da Produção Restrita, que os passou para infDPS
+        grupo_dest = "dest" if self.doc.el("DPS/infDPS/indDest") is not None else "IBSCBS/dest"
+        tem_dest = self.doc.el(f"DPS/infDPS/{grupo_dest}") is not None
         if tem_dest:
-            blocos.append(Bloco("DESTINATÁRIO DA OPERAÇÃO", self._pessoa("IBSCBS/dest", "DEST", com_im=False)))
-        elif d("IBSCBS/indDest") == "0":
+            blocos.append(Bloco("DESTINATÁRIO DA OPERAÇÃO", self._pessoa(grupo_dest, "DEST", com_im=False)))
+        elif (d("indDest") or d("IBSCBS/indDest")) == "0":
             blocos.append(Bloco("", [], "O DESTINATÁRIO É O PRÓPRIO TOMADOR/ADQUIRENTE DA OPERAÇÃO"))
         else:
             blocos.append(Bloco("", [], "DESTINATÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e"))
