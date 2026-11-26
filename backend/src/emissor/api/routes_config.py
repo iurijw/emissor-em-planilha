@@ -18,7 +18,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlmodel import func, select
 
-from emissor import atualizacoes, auth, config, empresas
+from emissor import atualizacoes, auth, config, empresas, suporte
 from emissor.api.deps import AdminAtual, AdminEmpresa, UsuarioAtual
 from emissor.api.serial import CAMPOS_FISCAIS, cliente_dict, fiscal_dict
 from emissor.db import Cliente, Emissao, LinhaTabela, Lote, agora, obter_config, sessao
@@ -596,3 +596,11 @@ def aplicar_atualizacao(admin: AdminAtual) -> dict[str, Any]:
     # Responde antes de fechar.
     threading.Timer(1.5, atualizacoes.encerrar_para_atualizar).start()
     return {"de": sit["versao_atual"], "para": sit["ultima"]}
+
+
+@router.get("/suporte/passe")
+def passe_suporte(acesso: UsuarioAtual) -> dict[str, Any]:
+    """Passe curto para o navegador falar direto com o painel da hospedagem (avisos e conversa com o suporte)."""
+    if not suporte.ligada():
+        raise HTTPException(404, "Avisos e conversa só existem na hospedagem.")
+    return suporte.passe(acesso)

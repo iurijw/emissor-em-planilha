@@ -279,6 +279,30 @@ def test_whatsapp_suporte(client, monkeypatch):
     assert auth.whatsapp_suporte() is None
 
 
+def test_passe_do_suporte(admin, monkeypatch):
+    import base64
+    import hashlib
+    import hmac
+    import json
+
+    # Instalação própria: nada de avisos nem conversa.
+    assert admin.get("/api/auth/sessao").json()["suporte"] is False
+    assert admin.get("/api/suporte/passe").status_code == 404
+    monkeypatch.setenv("EMISSOR_SUPORTE_URL", "https://painel.exemplo/api/suporte/escritorio/")
+    monkeypatch.setenv("EMISSOR_EMAIL_TOKEN", "token-da-instancia")
+    assert admin.get("/api/auth/sessao").json()["suporte"] is True
+    r = admin.get("/api/suporte/passe").json()
+    assert r["url"] == "https://painel.exemplo/api/suporte/escritorio"
+    payload, assinatura = r["passe"].split(".")
+    certa = hmac.new(b"token-da-instancia", payload.encode(), hashlib.sha256).digest()
+    assert base64.urlsafe_b64decode(assinatura + "=" * (-len(assinatura) % 4)) == certa
+    dados = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    assert dados["p"] == "admin" and dados["u"] > 0 and dados["x"] == r["expira"]
+    # Endereço sem https não liga (o navegador mandaria o passe em claro).
+    monkeypatch.setenv("EMISSOR_SUPORTE_URL", "http://painel.exemplo/api/suporte/escritorio")
+    assert admin.get("/api/suporte/passe").status_code == 404
+
+
 def test_suspensao(admin, monkeypatch):
     monkeypatch.setenv("EMISSOR_SUSPENSO", "1")
     monkeypatch.setenv("EMISSOR_URL_ASSINATURA", "https://billing.exemplo/portal")
