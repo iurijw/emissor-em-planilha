@@ -7,6 +7,10 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.20.2 (26/11/2026)
+
+- Homologação: as notas seguem o leiaute novo da Produção Restrita, publicado em 25/11/2026 (sem ele a Sefin recusava as notas de teste).
+
 ## 0.20.1 (25/11/2026)
 
 - Emissões: o Excel pode sair só com as notas marcadas ("Excel das selecionadas").
