@@ -16,10 +16,12 @@ import { Avisos, BotaoConversa, FaixaAvisoUrgente } from "./components/AvisosCon
 import { BotaoSuporte, LinkSuporte } from "./components/Suporte";
 import { nomeEmpresa, SeletorEmpresa } from "./components/Empresas";
 import { usePreferencias } from "./preferencias";
+import { importarComRecarga, LimiteFalhaDeModulo } from "./versaoNova";
 
 // A tela de emissão traz a grade (Glide Data Grid, a maior parte do código): fica num arquivo à parte, baixado
 // só depois do login (a tela de entrada fica leve). Logo depois do login começa a baixar, sem esperar a tela abrir.
-const carregarEmitir = () => import("./pages/Emitir").then((m) => ({ default: m.Emitir }));
+// Depois de uma atualização o arquivo antigo some: recarrega a página uma vez (ver versaoNova.tsx).
+const carregarEmitir = importarComRecarga(() => import("./pages/Emitir").then((m) => ({ default: m.Emitir })));
 const Emitir = lazy(carregarEmitir);
 
 const ROTAS = [
@@ -227,7 +229,7 @@ function MenuUsuario({ usuario, urlAssinatura }: { usuario: UsuarioSessao; urlAs
 
 export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessao }) {
   useEffect(() => {
-    void carregarEmitir();
+    carregarEmitir().catch(() => {}); // só adianta o download; a falha aparece ao abrir a tela
   }, []);
   const [rota, setRota] = useState<Rota>(rotaAtual());
   const status = useStatus();
@@ -369,15 +371,17 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
           </div>
         )}
         {rotaVisivel === "emitir" && (
-          <Suspense
-            fallback={
-              <div className="carregando-tela" role="status">
-                <Spinner /> Abrindo a tabela…
-              </div>
-            }
-          >
-            <Emitir status={s} admin={adminEmpresa} />
-          </Suspense>
+          <LimiteFalhaDeModulo>
+            <Suspense
+              fallback={
+                <div className="carregando-tela" role="status">
+                  <Spinner /> Abrindo a tabela…
+                </div>
+              }
+            >
+              <Emitir status={s} admin={adminEmpresa} />
+            </Suspense>
+          </LimiteFalhaDeModulo>
         )}
         {rotaVisivel === "emissoes" && <Emissoes admin={adminEmpresa} podeEmitir={s.pronto_para_emitir} />}
         {rotaVisivel === "clientes" && <Clientes />}

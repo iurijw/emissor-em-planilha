@@ -7,11 +7,13 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Raiz } from "./App";
 import { instalarEsquema } from "./tema";
+import { instalarRecargaDeVersaoNova } from "./versaoNova";
 import { instalarCapturaDeErros, instalarValidacaoAcessivel, ToastProvider } from "./ui";
 
 instalarCapturaDeErros();
 instalarValidacaoAcessivel();
 instalarEsquema();
+instalarRecargaDeVersaoNova();
 
 // Aviso "ligando o sistema" enquanto a máquina da hospedagem acorda (ver public/sw.js). Só em HTTPS/localhost.
 if (import.meta.env.PROD && "serviceWorker" in navigator && window.isSecureContext) {
