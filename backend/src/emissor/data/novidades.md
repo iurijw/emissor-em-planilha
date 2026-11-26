@@ -7,6 +7,10 @@ que recusa publicar uma versão sem seção aqui. Uma seção por versão, a mai
 sem nomes de código, PR ou leiaute.
 -->
 
+## 0.21.1 (26/11/2026)
+
+- Depois de uma atualização, uma aba que ficou aberta recarrega sozinha ao abrir a tabela, em vez de mostrar um erro.
+
 ## 0.21.0 (26/11/2026)
 
 - Avisos: um sino no topo mostra as novidades e os avisos importantes da hospedagem.
