@@ -776,6 +776,50 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 .att-pop::before { display: none; }
 }
 
+/* ---------- Avisos e conversa com o suporte (só na hospedagem) ---------- */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.ic-avisos { anchor-name: --avisos; }
+@supports (anchor-name: --a) {
+  .avisos-pop { position-anchor: --avisos; }
+}
+.aviso-item__titulo { font-size: 0.8125rem; font-weight: 650; color: var(--tinta); min-width: 0; overflow-wrap: anywhere; }
+.lt__item--antiga .aviso-item__titulo { color: var(--grafite); font-weight: 550; }
+.aviso-item__texto { margin: 3px 0 0; font-size: 0.7812rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.aviso-item--importante::after { border-color: var(--aviso); }
+.aviso-item--urgente::after { border-color: var(--erro); background: var(--erro); }
+.aviso-selo { font-size: 0.6562rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; flex: none; }
+.aviso-selo--importante { background: var(--aviso-fundo); color: var(--aviso); }
+.aviso-selo--urgente { background: var(--erro-fundo); color: var(--erro); }
+.faixa-aviso p { white-space: pre-wrap; }
+.ic-conversa { position: relative; }
+.ic-conversa__n {
+  position: absolute; top: -3px; right: -5px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  background: #f5a300; color: #1a1200; border: 2px solid var(--folha); font-size: 0.625rem; font-weight: 700; line-height: 14px; text-align: center;
+}
+.conversa__de { margin-bottom: 14px; }
+.conversa__fio { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.conversa__msg { max-width: 86%; padding: 9px 12px; border-radius: 12px; display: grid; gap: 3px; }
+.conversa__msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.875rem; line-height: 1.5; }
+.conversa__msg--suporte { align-self: flex-start; background: var(--azul-fundo); color: var(--azul-tinta); border-top-left-radius: 3px; }
+.conversa__msg--cliente { align-self: flex-end; background: var(--realce-forte); border-top-right-radius: 3px; }
+.conversa__quem { font-size: 0.6875rem; font-weight: 600; color: var(--grafite); }
+.conversa__msg--suporte .conversa__quem { color: var(--azul-texto); }
+.conversa__quem time { font-weight: 400; font-family: var(--f-num); font-size: 0.6562rem; }
+.conversa__ia { margin-left: 6px; padding: 0 5px; border: 1px solid currentColor; border-radius: 4px; font-size: 0.625rem; font-weight: 600; }
+.conversa__vazia { color: var(--grafite); font-size: 0.875rem; max-width: 46ch; }
+.conversa__vazia p { margin: 0 0 8px; }
+.conversa__vazia strong { color: var(--tinta); }
+.conversa__escrever { display: grid; gap: 8px; width: 100%; }
+.conversa__escrever textarea { width: 100%; resize: vertical; min-height: 72px; font: inherit; }
+.conversa__acoes { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.conversa__dica { font-size: 0.75rem; color: var(--grafite-claro); }
+.conversa__erro { margin: 0; color: var(--erro); font-size: 0.8125rem; }
+@media (max-width: 900px) {
+  .ic-conversa { order: 3; align-self: center; }
+  .nav:has(~ .ic-conversa):has(~ .sup-avisos) { width: calc(100% - 138px); }
+  .nav:has(~ .ic-conversa):has(~ .sup-avisos):has(~ .ic-suporte) { width: calc(100% - 184px); }
+}
+
 /* ---------- Várias empresas ---------- */
 /* Crachá: a empresa que esta aba emite. A borda esquerda repete a faixa do ambiente (hachurada = homologação, preta = produção). */
 .cracha { position: relative; }

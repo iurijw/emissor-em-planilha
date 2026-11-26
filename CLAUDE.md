@@ -979,6 +979,15 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
   atualizações) e link nas telas de entrada e na configuração inicial, abrindo `wa.me` com uma mensagem que diz o
   endereço da instância, a empresa e o usuário. Sem a variável (instalação própria) nada aparece. O painel da
   hospedagem define a variável.
+- **Avisos e conversa com o suporte** (2026-11-26, `suporte.py`, `components/AvisosConversa.tsx`, pedido do Iuri): com
+  `EMISSOR_SUPORTE_URL` (https) e `EMISSOR_EMAIL_TOKEN`, definidos pelo painel da hospedagem (`suporte` em
+  `/api/auth/sessao`), o topo ganha um sino de avisos (popover como o das atualizações; aviso urgente não lido vira
+  faixa abaixo da do ambiente) e um ícone de conversa (gaveta, número de respostas não lidas). Os dados ficam **no
+  painel**, não aqui: `GET /api/suporte/passe` (com login) devolve um passe de 30 min (`base64url(JSON {u,n,e,p,x})` +
+  HMAC-SHA256 com o token) e o navegador chama o painel direto (CORS só do endereço da instância), então mensagem do
+  suporte não acorda a máquina. Busca a cada 2 min com a aba à vista e a cada 8 s com a conversa aberta. Uma conversa
+  por usuário; o administrador da instalação vê e responde as de todos. Mensagens do Claude levam o selo "assistente
+  IA". Texto puro, só links https clicáveis. Sem a variável (instalação própria) nada aparece.
 - Hospedagem: com `EMISSOR_URL_ASSINATURA`, o administrador vê o link "Assinatura" no topo e a seção "Assinatura" em
   Minha conta (portal do Stripe: cartão, faturas, cancelamento); sem a variável (instalação própria) nada aparece.
 

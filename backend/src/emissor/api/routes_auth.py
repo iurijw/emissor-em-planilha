@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from emissor import assinatura, atualizacoes, auth, config
+from emissor import assinatura, atualizacoes, auth, config, suporte
 from emissor.api.deps import AdminAtual, UsuarioAtual, ip_cliente
 
 router = APIRouter()
@@ -83,6 +83,8 @@ def sessao_atual(request: Request) -> dict[str, Any]:
         "suspenso": auth.suspenso(),
         "url_assinatura": auth.url_assinatura(),
         "whatsapp_suporte": auth.whatsapp_suporte(),
+        # Hospedagem: avisos e conversa com o suporte (emissor.suporte); fora dela, nada aparece.
+        "suporte": suporte.ligada(),
         "recuperacao_email": auth.recuperacao_por_email(),
     }
 

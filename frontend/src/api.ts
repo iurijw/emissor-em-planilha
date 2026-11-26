@@ -196,6 +196,8 @@ export interface Sessao {
   url_assinatura: string | null;
   /** Hospedagem: WhatsApp do suporte (só dígitos, com o 55); null na instalação própria. */
   whatsapp_suporte?: string | null;
+  /** Hospedagem: avisos e conversa com o suporte (painel da hospedagem); false na instalação própria. */
+  suporte?: boolean;
   recuperacao_email: boolean;
   /** Preferências de tela do usuário (valem em qualquer navegador). */
   preferencias?: Preferencias;

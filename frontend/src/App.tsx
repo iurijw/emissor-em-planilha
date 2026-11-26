@@ -12,6 +12,7 @@ import { Onboarding } from "./pages/Onboarding";
 import { ErroCaixa, Logo, Spinner } from "./ui";
 import { FaixaAssinatura, useAssinatura } from "./components/Assinatura";
 import { Atualizacoes } from "./components/Atualizacoes";
+import { Avisos, BotaoConversa, FaixaAvisoUrgente } from "./components/AvisosConversa";
 import { BotaoSuporte, LinkSuporte } from "./components/Suporte";
 import { nomeEmpresa, SeletorEmpresa } from "./components/Empresas";
 import { usePreferencias } from "./preferencias";
@@ -293,6 +294,7 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
         </div>
       )}
       <FaixaAssinatura />
+      <FaixaAvisoUrgente />
       <header className="topo" ref={topoRef}>
         <a className="marca" href="#/emitir">
           <Logo />
@@ -319,6 +321,8 @@ export function App({ sessao, usuario }: { sessao: Sessao; usuario: UsuarioSessa
             </span>
           )}
         </div>
+        <BotaoConversa usuarioId={usuario.id} />
+        <Avisos />
         <BotaoSuporte status={s} usuario={usuario} />
         <Atualizacoes />
         <MenuUsuario usuario={usuario} urlAssinatura={sessao.url_assinatura} />
