@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from emissor import auth, config, empresas, tokens_api
+from emissor.api import docs_v1 as doc_api_v1
 from emissor.api import (
     routes_api_v1,
     routes_auth,
@@ -49,30 +50,6 @@ V1_PUBLICAS = ("/api/v1/openapi.json", "/api/v1/docs")
 
 # Rotas que funcionam sem empresa (usuário sem acesso a nenhuma ainda vê a conta, sai e lê as atualizações).
 SEM_EMPRESA = ("/api/auth/", "/api/saude", "/api/logs/cliente", "/api/atualizacoes", "/api/assinatura", "/api/empresas")
-
-
-DESCRICAO_API_V1 = """
-Emita, consulte e cancele NFS-e a partir de outro sistema (cobrança, ERP, loja).
-
-**Acesso:** crie um token em *Configurações → Integrações* (só o administrador da empresa) e envie
-`Authorization: Bearer emp_...` em toda requisição. Cada token é de uma empresa e de um ambiente (produção ou
-homologação) e tem permissões próprias.
-
-**Sem nota em duplicidade:** envie `referencia_externa` (ou o cabeçalho `Idempotency-Key`) com o identificador da
-nota no seu sistema. Repetir o pedido devolve a nota já criada (`repetida: true`) em vez de emitir outra; a
-referência só fica livre de novo se a nota for recusada.
-
-**Emissão assíncrona:** `POST /notas` responde 202 com a nota `pendente`; ela é enviada à Sefin pela mesma fila da
-tela. Acompanhe por `GET /notas/{id}` ou receba o evento num webhook (`nota.autorizada`, `nota.rejeitada`...).
-
-**Webhooks:** cada entrega leva `X-Emissor-Assinatura: t=<unix>,v1=<hex>`, com `v1 = HMAC-SHA256(segredo,
-"<t>.<corpo>")`; confira a assinatura e recuse `t` antigo. Respostas fora de 2xx são repetidas por até 24 h.
-
-**Cobranças do Asaas:** em *Configurações → Integrações → Receber cobranças* o administrador liga o Asaas: cada
-pagamento recebido vira uma nota, sem programar nada (a nota leva `referencia_externa` = id da cobrança).
-
-**Limites:** 60 requisições por minuto e 1.000 notas por dia por token (ajustáveis na instalação própria).
-"""
 
 
 def _redes_permitidas() -> list[ipaddress._BaseNetwork]:
@@ -267,9 +244,12 @@ def create_app(iniciar_worker: bool = True) -> FastAPI:
     @app.get("/api/v1/openapi.json", include_in_schema=False)
     async def openapi_v1():
         if not hasattr(app.state, "openapi_v1"):
-            doc = FastAPI(title="Emissor em Planilha — API de integração", version="1", description=DESCRICAO_API_V1)
+            doc = FastAPI(
+                title="Emissor em Planilha — API de integração", version="1", description=doc_api_v1.DESCRICAO
+            )
+            doc_api_v1.documentar_webhooks(doc)
             doc.include_router(routes_api_v1.router, prefix="/api")
-            app.state.openapi_v1 = doc.openapi()
+            app.state.openapi_v1 = doc_api_v1.ajustar(doc.openapi(), doc, routes_api_v1.router.routes, "/api")
             app.state.openapi_v1["components"].setdefault("securitySchemes", {})["token"] = {
                 "type": "http",
                 "scheme": "bearer",
