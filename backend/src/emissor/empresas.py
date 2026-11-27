@@ -118,6 +118,18 @@ def limite() -> int | None:
     return 1 if os.environ.get("FLY_APP_NAME") else None
 
 
+def procuracao_permitida() -> bool:
+    """Emitir com o certificado de um procurador (e-CPF ou e-CNPJ de outro CNPJ) está liberado?
+
+    ``EMISSOR_PROCURACAO`` decide quando definida (1/0); sem ela, liberado na instalação própria e desligado na
+    hospedagem (``FLY_APP_NAME``) até o painel ligar.
+    """
+    bruto = os.environ.get("EMISSOR_PROCURACAO", "").strip().lower()
+    if bruto:
+        return bruto in ("1", "true", "sim", "yes")
+    return not os.environ.get("FLY_APP_NAME")
+
+
 # --- permissões ------------------------------------------------------------------------------------
 
 

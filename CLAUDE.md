@@ -704,6 +704,15 @@ até o Iuri pedir (`empresas.limite()`: `EMISSOR_LIMITE_EMPRESAS`, senão 1 com 
   `data/backups/emissor-antes-varias-empresas-*.db`, `empresa_id = 1` em tudo, `cliente` recriada com a PK nova, índice
   único de `tributacao.nome` removido, operadores ganham acesso à empresa 1. Testada a partir de um banco antigo
   (`test_migracao_do_banco_de_uma_empresa`).
+- **Procurador desde a configuração inicial** (2026-11-27, pedido do Iuri): no passo do certificado, "De quem é este
+  certificado?" (`components/Procuracao.tsx`): da própria empresa ou de um procurador, com o CNPJ da empresa digitado ali
+  (e-CPF já vem marcado como procurador). `POST /api/onboarding/concluir` e `PUT /api/config` aceitam `acesso`
+  (`_validar_acesso`: procuração com o certificado da própria empresa ou "certificado da empresa" com outro CNPJ/e-CPF
+  são recusados). Configurações → Certificado digital mostra a forma de acesso, "Sou procurador desta empresa" quando o
+  certificado é de outro CNPJ e "Conferir procuração". Guardar um e-CPF marca a empresa como procuração. Liberado por
+  `empresas.procuracao_permitida()`: `EMISSOR_PROCURACAO` (1/0); sem ela, liberado na instalação própria e **desligado
+  na hospedagem** até o Iuri pedir (o painel define `EMISSOR_PROCURACAO=1`). Funciona com uma empresa só (não depende de
+  "várias empresas").
 - XML das empresas além da 1 em `data/xml/<ambiente>/<CNPJ>/AAAA/MM` (filiais com o mesmo nome e número de nota
   sobrescreveriam).
 - Tela: crachá da empresa no topo (`components/Empresas.tsx`, borda hachurada = homologação, preta = produção; some com
@@ -1132,6 +1141,7 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-17 | "Arredondar os centavos sempre para cima" por imposto (`arredondar_cima`: IRRF, CSLL, CP, contribuições digitadas e a parte retida de PIS/COFINS somada no `vRetCSLL`), desligado por padrão; `vPis`/`vCofins` continuam meio para cima | Pedido do Iuri; a Sefin exige `vPis`/`vCofins` = base x alíquota (E0694/E0696), os retidos só precisam ficar abaixo do valor |
 | 2026-11-17 | Preferências por usuário no servidor (`usuario.preferencias_json`): aviso do 2FA dispensado e ordem das colunas da tabela (arrastar); tributação da aba trocada pela barra da tabela; cópia de nota emitida e histórico discreto (ícone) na nota avulsa, sem copiar obra/evento; excluir da lista de emissões as notas não emitidas (recusada, não enviada ou erro sem Id da DPS; a com erro depois do envio pede "Verificar na Sefin" antes), mantendo o XML da DPS e os logs; nome da tributação padrão em `configuracao.tributacao_padrao_nome` (vazio = "Tributação padrão"; sem repetir o nome de outra) e "Copiar" em cada tributação (abre uma nova com os mesmos campos) | Pedido do Iuri (melhorias da emissão) |
 | 2026-11-25 | Locação de imóveis (99.03) pelo grupo `imovel` da NT 009, na planilha (colunas do imóvel na aba com tributação de locação) e na nota avulsa; valor da nota = parte do locador, parcelas fora da base digitadas pelo valor total; uma unidade por nota; planilha das notas com base, IBS e CBS | Pedido do Iuri: notas de aluguel obrigatórias em 01/01/2027 (eram 01/12/2026) e um cliente que emite ~60 por mês em lote |
+| 2026-11-27 | Escolher "sou procurador da empresa" já na configuração inicial e em Configurações → Certificado digital, com uma empresa só; desligado na hospedagem por `EMISSOR_PROCURACAO` | Pedido do Iuri: numa instalação própria não dava para começar como procurador; na hospedagem liga quando ele pedir |
 | 2026-11-22 | Logo nova: três folhas em lote (#B3E0F3, #66C1E7, #0098D7) com a grade vazada atravessando as três e o canto dobrado preto (claro no escuro); `logo.svg`, `Logo` em `ui.tsx`, `sw.js`, `favicon.png` e `docs/img/logo.png` | Pedido do Iuri: a anterior parecia básica; conceito gerado no Higgsfield e redesenhado à mão |
 | 2026-11-26 | Terceiro leiaute (`v1_01_nt009_20261124`) só para a homologação desde 25/11; produção segue no pacote de 20/10 a partir de 01/12 | A Produção Restrita trocou o pacote em 25/11 (indDest obrigatório em infDPS) e a DPS antiga passou a ser recusada; não há pacote de produção publicado para saber qual vale em 01/12 |
 | 2026-11-26 | Homologação de volta ao pacote de 20/10 | A Produção Restrita recusou indDest em infDPS (E1235) numa instância de cliente: o pacote de 24/11 ainda não vale lá |

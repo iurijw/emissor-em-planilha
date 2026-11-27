@@ -73,6 +73,8 @@ def salvar(pfx: bytes, senha: str, empresa_id: int | None = None) -> Certificado
         fiscal = cfg.config_fiscal()
         if fiscal and info.cnpj and fiscal.cnpj == info.cnpj:
             cfg.acesso = "certificado"
+        elif not info.cnpj:
+            cfg.acesso = "procuracao"  # e-CPF: só emite pela empresa com procuração eletrônica
         s.add(cfg)
         s.commit()
     _limpar_cache()

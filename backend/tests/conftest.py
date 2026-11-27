@@ -96,17 +96,23 @@ def entrar_como_admin(client) -> None:
     assert r.status_code == 200, r.text
 
 
-def _gerar_pfx(cnpj: str, senha: str, dias: int = 365) -> bytes:
+def _gerar_pfx(cnpj: str, senha: str, dias: int = 365, *, cpf: str | None = None) -> bytes:
+    """e-CNPJ falso; com ``cpf``, um e-CPF (pessoa física, sem CNPJ)."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     nome = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "BR"),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, "ICP-Brasil"),
-            x509.NameAttribute(NameOID.COMMON_NAME, f"EMPRESA TESTE LTDA:{cnpj}"),
+            x509.NameAttribute(NameOID.COMMON_NAME, f"FULANO DE TAL:{cpf}" if cpf else f"EMPRESA TESTE LTDA:{cnpj}"),
         ]
     )
-    # otherName 2.16.76.1.3.3 com o CNPJ em OCTET STRING, como nos e-CNPJ reais.
-    other = x509.OtherName(x509.ObjectIdentifier("2.16.76.1.3.3"), b"\x04\x0e" + cnpj.encode())
+    if cpf:
+        # otherName 2.16.76.1.3.1: data de nascimento (8) + CPF (11) + NIS (11) + RG...
+        dado = ("01011980" + cpf + "0" * 11).encode()
+        other = x509.OtherName(x509.ObjectIdentifier("2.16.76.1.3.1"), b"\x04" + bytes([len(dado)]) + dado)
+    else:
+        # otherName 2.16.76.1.3.3 com o CNPJ em OCTET STRING, como nos e-CNPJ reais.
+        other = x509.OtherName(x509.ObjectIdentifier("2.16.76.1.3.3"), b"\x04\x0e" + cnpj.encode())
     agora = datetime.now(UTC)
     cert = (
         x509.CertificateBuilder()

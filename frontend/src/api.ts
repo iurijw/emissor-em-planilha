@@ -111,6 +111,8 @@ export interface CertificadoInfo {
   vencido: boolean;
   aviso?: string;
   erro?: string;
+  /** Forma de acesso da empresa depois de guardar o certificado (POST /api/certificado). */
+  acesso?: AcessoEmpresa;
 }
 
 export interface Status {
@@ -126,6 +128,8 @@ export interface Status {
   lote_em_andamento: string | null;
   empresa: { id: number; nome: string | null; cnpj: string | null; acesso: AcessoEmpresa };
   varias_empresas: boolean;
+  /** Emitir com o certificado de um procurador está liberado nesta instalação? */
+  procuracao_permitida: boolean;
 }
 
 /** certificado = A1 da própria empresa; procuracao = certificado de outro CNPJ/CPF com procuração eletrônica. */

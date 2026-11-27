@@ -1305,3 +1305,24 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 .importar__shopee p { margin: 6px 0 0; }
 .dica-grade .legenda-obrigatorio, .importar__dica .legenda-obrigatorio { font-size: inherit; }
 .importar__obrigatorio { color: var(--erro); }
+
+/* ---------- De quem é o certificado (empresa ou procurador) ---------- */
+.acesso-escolha { border: 0; margin: 0; padding: 0; min-inline-size: 0; display: flex; flex-direction: column; gap: 12px; }
+.acesso-escolha legend { padding: 0; margin-bottom: 10px; font-weight: 650; font-size: 0.9375rem; color: var(--tinta); }
+.acesso-escolha__ops { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.acesso-op {
+  position: relative; display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 4px; align-items: start;
+  border: 1.5px solid var(--linha-forte); border-radius: 8px; padding: 14px 16px; cursor: pointer; background: var(--folha);
+}
+.acesso-op input { grid-row: 1 / span 2; margin: 3px 0 0; }
+.acesso-op strong { font-size: 0.9375rem; }
+.acesso-op span { grid-column: 2; color: var(--grafite); font-size: 0.8125rem; text-wrap: pretty; }
+.acesso-op:has(input:checked) { border-color: var(--azul); box-shadow: inset 0 0 0 1px var(--azul); }
+.acesso-op:has(input:focus-visible) { outline: 2px solid var(--azul); outline-offset: 2px; }
+.acesso-op[data-desligada] { cursor: not-allowed; opacity: 0.62; }
+.acesso-escolha__empresa { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 8px; background: var(--papel); border: 1px solid var(--linha); }
+.acesso-escolha__nota { margin: 0; max-width: 68ch; color: var(--grafite); font-size: 0.8125rem; line-height: 1.55; text-wrap: pretty; }
+.acesso-atual { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.acesso-atual > p { margin: 0; max-width: 72ch; font-size: 0.8438rem; line-height: 1.55; text-wrap: pretty; }
+.acesso-atual__acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) { .acesso-escolha__ops { grid-template-columns: 1fr; } }
