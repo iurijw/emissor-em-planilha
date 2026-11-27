@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { api, type CertificadoInfo, type Cliente, type Fiscal, type Linha, type Status } from "../api";
+import { api, type AcessoEmpresa, type CertificadoInfo, type Cliente, type Fiscal, type Linha, type Status } from "../api";
 import { CamposEmpresa, CamposTributacao } from "../components/FiscalForm";
 import { formatarDocumento, moeda } from "../format";
 import { ehEnter, ErroCaixa, Logo, Spinner } from "../ui";
 import { nomeEmpresa, SairDaEmpresaNova } from "../components/Empresas";
 import { LinkSuporte } from "../components/Suporte";
+import { acessoCompleto, acessoSugerido, donoDoCertificado, EscolhaAcesso } from "../components/Procuracao";
 
 const PASSOS = ["Certificado digital", "Notas anteriores", "Dados da empresa", "Tributação padrão", "Ambiente e numeração", "Revisão"];
 
@@ -58,8 +59,8 @@ export function CartaoCertificado({ info }: { info: CertificadoInfo }) {
     <dl className="cert-cartao">
       <dt>Titular</dt>
       <dd>{info.titular}</dd>
-      <dt>CNPJ</dt>
-      <dd className="num">{info.cnpj ? formatarDocumento(info.cnpj) : "—"}</dd>
+      <dt>{info.cnpj || !info.cpf ? "CNPJ" : "CPF"}</dt>
+      <dd className="num">{info.cnpj ? formatarDocumento(info.cnpj) : info.cpf ? formatarDocumento(info.cpf) : "—"}</dd>
       <dt>Emitido por</dt>
       <dd>{info.emissor}</dd>
       <dt>Válido até</dt>
@@ -76,8 +77,14 @@ export function CartaoCertificado({ info }: { info: CertificadoInfo }) {
 export function Onboarding({ status }: { status: Status }) {
   const qc = useQueryClient();
   const [passo, setPasso] = useState(0);
-  const procuracao = status.empresa?.acesso === "procuracao";
   const [cert, setCert] = useState<CertificadoInfo | null>(status.certificado?.erro ? null : status.certificado);
+  // De quem é o certificado: da empresa ou de um procurador dela (aí o CNPJ da empresa é outro, digitado aqui).
+  const [acesso, setAcesso] = useState<AcessoEmpresa>(
+    status.empresa?.acesso === "procuracao" ? "procuracao" : cert ? acessoSugerido(cert, status.empresa?.cnpj) : "certificado",
+  );
+  const [cnpjEmpresa, setCnpjEmpresa] = useState(status.empresa?.acesso === "procuracao" ? (status.empresa.cnpj ?? "") : "");
+  const procuracao = acesso === "procuracao";
+  const permitida = status.procuracao_permitida;
   const [arquivoPfx, setArquivoPfx] = useState<File | null>(null);
   const [senha, setSenha] = useState("");
   const [fiscal, setFiscal] = useState<Fiscal | null>(null);
@@ -108,7 +115,9 @@ export function Onboarding({ status }: { status: Status }) {
       const fd = new FormData();
       fd.append("arquivo", arquivoPfx);
       fd.append("senha", senha);
-      setCert(await api.post<CertificadoInfo>("/api/certificado", fd));
+      const novo = await api.post<CertificadoInfo>("/api/certificado", fd);
+      setCert(novo);
+      setAcesso(acessoSugerido(novo, status.empresa?.cnpj));
       setSenha("");
     });
 
@@ -126,14 +135,14 @@ export function Onboarding({ status }: { status: Status }) {
         fd,
       );
       setImportacao({ notas: r.notas_lidas, clientes: r.clientes, linhas: r.linhas_sugeridas, erros: r.erros });
-      setFiscal(r.fiscal);
+      setFiscal({ ...r.fiscal, cnpj: r.fiscal.cnpj || (procuracao ? cnpjEmpresa : "") });
     });
 
   const irParaPadroes = () =>
     executar(async () => {
       if (!fiscal) {
         const r = await api.get<{ fiscal: Fiscal }>("/api/onboarding/padroes");
-        setFiscal({ ...r.fiscal, cnpj: r.fiscal.cnpj || cert?.cnpj || "" });
+        setFiscal({ ...r.fiscal, cnpj: procuracao ? cnpjEmpresa : r.fiscal.cnpj || cert?.cnpj || "" });
       }
       setPasso(2);
     });
@@ -142,6 +151,7 @@ export function Onboarding({ status }: { status: Status }) {
     executar(async () => {
       await api.post("/api/onboarding/concluir", {
         fiscal,
+        acesso,
         ambiente,
         serie: Number(serie),
         [ambiente === "1" ? "proximo_ndps_producao" : "proximo_ndps_homologacao"]: Number(proximo),
@@ -184,9 +194,11 @@ export function Onboarding({ status }: { status: Status }) {
           <>
             <h1 className="titulo">{procuracao ? "Certificado do procurador" : "Certificado digital da empresa"}</h1>
             <p className="subtitulo">
-              {procuracao
-                ? "As notas desta empresa saem assinadas com o certificado de quem tem a procuração eletrônica dela. O CNPJ do certificado é diferente do da empresa, e isso está certo."
-                : "O certificado A1 (arquivo .pfx ou .p12) assina cada nota e autentica o sistema na Sefin Nacional. Ele fica guardado neste servidor; você não precisará enviá-lo de novo."}
+              {cert && procuracao
+                ? "As notas da empresa saem assinadas com o certificado de quem tem a procuração eletrônica dela. O CNPJ do certificado é diferente do da empresa, e isso está certo."
+                : permitida
+                  ? "O certificado A1 (arquivo .pfx ou .p12) assina cada nota e autentica o sistema na Sefin Nacional. Pode ser o da própria empresa ou o de um procurador dela, como o escritório de contabilidade. Ele fica guardado neste servidor; você não precisará enviá-lo de novo."
+                  : "O certificado A1 (arquivo .pfx ou .p12) assina cada nota e autentica o sistema na Sefin Nacional. Ele fica guardado neste servidor; você não precisará enviá-lo de novo."}
             </p>
             <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 16 }}>
               {cert ? (
@@ -198,6 +210,16 @@ export function Onboarding({ status }: { status: Status }) {
                     Trocar certificado
                   </button>
                 </div>
+              ) : null}
+              {cert ? (
+                <EscolhaAcesso
+                  cert={cert}
+                  acesso={acesso}
+                  onAcesso={setAcesso}
+                  cnpjEmpresa={cnpjEmpresa}
+                  onCnpjEmpresa={setCnpjEmpresa}
+                  permitida={permitida}
+                />
               ) : (
                 <>
                   <ZonaArquivo
@@ -228,7 +250,15 @@ export function Onboarding({ status }: { status: Status }) {
                   {ocupado && <Spinner />} Validar certificado
                 </button>
               ) : (
-                <button className="btn btn--primario btn--grande" onClick={() => setPasso(1)}>
+                <button
+                  className="btn btn--primario btn--grande"
+                  disabled={!acessoCompleto(cert, acesso, cnpjEmpresa, permitida)}
+                  onClick={() => {
+                    // O CNPJ digitado vale para os dados da empresa (os XMLs da empresa trazem o mesmo).
+                    if (fiscal && procuracao) setFiscal({ ...fiscal, cnpj: cnpjEmpresa });
+                    setPasso(1);
+                  }}
+                >
                   Continuar
                 </button>
               )}
@@ -240,7 +270,7 @@ export function Onboarding({ status }: { status: Status }) {
           <>
             <h1 className="titulo">Notas já emitidas</h1>
             <p className="subtitulo">
-              Envie os XMLs das NFS-e que a empresa já emitiu. Deles saem os dados da empresa, a tributação padrão (código do serviço,
+              Envie os XMLs das NFS-e que {procuracao ? `a empresa ${formatarDocumento(cnpjEmpresa)}` : "a empresa"} já emitiu. Deles saem os dados da empresa, a tributação padrão (código do serviço,
               tributos) e o cadastro dos clientes com endereço. Pode pular se preferir preencher à mão.
             </p>
             <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -407,8 +437,10 @@ export function Onboarding({ status }: { status: Status }) {
               <dl className="dl">
                 <dt>Certificado</dt>
                 <dd>
-                  {cert?.titular} <span className="num">{cert?.cnpj && formatarDocumento(cert.cnpj)}</span>
+                  {cert?.titular} <span className="num">{cert && donoDoCertificado(cert)}</span>
                 </dd>
+                <dt>Acesso</dt>
+                <dd>{procuracao ? "Por procuração: a empresa emite com o certificado do procurador" : "Certificado da própria empresa"}</dd>
                 <dt>Prestador</dt>
                 <dd className="num">{formatarDocumento(fiscal.cnpj)}</dd>
                 <dt>Tributação padrão</dt>

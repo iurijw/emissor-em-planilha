@@ -11,7 +11,7 @@ import threading
 import zipfile
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -91,6 +91,7 @@ def status() -> dict[str, Any]:
             "acesso": cfg.acesso or "certificado",
         },
         "varias_empresas": empresas.varias(),
+        "procuracao_permitida": empresas.procuracao_permitida(),
         "pronto_para_emitir": not problemas,
         "problemas": problemas,
         "avisos": avisos,
@@ -112,12 +113,15 @@ async def enviar_certificado(
     auth.auditar("certificado_enviado", f"{info.titular} (válido até {info.valido_ate:%d/%m/%Y})", admin)
     resp = info.as_dict()
     with sessao() as s:
-        fiscal = obter_config(s).config_fiscal()
-    if fiscal and info.cnpj and normalizar_documento(fiscal.cnpj) != info.cnpj:
+        cfg = obter_config(s)
+        fiscal = cfg.config_fiscal()
+        acesso = cfg.acesso or "certificado"
+    if fiscal and info.cnpj and normalizar_documento(fiscal.cnpj) != info.cnpj and acesso != "procuracao":
         resp["aviso"] = (
             f"Atenção: o certificado é do CNPJ {formatar_documento(info.cnpj)}, diferente do prestador configurado "
             f"({formatar_documento(fiscal.cnpj)})."
         )
+    resp["acesso"] = acesso
     return resp
 
 
@@ -185,6 +189,8 @@ async def importar_xmls(_admin: AdminEmpresa, arquivos: list[UploadFile] = File(
 
 class ConfigEntrada(BaseModel):
     fiscal: dict[str, Any] | None = None
+    # certificado (o A1 da própria empresa) | procuracao (certificado de um procurador com procuração eletrônica)
+    acesso: Literal["certificado", "procuracao"] | None = None
     ambiente: str | None = None
     serie: int | None = None
     proximo_ndps_homologacao: int | None = None
@@ -233,7 +239,33 @@ def _validar_fiscal(d: dict[str, Any]) -> ConfigFiscal:
     return cfg
 
 
-def _aplicar_config(entrada: ConfigEntrada) -> None:
+def _validar_acesso(acesso: str, cfg: Any) -> None:
+    """Confere a forma de acesso pedida contra o certificado e o CNPJ da empresa."""
+    info = cert_service.info(cfg.id)
+    fiscal = cfg.config_fiscal()
+    empresa = normalizar_documento(fiscal.cnpj) if fiscal else normalizar_documento(cfg.cnpj or "")
+    if acesso == "procuracao":
+        if not empresas.procuracao_permitida():
+            raise HTTPException(400, "Emitir por procuração não está disponível nesta instalação.")
+        if info and info.cnpj and empresa and info.cnpj == empresa:
+            raise HTTPException(
+                400, "O certificado é da própria empresa: não é preciso procuração. Escolha “certificado da empresa”."
+            )
+        return
+    if info and empresa and info.cnpj != empresa:
+        dono = f"do CNPJ {formatar_documento(info.cnpj)}" if info.cnpj else "de pessoa física (e-CPF)"
+        raise HTTPException(
+            400,
+            f"O certificado é {dono}, não da empresa {formatar_documento(empresa)}. "
+            + (
+                "Se ele é de um procurador da empresa, escolha “sou procurador”."
+                if empresas.procuracao_permitida()
+                else "Envie o certificado A1 da própria empresa (e-CNPJ)."
+            ),
+        )
+
+
+def _aplicar_config(entrada: ConfigEntrada, quem: Any = None) -> None:
     with sessao() as s:
         cfg = obter_config(s)
         muda_numeracao = (entrada.ambiente is not None and entrada.ambiente != cfg.ambiente) or any(
@@ -254,6 +286,15 @@ def _aplicar_config(entrada: ConfigEntrada) -> None:
                     "outra empresa em Configurações → Empresas.",
                 )
             cfg.set_config_fiscal(fiscal)
+        if entrada.acesso is not None:
+            _validar_acesso(entrada.acesso, cfg)
+        if entrada.acesso is not None and entrada.acesso != (cfg.acesso or "certificado"):
+            cfg.acesso = entrada.acesso
+            auth.auditar(
+                "empresa_certificado",
+                "por procuração" if entrada.acesso == "procuracao" else "certificado da empresa",
+                quem,
+            )
         if entrada.ambiente is not None:
             if entrada.ambiente not in ("1", "2"):
                 raise HTTPException(400, "Ambiente inválido.")
@@ -286,7 +327,7 @@ def concluir_onboarding(entrada: ConcluirOnboarding, admin: AdminEmpresa) -> dic
         raise HTTPException(400, "Carregue o certificado digital antes de concluir.")
     if entrada.fiscal is None:
         raise HTTPException(400, "Informe a configuração fiscal.")
-    _aplicar_config(entrada)
+    _aplicar_config(entrada, admin)
     with sessao() as s:
         cfg = obter_config(s)
         cfg.onboarding_concluido = True
@@ -333,7 +374,7 @@ def obter() -> dict[str, Any]:
 
 @router.put("/config")
 def salvar(entrada: ConfigEntrada, admin: AdminEmpresa) -> dict[str, Any]:
-    _aplicar_config(entrada)
+    _aplicar_config(entrada, admin)
     campos = [k for k, v in entrada.model_dump().items() if v is not None]
     log.info("configuração salva", extra={"campos": campos})
     detalhe = ", ".join(campos)

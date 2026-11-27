@@ -20,6 +20,7 @@ import { SecaoIntegracoes } from "../components/Integracoes";
 import { nomeEmpresa, SecaoEmpresas, useEmpresas } from "../components/Empresas";
 import { Dialogo, ErroCaixa, MensagensSefin, Spinner, useToast } from "../ui";
 import { CartaoCertificado, ZonaArquivo } from "./Onboarding";
+import { AcessoDaEmpresa } from "../components/Procuracao";
 
 const SECOES = [
   ["empresas", "Empresas"],
@@ -190,7 +191,7 @@ function SecaoCertificado({ status }: { status: Status }) {
       fd.append("arquivo", arquivo);
       fd.append("senha", senha);
       const r = await api.post<CertificadoInfo>("/api/certificado", fd);
-      toast(r.aviso ?? "Certificado substituído.", r.aviso ? "erro" : "ok");
+      toast(r.aviso && !status.procuracao_permitida ? r.aviso : "Certificado substituído.", r.aviso && !status.procuracao_permitida ? "erro" : "ok");
       setTrocando(false);
       setSenha("");
       setArquivo(null);
@@ -205,16 +206,9 @@ function SecaoCertificado({ status }: { status: Status }) {
   return (
     <section className="folha" id="certificado">
       <h2 className="secao-titulo">Certificado digital</h2>
-      {status.empresa.acesso === "procuracao" && (
-        <div className="info-caixa" style={{ marginBottom: 12 }}>
-          <span>
-            Esta empresa emite por procuração, com o certificado abaixo. Enviar o certificado A1 da própria empresa troca a procuração
-            pelo certificado dela.
-          </span>
-        </div>
-      )}
       {cert?.erro && <div className="erro-caixa">{cert.erro}</div>}
       {cert && !cert.erro && <CartaoCertificado info={cert} />}
+      <AcessoDaEmpresa status={status} />
       {!trocando ? (
         <button className="btn" style={{ marginTop: 14 }} onClick={() => setTrocando(true)}>
           Substituir certificado

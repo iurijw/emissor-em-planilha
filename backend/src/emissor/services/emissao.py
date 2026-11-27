@@ -400,6 +400,29 @@ def _exigir_aliquotas(itens: list[dict]) -> None:
         )
 
 
+def problema_de_acesso(acesso: str | None, cnpj_certificado: str | None, cnpj_empresa: str | None) -> str | None:
+    """O certificado combina com a forma de acesso da empresa (certificado dela ou por procuração)?"""
+    if not cnpj_empresa:
+        return None
+    empresa = normalizar_documento(cnpj_empresa)
+    if acesso == "procuracao":
+        if cnpj_certificado and empresa == cnpj_certificado:
+            return (
+                "A empresa está marcada como “por procuração”, mas o certificado é dela mesma. Troque para "
+                "“certificado da própria empresa” em Configurações → Certificado digital."
+            )
+        return None
+    if not cnpj_certificado or cnpj_certificado == empresa:
+        return None  # e-CPF só emite por procuração: o acesso é acertado ao guardar o certificado
+    dono = f"do CNPJ {formatar_documento(cnpj_certificado)}"
+    saida = (
+        "Se ele é de um procurador da empresa, marque “sou procurador” em Configurações → Certificado digital."
+        if empresas.procuracao_permitida()
+        else "Envie o certificado A1 da própria empresa (e-CNPJ)."
+    )
+    return f"O certificado é {dono}, mas o prestador configurado é {formatar_documento(empresa)}. {saida}"
+
+
 def verificar_prontidao(s: Session) -> list[str]:
     """Problemas de configuração que impedem qualquer emissão."""
     problemas = []
@@ -413,18 +436,9 @@ def verificar_prontidao(s: Session) -> list[str]:
     else:
         if info.vencido:
             problemas.append(f"Certificado vencido em {info.valido_ate:%d/%m/%Y}.")
-        if cfg.acesso == "procuracao":
-            if fiscal and info.cnpj and normalizar_documento(fiscal.cnpj) == info.cnpj:
-                problemas.append(
-                    "A empresa está marcada como “por procuração”, mas o certificado é dela mesma. "
-                    "Troque para “certificado da empresa” em Configurações → Empresas."
-                )
-        elif fiscal and info.cnpj and normalizar_documento(fiscal.cnpj) != info.cnpj:
-            problemas.append(
-                f"O certificado é do CNPJ {formatar_documento(info.cnpj)}, mas o prestador configurado é "
-                f"{formatar_documento(fiscal.cnpj)}. Para emitir com o certificado de outro CNPJ/CPF, use "
-                "“por procuração” em Configurações → Empresas."
-            )
+        problema = problema_de_acesso(cfg.acesso, info.cnpj, fiscal.cnpj if fiscal else None)
+        if problema:
+            problemas.append(problema)
     return problemas
 
 
