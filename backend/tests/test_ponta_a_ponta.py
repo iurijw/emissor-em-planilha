@@ -1026,6 +1026,29 @@ def test_rejeicao_queda_e_certificado_recusado(api, sim, pfx_bytes, nfse_exemplo
     assert [e["status"] for e in lote["emissoes"]] == ["erro", "nao_enviada", "nao_enviada"]
 
 
+def test_sefin_troca_o_pacote_da_nt009(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """A Produção Restrita recusou o indDest em infDPS em 26/11/2026 de manhã e passou a exigi-lo à tarde (E1235):
+    a DPS é montada de novo no outro pacote e reenviada, com o mesmo Id, sem a pessoa ver a recusa."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    ids = _linhas(api, [{"nome": "A", "documento": TOMADOR_CNPJ, "valor": "10", "descricao": "a"}])
+    for pacote, com_inddest in (("v1_01_nt009", False), ("v1_01_nt009_20261124", True)):
+        sim.pacote_nt009 = pacote
+        antes = len(sim.dps_recebidas)
+        e = _emitir(api, ids)["emissoes"][0]
+        _conferir_nota(api, sim, e, documento=TOMADOR_CNPJ, valor="10.00")
+        enviadas = sim.dps_recebidas[antes:]
+        assert len(enviadas) == 2, "uma recusa E1235 e um reenvio no outro pacote"
+        ids_dps = {etree.fromstring(d).find(f"{N}infDPS").get("Id") for d in enviadas}
+        assert len(ids_dps) == 1, "o reenvio é a mesma DPS (mesmo Id e número)"
+        gravada = etree.fromstring(enviadas[-1]).find(f"{N}infDPS")
+        assert (gravada.find(f"{N}indDest") is not None) is com_inddest
+        # a próxima nota já sai no pacote certo, sem recusa
+        antes = len(sim.dps_recebidas)
+        assert _emitir(api, ids)["contagem"] == {"autorizada": 1}
+        assert len(sim.dps_recebidas) == antes + 1
+    assert sum(r["erros"][0]["Codigo"] == "E1235" for r in sim.rejeicoes) == 2
+
+
 def test_producao_usa_outro_endereco_e_outra_numeracao(api, sim, pfx_bytes, nfse_exemplo_bytes):
     _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
     ids = [ln["id"] for ln in api.get("/api/tabela").json()["linhas"]]

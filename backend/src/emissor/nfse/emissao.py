@@ -26,7 +26,7 @@ from lxml import etree
 from emissor import config
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
-from emissor.nfse.constants import NS_NFSE
+from emissor.nfse.constants import NS_NFSE, leiaute
 from emissor.nfse.dps_builder import build_dps, to_bytes
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro, dica_xsd
 from emissor.nfse.models import DpsInput
@@ -65,7 +65,7 @@ def preparar_dps(inp: DpsInput, cert: Certificado) -> tuple[str, bytes]:
     dps = build_dps(inp)
     id_dps = dps[0].get("Id")
     assinada = assinar(dps, cert)
-    erros = validar_dps(assinada)
+    erros = validar_dps(assinada, leiaute(inp.ambiente, inp.dh_emi))
     if erros:
         raise SefinError(
             TipoErro.VALIDACAO_LOCAL,
@@ -73,6 +73,14 @@ def preparar_dps(inp: DpsInput, cert: Certificado) -> tuple[str, bytes]:
             [MensagemSefin(codigo="XSD", descricao=str(e), dica=dica_xsd(str(e))) for e in erros],
         )
     return id_dps, to_bytes(assinada)
+
+
+def recusa_do_pacote(err: SefinError) -> bool:
+    """A Sefin recusou a DPS pelo pacote da NT 009 (E1235 sobre o indDest: ela espera o indDest em infDPS ou o recusa
+    ali). Nada foi registrado, então a mesma DPS pode ir de novo no outro pacote (``trocar_pacote_nt009``)."""
+    return err.tipo is TipoErro.REJEICAO and any(
+        m.codigo == "E1235" and "indDest" in f"{m.descricao} {m.complemento or ''}" for m in err.mensagens
+    )
 
 
 def enviar_dps(

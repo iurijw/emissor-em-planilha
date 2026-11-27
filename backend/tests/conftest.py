@@ -19,6 +19,15 @@ SENHA_PFX = "senha-teste"
 
 
 @pytest.fixture(autouse=True)
+def pacotes_nt009(monkeypatch):
+    """A troca de pacote da NT 009 após um E1235 (``trocar_pacote_nt009``) não passa de um teste para outro."""
+    from emissor.nfse import constants
+
+    monkeypatch.setattr(constants, "LEIAUTE_NT009_HOMOLOGACAO", constants.LEIAUTE_NT009_HOMOLOGACAO)
+    monkeypatch.setattr(constants, "LEIAUTE_NT009_PRODUCAO", constants.LEIAUTE_NT009_PRODUCAO)
+
+
+@pytest.fixture(autouse=True)
 def data_dir_isolado(tmp_path, monkeypatch):
     """Nenhum teste escreve em data/ do projeto."""
     from emissor import config, security
