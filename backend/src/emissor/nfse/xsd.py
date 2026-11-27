@@ -14,7 +14,7 @@ from pathlib import Path
 
 from lxml import etree
 
-from emissor.nfse.constants import NS_NFSE, Ambiente, leiaute
+from emissor.nfse.constants import LEIAUTE_NT009, LEIAUTE_NT009_20261124, NS_NFSE, Ambiente, eh_nt009, leiaute
 
 XSD_BASE = Path(__file__).parent / "xsd"
 XSD_DIR = XSD_BASE / "v1_01"
@@ -37,7 +37,8 @@ def _schema(leiaute: str, nome: str) -> etree.XMLSchema:
 
 def leiaute_do_documento(root: etree._Element) -> str:
     """Pasta do XSD pelo primeiro ``tpAmb`` do documento (sem ``tpAmb``: produção) e pela sua data (``dhEmi`` da DPS
-    ou ``dhEvento`` do pedido de evento; sem data: agora)."""
+    ou ``dhEvento`` do pedido de evento; sem data: agora). Na NT 009, o pacote sai do próprio documento (indDest em
+    infDPS = pacote de 24/11), porque o pacote em uso muda quando a Sefin troca (``trocar_pacote_nt009``)."""
     try:
         ambiente = Ambiente(root.findtext(f".//{{{NS_NFSE}}}tpAmb"))
     except ValueError:
@@ -54,7 +55,11 @@ def leiaute_do_documento(root: etree._Element) -> str:
                 quando = None
                 continue
             break
-    return leiaute(ambiente, quando)
+    pasta = leiaute(ambiente, quando)
+    inf = root if etree.QName(root).localname == "infDPS" else root.find(f".//{{{NS_NFSE}}}infDPS")
+    if eh_nt009(pasta) and inf is not None:
+        return LEIAUTE_NT009_20261124 if inf.find(f"{{{NS_NFSE}}}indDest") is not None else LEIAUTE_NT009
+    return pasta
 
 
 def _validar(nome: str, doc: etree._Element | bytes, leiaute: str | None) -> list[XsdErro]:

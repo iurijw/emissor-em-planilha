@@ -50,16 +50,18 @@ class Ambiente(StrEnum):
 # troca vServMoeda/nDI/nRE por nFatura/vFatura/nDUIMP/nDUE/nContCambio e entram condomínios, cMun do evento e
 # vAjusteBCIBSCBSComExt. A Produção continua indo para ``v1_01_nt009`` (20/10) em 01/12 até a Sefin publicar o pacote de
 # produção: se ele for o de 24/11, basta trocar ``LEIAUTE_NT009_PRODUCAO``.
-# Em 26/11/2026 a Produção Restrita ainda recusou indDest em infDPS (E1235, "esperado interm, serv"): o pacote de 24/11
-# foi publicado mas não está em uso. A homologação volta a ``v1_01_nt009`` (20/10) até a Sefin passar a aceitá-lo;
-# quando passar, trocar ``LEIAUTE_NT009_HOMOLOGACAO``.
+# Em 26/11/2026 de manhã a Produção Restrita recusou indDest em infDPS (E1235, "esperado interm, serv") e, à tarde,
+# passou a exigi-lo (E1235, "esperado indDest", visto às 15:45 e em 27/11): a Sefin troca de pacote sem aviso. Por isso
+# o pacote da NT 009 de cada ambiente é só o ponto de partida: uma recusa E1235 sobre o indDest troca o pacote do
+# ambiente (``trocar_pacote_nt009``) e a mesma DPS é montada de novo e reenviada (``services/emissao.py``). A troca vale
+# para o processo inteiro até o servidor reiniciar.
 LEIAUTE_ANTERIOR = "v1_01"
 LEIAUTE_NT009 = "v1_01_nt009"
 LEIAUTE_NT009_20261124 = "v1_01_nt009_20261124"
 LEIAUTES_NT009 = (LEIAUTE_NT009, LEIAUTE_NT009_20261124)
 LEIAUTE_NT009_PRODUCAO = LEIAUTE_NT009
 INICIO_NT009_PRODUCAO = datetime(2026, 12, 1, tzinfo=ZoneInfo("America/Sao_Paulo"))
-LEIAUTE_NT009_HOMOLOGACAO = LEIAUTE_NT009
+LEIAUTE_NT009_HOMOLOGACAO = LEIAUTE_NT009_20261124
 
 
 def leiaute(ambiente: Ambiente, quando: datetime | None = None) -> str:
@@ -68,6 +70,20 @@ def leiaute(ambiente: Ambiente, quando: datetime | None = None) -> str:
     if ambiente is Ambiente.HOMOLOGACAO:
         return LEIAUTE_NT009_HOMOLOGACAO
     return LEIAUTE_NT009_PRODUCAO if quando >= INICIO_NT009_PRODUCAO else LEIAUTE_ANTERIOR
+
+
+def trocar_pacote_nt009(ambiente: Ambiente, enviado: str) -> str | None:
+    """A Sefin recusou o pacote ``enviado`` da NT 009 (E1235 sobre o indDest): passa o ambiente ao outro pacote e
+    devolve a pasta nova (``None`` se ``enviado`` não é da NT 009)."""
+    global LEIAUTE_NT009_HOMOLOGACAO, LEIAUTE_NT009_PRODUCAO
+    if enviado not in LEIAUTES_NT009:
+        return None
+    outro = LEIAUTE_NT009 if enviado == LEIAUTE_NT009_20261124 else LEIAUTE_NT009_20261124
+    if ambiente is Ambiente.HOMOLOGACAO:
+        LEIAUTE_NT009_HOMOLOGACAO = outro
+    else:
+        LEIAUTE_NT009_PRODUCAO = outro
+    return outro
 
 
 def eh_nt009(pasta: str) -> bool:

@@ -133,6 +133,8 @@ class SefinSimulada:
         self.fora_do_ar: bool = False  # 503 em tudo
         # (município, cTribNac) que a prefeitura não administra: E0312 na emissão e nada na parametrização.
         self.servicos_nao_administrados: set[tuple[str, str]] = set()
+        # pacote da NT 009 que a "Sefin" usa (None = aceita qualquer um): com outro, recusa com o E1235 real
+        self.pacote_nt009: str | None = None
         # (município, cTribNac) → cTribMun: a prefeitura cadastrou o serviço só com o desdobramento municipal
         # (06.04.01.604 em Barretos, ADN real em 25/11/2026): ``.000`` responde 404 e outro desdobramento também.
         self.so_desdobramento: dict[tuple[str, str], str] = {}
@@ -195,9 +197,29 @@ class SefinSimulada:
         self.rejeicoes.append(corpo)
         return httpx.Response(status, json=corpo)
 
+    def _conferir_pacote(self, dps: bytes) -> httpx.Response | None:
+        """E1235 como a Produção Restrita deu em 26/11/2026 (indDest recusado) e em 27/11/2026 (indDest exigido)."""
+        if self.pacote_nt009 is None:
+            return None
+        tem = etree.fromstring(dps).find(f"{N}infDPS/{N}indDest") is not None
+        quer = self.pacote_nt009 == "v1_01_nt009_20261124"
+        if tem == quer:
+            return None
+        ns = "in namespace 'http://www.sped.fazenda.gov.br/nfse'"
+        if quer:
+            comp = f"The element 'infDPS' {ns} has invalid child element 'serv' {ns}. List of possible elements expected: 'indDest' {ns}."
+        else:
+            comp = f"The element 'infDPS' {ns} has invalid child element 'indDest' {ns}. List of possible elements expected: 'interm, serv' {ns}."
+        corpo = {"erros": [{"Codigo": "E1235", "Descricao": "Falha no esquema XML do DF-e.", "Complemento": comp}]}
+        self.rejeicoes.append(corpo)
+        return httpx.Response(400, json=corpo)
+
     def _emitir(self, req: httpx.Request, cert: Certificado, tp_amb: str) -> httpx.Response:
         dps = ungzip_b64(json.loads(req.content)["dpsXmlGZipB64"])
         self.dps_recebidas.append(dps)
+        recusa = self._conferir_pacote(dps)
+        if recusa:
+            return recusa
         problema = self._conferir_documento(dps, cert, "infDPS", validar_dps)
         if problema:
             return self._rejeitar(*problema)

@@ -36,7 +36,7 @@ from emissor.nfse import codes, dps_builder
 from emissor.nfse import locacao as loc_imovel
 from emissor.nfse.certificate import Certificado
 from emissor.nfse.client import SefinClient
-from emissor.nfse.constants import Ambiente, eh_nt009, leiaute
+from emissor.nfse.constants import Ambiente, eh_nt009, leiaute, trocar_pacote_nt009
 from emissor.nfse.documentos import documento_valido, formatar_documento
 from emissor.nfse.dps_builder import DpsBuildError
 from emissor.nfse.emissao import (
@@ -46,6 +46,7 @@ from emissor.nfse.emissao import (
     buscar_nfse_da_dps,
     enviar_dps,
     preparar_dps,
+    recusa_do_pacote,
 )
 from emissor.nfse.errors import MensagemSefin, SefinError, TipoErro
 from emissor.nfse.models import (
@@ -728,14 +729,50 @@ class EmissionWorker:
                     preparado = self._preparar(e, cert, fiscal, amb)
                     if preparado is None:
                         return
-                    id_dps, xml = preparado
-                    resultado = enviar_dps(client, id_dps, xml, **kw)
+                    id_dps, xml, inp = preparado
+                    try:
+                        resultado = enviar_dps(client, id_dps, xml, **kw)
+                    except SefinError as err:
+                        novo = self._outro_pacote(e, err, inp, cert, amb)
+                        if novo is None:
+                            raise
+                        resultado = enviar_dps(client, id_dps, novo, **kw)
             except SefinError as err:
                 self._falha(e, err)
                 return
             self._sucesso(e, resultado)
 
-    def _preparar(self, e: Emissao, cert: Certificado, fiscal, amb: Ambiente) -> tuple[str, bytes] | None:
+    def _outro_pacote(
+        self, e: Emissao, err: SefinError, inp: DpsInput, cert: Certificado, amb: Ambiente
+    ) -> bytes | None:
+        """A Sefin trocou o pacote da NT 009 sem aviso (E1235 sobre o indDest, visto em 26 e 27/11/2026): passa o
+        ambiente ao outro pacote e monta de novo a mesma DPS (mesmo Id, número e dhEmi), que é gravada no lugar da
+        recusada. Nada foi registrado na Sefin, então não há risco de duplicidade."""
+        if not recusa_do_pacote(err):
+            return None
+        enviado = leiaute(amb, inp.dh_emi)
+        novo = trocar_pacote_nt009(amb, enviado)
+        if novo is None:
+            return None
+        log.warning(
+            "a Sefin recusou o pacote %s da NT 009; reenviando a DPS no pacote %s",
+            enviado,
+            novo,
+            extra={"id_dps": e.id_dps, "erro": err.as_dict()},
+        )
+        try:
+            _, xml = preparar_dps(inp, cert)
+        except (DpsBuildError, SefinError) as exc:
+            log.warning("a DPS não pôde ser montada no outro pacote: %s", exc)
+            trocar_pacote_nt009(amb, novo)  # volta ao pacote de antes; a recusa original vale
+            return None
+        with sessao() as s:
+            reg = s.get(Emissao, e.id)
+            if reg and reg.dps_path:
+                arquivos.absoluto(reg.dps_path).write_bytes(xml)
+        return xml
+
+    def _preparar(self, e: Emissao, cert: Certificado, fiscal, amb: Ambiente) -> tuple[str, bytes, DpsInput] | None:
         with sessao() as s:
             cfg = obter_config(s)
             n = cfg.proximo_ndps(amb)  # numeração do ambiente para onde a DPS vai, não o atual
@@ -784,7 +821,7 @@ class EmissionWorker:
             s.add_all([cfg, reg])
             s.commit()
         log.info("DPS preparada", extra={"id_dps": id_dps, "n_dps": n, "serie": serie})
-        return id_dps, xml
+        return id_dps, xml, inp
 
     def _retomar(self, e: Emissao, client: SefinClient, **kw) -> ResultadoEmissao:
         xml = arquivos.absoluto(e.dps_path).read_bytes()

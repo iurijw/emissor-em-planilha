@@ -54,7 +54,7 @@ def test_dps_mesma_estrutura_das_notas_atuais(dps_input, nfse_exemplo_bytes):
     assert _estrutura(gerada) == _estrutura(real)
 
 
-def test_dps_de_homologacao_segue_a_nt009(dps_input, nfse_exemplo_bytes):
+def test_dps_de_homologacao_segue_a_nt009(dps_input, nfse_exemplo_bytes, pacote_20261020):
     """Produção Restrita no leiaute da NT 009 (20/10/2026): finNFSe em infDPS e xDescServ no fim de cServ."""
     real = _estrutura(etree.fromstring(nfse_exemplo_bytes).find(f"{N}infNFSe/{N}DPS/{N}infDPS"))
     esperado = [c for c in real if c != "serv/cServ/xDescServ"]
@@ -166,7 +166,7 @@ def test_dps_com_ibscbs_valida_no_xsd(dps_input, certificado):
     assert trib.findtext(f"{N}CST") == "000" and trib.findtext(f"{N}cClassTrib") == "000001"
 
 
-def test_dps_com_ibscbs_na_nt009(dps_input, certificado):
+def test_dps_com_ibscbs_na_nt009(dps_input, certificado, pacote_20261020):
     inp = _com_ibscbs(dps_input, ibscbs_c_ind_op="100301", ibscbs_c_class_trib="200052", ibscbs_ind_final="0")
     _, xml = preparar_dps(inp, certificado)  # homologação
     root = etree.fromstring(xml)
@@ -233,9 +233,8 @@ def test_producao_passa_a_nt009_em_01_12_2026(dps_input):
     depois = datetime(2026, 12, 1, 0, 0, 0, tzinfo=sp)
     assert leiaute(Ambiente.PRODUCAO, antes) == "v1_01"
     assert leiaute(Ambiente.PRODUCAO, depois) == "v1_01_nt009"
-    assert leiaute(Ambiente.HOMOLOGACAO, datetime(2026, 11, 24, 23, 59, tzinfo=sp)) == "v1_01_nt009"
-    # a Produção Restrita recusou o pacote de 24/11 em 26/11/2026 (E1235 com indDest em infDPS)
-    assert leiaute(Ambiente.HOMOLOGACAO, antes) == "v1_01_nt009"
+    # a Produção Restrita exige o indDest em infDPS desde a tarde de 26/11/2026 (pacote de 24/11)
+    assert leiaute(Ambiente.HOMOLOGACAO, antes) == "v1_01_nt009_20261124"
 
     inp = replace(dps_input, ambiente=Ambiente.PRODUCAO)
     velha = build_dps(replace(inp, dh_emi=antes))
@@ -353,7 +352,7 @@ COMEX = dict(
 
 
 @pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
-def test_exportacao_com_tomador_no_exterior(dps_input, certificado, ambiente):
+def test_exportacao_com_tomador_no_exterior(dps_input, certificado, ambiente, pacote_20261020):
     from emissor.nfse.models import DadosNota
 
     externo = {
@@ -460,7 +459,7 @@ INTERM = {
 
 
 @pytest.mark.parametrize("ambiente", [Ambiente.PRODUCAO, Ambiente.HOMOLOGACAO])
-def test_intermediario_destinatario_e_compra_governamental(dps_input, certificado, ambiente):
+def test_intermediario_destinatario_e_compra_governamental(dps_input, certificado, ambiente, pacote_20261020):
     from emissor.nfse.models import DadosNota
 
     nota = DadosNota(
@@ -594,8 +593,16 @@ def test_locacao_recusada_sem_os_dados_ou_fora_da_nt009(dps_input):
 
 
 @pytest.fixture
+def pacote_20261020(monkeypatch):
+    """Homologação no pacote de 20/10/2026 (o da produção a partir de 01/12; a Produção Restrita o usou até 26/11)."""
+    from emissor.nfse import constants
+
+    monkeypatch.setattr(constants, "LEIAUTE_NT009_HOMOLOGACAO", constants.LEIAUTE_NT009)
+
+
+@pytest.fixture
 def pacote_20261124(monkeypatch):
-    """Homologação no pacote de 24/11/2026 (publicado, mas recusado pela Produção Restrita em 26/11/2026)."""
+    """Homologação no pacote de 24/11/2026 (o da Produção Restrita desde a tarde de 26/11/2026)."""
     from emissor.nfse import constants
 
     monkeypatch.setattr(constants, "LEIAUTE_NT009_HOMOLOGACAO", constants.LEIAUTE_NT009_20261124)
