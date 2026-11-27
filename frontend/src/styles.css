@@ -796,8 +796,43 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
   position: absolute; top: -3px; right: -5px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
   background: #f5a300; color: #1a1200; border: 2px solid var(--folha); font-size: 0.625rem; font-weight: 700; line-height: 14px; text-align: center;
 }
-.conversa__de { margin-bottom: 14px; }
-.conversa__fio { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+/* A gaveta da conversa não rola inteira: só o fio das mensagens, entre o seletor (admin) e a caixa de escrever. */
+.gaveta .dialogo__corpo:has(> .conversa) { display: flex; flex-direction: column; overflow: hidden; padding: 0; min-height: 0; }
+.conversa { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.conversa__de { margin: 14px 22px 0; }
+.conversa__caixa { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.conversa__fio {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none;
+  padding: 4px 22px 18px; display: flex; flex-direction: column;
+}
+.conversa__fio:focus-visible { outline: 2px solid var(--azul); outline-offset: -2px; }
+.conversa__fio > .conversa__vazia, .conversa__fio > .conversa__erro { margin-top: 16px; }
+.conversa__topo { margin: 6px 0 0; min-height: 1.25em; text-align: center; font-size: 0.75rem; color: var(--grafite-claro); display: flex; gap: 6px; justify-content: center; align-items: center; }
+.conversa__dia { display: flex; flex-direction: column; }
+/* Data presa no topo enquanto se rola pelas mensagens daquele dia, como no WhatsApp. */
+.conversa__data {
+  position: sticky; top: 6px; z-index: 1; margin: 12px 0 8px; display: flex; justify-content: center;
+  pointer-events: none; container: conversa-data / scroll-state;
+}
+.conversa__data span {
+  font-size: 0.7188rem; font-weight: 600; color: var(--grafite); background: var(--folha);
+  border: 1px solid var(--linha); border-radius: 999px; padding: 3px 11px; transition: box-shadow 0.2s;
+}
+@container conversa-data scroll-state(stuck: top) {
+  .conversa__data span { box-shadow: 0 2px 8px -2px var(--sombra-longe), 0 1px 2px var(--sombra-perto); }
+}
+.conversa__msgs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.conversa__ir-fim {
+  position: absolute; right: 18px; bottom: 14px; width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid var(--linha-forte); background: var(--folha); color: var(--tinta); display: grid; place-items: center;
+  cursor: pointer; box-shadow: 0 4px 14px -4px var(--sombra-longe), 0 1px 2px var(--sombra-perto);
+}
+.conversa__ir-fim:hover { border-color: var(--azul); color: var(--azul-texto); }
+.conversa__ir-fim:focus-visible { outline: none; box-shadow: var(--foco); }
+.conversa__ir-fim-n {
+  position: absolute; top: -6px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--azul); color: #fff; font-size: 0.625rem; font-weight: 700; line-height: 18px; text-align: center;
+}
 .conversa__msg { max-width: 86%; padding: 9px 12px; border-radius: 12px; display: grid; gap: 3px; }
 .conversa__msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.875rem; line-height: 1.5; }
 .conversa__msg--suporte { align-self: flex-start; background: var(--azul-fundo); color: var(--azul-tinta); border-top-left-radius: 3px; }
@@ -810,7 +845,11 @@ dialog.atualizando { max-width: 420px; padding: 24px; text-align: center; displa
 .conversa__vazia p { margin: 0 0 8px; }
 .conversa__vazia strong { color: var(--tinta); }
 .conversa__escrever { display: grid; gap: 8px; width: 100%; }
-.conversa__escrever textarea { width: 100%; resize: vertical; min-height: 72px; font: inherit; }
+.conversa__escrever textarea {
+  width: 100%; font: inherit; line-height: 1.45; padding: 8px 10px; border: 1px solid var(--linha-forte); border-radius: var(--raio);
+  background: var(--folha); resize: none; field-sizing: content; min-block-size: calc(2lh + 18px); max-block-size: calc(8lh + 18px);
+}
+.conversa__escrever textarea:focus { outline: none; border-color: var(--azul); box-shadow: var(--foco); }
 .conversa__acoes { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .conversa__dica { font-size: 0.75rem; color: var(--grafite-claro); }
 .conversa__erro { margin: 0; color: var(--erro); font-size: 0.8125rem; }
