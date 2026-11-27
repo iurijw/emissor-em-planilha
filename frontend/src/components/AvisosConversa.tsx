@@ -3,7 +3,7 @@
 // acorda nem mantém ligada a instância. Sem a variável EMISSOR_SUPORTE_URL (instalação própria), nada aparece.
 // Cada usuário tem a própria conversa; o administrador vê e responde as de todos.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, type Sessao } from "../api";
 import { ehEnter, Gaveta, Spinner, usePopover } from "../ui";
 
@@ -134,11 +134,52 @@ function ComLinks({ texto }: { texto: string }) {
   );
 }
 
-function dataHora(iso: string): string {
-  const d = new Date(iso);
-  const hoje = d.toDateString() === new Date().toDateString();
-  return d.toLocaleString("pt-BR", hoje ? { hour: "2-digit", minute: "2-digit" } : { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+function hora(iso: string): string {
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
+
+/** Dia da mensagem no fuso do navegador (AAAA-MM-DD), para agrupar. */
+function diaDe(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-CA");
+}
+
+/** Divisor de dia como no WhatsApp: Hoje, Ontem, o dia da semana nesta semana e a data nas outras. */
+function rotuloDia(iso: string): string {
+  const d = new Date(iso);
+  const chave = diaDe(d.getTime());
+  const hoje = diaDe(Date.now());
+  const dias = Math.round((Date.parse(hoje) - Date.parse(chave)) / 864e5);
+  if (dias === 0) return "Hoje";
+  if (dias === 1) return "Ontem";
+  if (dias > 1 && dias < 7) {
+    const s = d.toLocaleDateString("pt-BR", { weekday: "long" });
+    return s[0].toUpperCase() + s.slice(1);
+  }
+  return d.toLocaleDateString("pt-BR", { day: "numeric", month: "long", ...(chave.slice(0, 4) === hoje.slice(0, 4) ? {} : { year: "numeric" }) });
+}
+
+/** Mensagens agrupadas por dia, na ordem da conversa. */
+function porDia(lista: Mensagem[]): { chave: string; rotulo: string; mensagens: Mensagem[] }[] {
+  const dias: { chave: string; rotulo: string; mensagens: Mensagem[] }[] = [];
+  for (const m of lista) {
+    const chave = diaDe(Date.parse(m.em));
+    const ultimo = dias.at(-1);
+    if (ultimo?.chave === chave) ultimo.mensagens.push(m);
+    else dias.push({ chave, rotulo: rotuloDia(m.em), mensagens: [m] });
+  }
+  return dias;
+}
+
+/** Junta mensagens sem repetir (a mesma pode vir no envio e na busca seguinte), em ordem. */
+function juntar(a: Mensagem[], b: Mensagem[]): Mensagem[] {
+  const ids = new Set(a.map((m) => m.id));
+  const novas = b.filter((m) => !ids.has(m.id));
+  return novas.length ? [...a, ...novas].sort((x, y) => x.id - y.id) : a;
+}
+
+const POR_PAGINA = 40;
+/** Distância do fim (px) que ainda conta como "no fim" da conversa. */
+const PERTO_DO_FIM = 48;
 
 function Sino() {
   return (
@@ -256,6 +297,14 @@ export function FaixaAvisoUrgente() {
   );
 }
 
+function SetaBaixo() {
+  return (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function Bolha({ m, eu }: { m: Mensagem; eu: number }) {
   const suporte = m.autor !== "usuario";
   const minha = !suporte && m.autor_usuario === eu;
@@ -265,7 +314,10 @@ function Bolha({ m, eu }: { m: Mensagem; eu: number }) {
       <span className="conversa__quem">
         {nome}
         {m.autor === "claude" && <span className="conversa__ia">assistente IA</span>}
-        <time dateTime={m.em}> · {dataHora(m.em)}</time>
+        <time dateTime={m.em} title={new Date(m.em).toLocaleString("pt-BR")}>
+          {" "}
+          · {hora(m.em)}
+        </time>
       </span>
       <p>
         <ComLinks texto={m.texto} />
@@ -274,22 +326,36 @@ function Bolha({ m, eu }: { m: Mensagem; eu: number }) {
   );
 }
 
+type Rolagem = { modo: "fim" | "antigas" | "novas"; altura: number; topo: number; noFim: boolean };
+
 function Conversa({ fechar, eu, admin }: { fechar: () => void; eu: number; admin: boolean }) {
   const qc = useQueryClient();
   const painel = usePainel();
+  const painelRef = useRef(painel);
+  painelRef.current = painel;
   const [alvo, setAlvo] = useState(eu);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const fio = useRef<HTMLOListElement>(null);
+  const [lista, setLista] = useState<Mensagem[]>([]);
+  const [mais, setMais] = useState(false);
+  const [carga, setCarga] = useState<"carregando" | "pronta" | "erro">("carregando");
+  const [erroCarga, setErroCarga] = useState("");
+  const [antigas, setAntigas] = useState(false);
+  const [noFim, setNoFim] = useState(true);
+  const [novas, setNovas] = useState(0);
+  const [anuncio, setAnuncio] = useState("");
+  const fio = useRef<HTMLDivElement>(null);
+  const topo = useRef<HTMLParagraphElement>(null);
+  const campo = useRef<HTMLTextAreaElement>(null);
+  const rolagem = useRef<Rolagem | null>(null);
+  const antigasRef = useRef(false);
+  const listaRef = useRef(lista);
+  listaRef.current = lista;
+  const alvoRef = useRef(alvo);
+  alvoRef.current = alvo;
   const propria = alvo === eu;
 
-  const msgs = useQuery({
-    queryKey: ["suporte-mensagens", alvo],
-    queryFn: () => painel.pedir<{ mensagens: Mensagem[] }>(`/mensagens?usuario=${alvo}`),
-    enabled: painel.pronto,
-    refetchInterval: 8000,
-  });
   const outras = useQuery({
     queryKey: ["suporte-conversas"],
     queryFn: () => painel.pedir<{ conversas: ConversaResumo[] }>("/conversas"),
@@ -297,29 +363,159 @@ function Conversa({ fechar, eu, admin }: { fechar: () => void; eu: number; admin
     refetchInterval: 60_000,
   });
 
-  const lista = msgs.data?.mensagens ?? [];
+  /** Guarda onde a rolagem estava antes de a lista mudar; o efeito de layout abaixo ajusta depois de desenhar. */
+  const prepararRolagem = (modo: Rolagem["modo"]) => {
+    const el = fio.current;
+    rolagem.current = {
+      modo,
+      altura: el?.scrollHeight ?? 0,
+      topo: el?.scrollTop ?? 0,
+      noFim: !el || el.scrollTop + el.clientHeight >= el.scrollHeight - PERTO_DO_FIM,
+    };
+  };
+
+  useLayoutEffect(() => {
+    const el = fio.current;
+    const r = rolagem.current;
+    if (!el || !r) return;
+    rolagem.current = null;
+    // Mensagens anteriores entraram em cima: o que estava à vista fica no mesmo lugar.
+    if (r.modo === "antigas") el.scrollTop = el.scrollHeight - r.altura + r.topo;
+    else if (r.modo === "fim" || r.noFim) {
+      el.scrollTop = el.scrollHeight;
+      setNovas(0);
+    }
+  }, [lista, carga]);
+
+  // Abriu a conversa (ou trocou de pessoa): as mensagens mais novas, já rolado para o fim.
+  useEffect(() => {
+    if (!painel.pronto) return;
+    let vivo = true;
+    setCarga("carregando");
+    setLista([]);
+    setMais(false);
+    setNovas(0);
+    painelRef.current
+      .pedir<{ mensagens: Mensagem[]; mais?: boolean }>(`/mensagens?usuario=${alvo}&limite=${POR_PAGINA}`)
+      .then((d) => {
+        if (!vivo) return;
+        prepararRolagem("fim");
+        setLista(d.mensagens);
+        setMais(Boolean(d.mais));
+        setCarga("pronta");
+      })
+      .catch((err: unknown) => {
+        if (!vivo) return;
+        setErroCarga(err instanceof Error ? err.message : String(err));
+        setCarga("erro");
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [alvo, painel.pronto]);
+
+  // Mensagens novas a cada 8 s, só com a aba à vista: só as que vieram depois da última.
+  useEffect(() => {
+    if (carga !== "pronta") return;
+    const buscar = async () => {
+      if (document.visibilityState !== "visible") return;
+      const quem = alvoRef.current;
+      const ultima = listaRef.current.at(-1)?.id ?? 0;
+      try {
+        const d = await painelRef.current.pedir<{ mensagens: Mensagem[] }>(`/mensagens?usuario=${quem}&depois=${ultima}`);
+        if (quem !== alvoRef.current || !d.mensagens.length) return;
+        const chegando = d.mensagens.filter((m) => m.id > ultima);
+        if (!chegando.length) return;
+        prepararRolagem("novas");
+        if (!rolagem.current?.noFim) setNovas((n) => n + chegando.length);
+        setLista((l) => juntar(l, chegando));
+      } catch {
+        // Fica para a próxima volta.
+      }
+    };
+    const t = setInterval(buscar, 8000);
+    document.addEventListener("visibilitychange", buscar);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", buscar);
+    };
+  }, [carga]);
+
+  // Rolou até perto do início: busca a página anterior.
+  const carregarAntigas = useCallback(async () => {
+    const primeira = listaRef.current[0]?.id;
+    if (!primeira || antigasRef.current) return;
+    const quem = alvoRef.current;
+    antigasRef.current = true;
+    setAntigas(true);
+    try {
+      const d = await painelRef.current.pedir<{ mensagens: Mensagem[]; mais?: boolean }>(
+        `/mensagens?usuario=${quem}&limite=${POR_PAGINA}&antes=${primeira}`,
+      );
+      if (quem !== alvoRef.current) return;
+      prepararRolagem("antigas");
+      setLista((l) => juntar(l, d.mensagens));
+      setMais(Boolean(d.mais) && d.mensagens.length > 0);
+    } catch {
+      // Tenta de novo quando a pessoa rolar outra vez.
+    } finally {
+      antigasRef.current = false;
+      setAntigas(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const raiz = fio.current;
+    const alvoTopo = topo.current;
+    if (!raiz || !alvoTopo || !mais || antigas) return;
+    const obs = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && carregarAntigas(), {
+      root: raiz,
+      rootMargin: "320px 0px 0px 0px",
+    });
+    obs.observe(alvoTopo);
+    return () => obs.disconnect();
+  }, [mais, antigas, carga, carregarAntigas]);
+
   const ultima = lista.at(-1)?.id ?? 0;
 
-  // Mensagem nova: rola para o fim e, na própria conversa, marca como lida.
+  // Mensagem nova na própria conversa: marca como lida.
   useEffect(() => {
-    const el = fio.current;
-    if (el) el.scrollTop = el.scrollHeight;
     if (!ultima || !propria) return;
-    painel
+    painelRef.current
       .pedir("/lido", { ate: ultima })
       .then(() => qc.invalidateQueries({ queryKey: ["suporte-estado"] }))
       .catch(() => undefined);
-  }, [ultima, propria]);
+  }, [ultima, propria, qc]);
 
-  // Resposta do suporte chegando com a conversa aberta: leitores de tela ouvem.
+  // Resposta do suporte chegando com a conversa aberta: leitores de tela ouvem (só as novas, não as antigas que
+  // entram em cima ao rolar).
   const anunciada = useRef(0);
   useEffect(() => {
     const nova = lista.at(-1);
     if (!nova) return;
-    if (anunciada.current && nova.id > anunciada.current && nova.autor !== "usuario" && "ariaNotify" in document)
-      (document as Document & { ariaNotify(t: string): void }).ariaNotify(`Nova mensagem do suporte: ${nova.texto.slice(0, 200)}`);
-    anunciada.current = nova.id;
+    if (anunciada.current && nova.id > anunciada.current && nova.autor !== "usuario") {
+      const t = `Nova mensagem do suporte: ${nova.texto.slice(0, 200)}`;
+      if ("ariaNotify" in document) (document as Document & { ariaNotify(t: string): void }).ariaNotify(t);
+      else setAnuncio(t);
+    }
+    anunciada.current = Math.max(anunciada.current, nova.id);
   }, [lista]);
+
+  function aoRolar() {
+    const el = fio.current;
+    if (!el) return;
+    const perto = el.scrollTop + el.clientHeight >= el.scrollHeight - PERTO_DO_FIM;
+    setNoFim(perto);
+    if (perto) setNovas(0);
+  }
+
+  function irAoFim() {
+    const el = fio.current;
+    if (!el) return;
+    const suave = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: suave ? "smooth" : "auto" });
+    setNovas(0);
+  }
 
   async function enviar(e?: FormEvent) {
     e?.preventDefault();
@@ -328,13 +524,16 @@ function Conversa({ fechar, eu, admin }: { fechar: () => void; eu: number; admin
     setEnviando(true);
     setErro(null);
     try {
-      await painel.pedir("/mensagens", { texto: t, usuario: alvo });
+      const r = await painel.pedir<{ mensagem?: Mensagem }>("/mensagens", { texto: t, usuario: alvo });
       setTexto("");
-      await msgs.refetch();
+      prepararRolagem("fim");
+      if (r.mensagem) setLista((l) => juntar(l, [r.mensagem as Mensagem]));
+      else setLista((l) => [...l]);
     } catch (err) {
       setErro(err instanceof Error ? err.message : String(err));
     } finally {
       setEnviando(false);
+      campo.current?.focus();
     }
   }
 
@@ -346,21 +545,26 @@ function Conversa({ fechar, eu, admin }: { fechar: () => void; eu: number; admin
       </label>
       <textarea
         id="conversa-texto"
+        ref={campo}
         data-autofocus
-        rows={3}
+        rows={2}
         maxLength={4000}
+        enterKeyHint="send"
+        aria-describedby="conversa-dica"
         placeholder={propria ? "Escreva sua mensagem…" : "Responder nesta conversa…"}
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
         onKeyDown={(e) => {
-          if (ehEnter(e) && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            enviar();
-          }
+          // Enter envia; Shift+Enter quebra a linha. Enter que confirma um caractere do IME não envia.
+          if (e.key !== "Enter" || e.shiftKey) return;
+          e.preventDefault();
+          if (ehEnter(e)) enviar();
         }}
       />
       <div className="conversa__acoes">
-        <span className="conversa__dica">Ctrl+Enter envia</span>
+        <span className="conversa__dica" id="conversa-dica">
+          Enter envia. Shift+Enter pula a linha.
+        </span>
         <button className="btn btn--primario" type="submit" disabled={enviando || !texto.trim()}>
           {enviando && <Spinner />} Enviar
         </button>
@@ -373,46 +577,88 @@ function Conversa({ fechar, eu, admin }: { fechar: () => void; eu: number; admin
     </form>
   );
 
+  const vazia = carga === "pronta" && lista.length === 0;
   return (
     <Gaveta titulo="Conversa com o suporte" fechar={fechar} rodape={rodape}>
-      {admin && outrasConversas.length > 0 && (
-        <label className="campo conversa__de">
-          <span>Conversa de</span>
-          <select value={alvo} onChange={(e) => setAlvo(Number(e.target.value))}>
-            <option value={eu}>Você</option>
-            {outrasConversas.map((c) => (
-              <option key={c.usuario} value={c.usuario}>
-                {c.nome || c.email || `Usuário ${c.usuario}`}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {msgs.isLoading ? (
-        <p className="conversa__vazia">
-          <Spinner /> Carregando…
-        </p>
-      ) : msgs.error ? (
-        <p className="conversa__erro" role="alert">
-          {msgs.error.message}
-        </p>
-      ) : lista.length === 0 ? (
-        <div className="conversa__vazia">
-          <p>
-            <strong>Fale com a gente por aqui.</strong>
-          </p>
-          <p>
-            Dúvidas, erros na emissão ou sugestões: escreva quando quiser. A conversa fica guardada e a resposta aparece
-            neste ícone, mesmo que você feche o sistema.
-          </p>
+      <div className="conversa">
+        {admin && outrasConversas.length > 0 && (
+          <label className="campo conversa__de">
+            <span>Conversa de</span>
+            <select value={alvo} onChange={(e) => setAlvo(Number(e.target.value))}>
+              <option value={eu}>Você</option>
+              {outrasConversas.map((c) => (
+                <option key={c.usuario} value={c.usuario}>
+                  {c.nome || c.email || `Usuário ${c.usuario}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <div className="conversa__caixa">
+          <div className="conversa__fio" ref={fio} onScroll={aoRolar} tabIndex={0} aria-label="Mensagens">
+            {carga === "carregando" ? (
+              <p className="conversa__vazia">
+                <Spinner /> Carregando…
+              </p>
+            ) : carga === "erro" ? (
+              <p className="conversa__erro" role="alert">
+                {erroCarga}
+              </p>
+            ) : vazia ? (
+              <div className="conversa__vazia">
+                <p>
+                  <strong>Fale com a gente por aqui.</strong>
+                </p>
+                <p>
+                  Dúvidas, erros na emissão ou sugestões: escreva quando quiser. A conversa fica guardada e a resposta
+                  aparece neste ícone, mesmo que você feche o sistema.
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="conversa__topo" ref={topo}>
+                  {antigas ? (
+                    <>
+                      <Spinner /> Carregando mensagens anteriores…
+                    </>
+                  ) : mais ? (
+                    ""
+                  ) : (
+                    "Início da conversa"
+                  )}
+                </p>
+                {porDia(lista).map((dia) => (
+                  <section key={dia.chave} className="conversa__dia" aria-label={dia.rotulo}>
+                    <h3 className="conversa__data">
+                      <span>{dia.rotulo}</span>
+                    </h3>
+                    <ol className="conversa__msgs">
+                      {dia.mensagens.map((m) => (
+                        <Bolha key={m.id} m={m} eu={eu} />
+                      ))}
+                    </ol>
+                  </section>
+                ))}
+              </>
+            )}
+          </div>
+          {(!noFim || novas > 0) && carga === "pronta" && !vazia && (
+            <button
+              type="button"
+              className="conversa__ir-fim"
+              onClick={irAoFim}
+              aria-label={novas ? `${novas === 1 ? "1 mensagem nova" : `${novas} mensagens novas`}: ir para o fim` : "Ir para as últimas mensagens"}
+              title="Ir para as últimas mensagens"
+            >
+              <SetaBaixo />
+              {novas > 0 && <span className="conversa__ir-fim-n num">{novas > 9 ? "9+" : novas}</span>}
+            </button>
+          )}
         </div>
-      ) : (
-        <ol className="conversa__fio" ref={fio} aria-live="polite">
-          {lista.map((m) => (
-            <Bolha key={m.id} m={m} eu={eu} />
-          ))}
-        </ol>
-      )}
+        <p className="sr-only" aria-live="polite">
+          {anuncio}
+        </p>
+      </div>
     </Gaveta>
   );
 }
