@@ -136,9 +136,16 @@ class SefinClient:
         return self._resposta_nfse(dados, "emitir")
 
     def consultar_dps(self, id_dps: str) -> str | None:
-        """``GET /dps/{id}`` — retorna a chave de acesso se a DPS já gerou NFS-e."""
+        """``GET /dps/{id}`` — retorna a chave de acesso se a DPS já gerou NFS-e.
+
+        Desde 28/11/2026 a Produção Restrita recusa o Id com o literal "DPS" (400 E2400: "o ID da DPS deve conter 42
+        números") e aceita só os 42 dígitos; a produção aceita o Id completo. Com o E2400, repete sem o "DPS".
+        """
         url = f"{self.ambiente.sefin_url}/dps/{id_dps}"
         resp = self._request("GET", url, "consultar_dps")
+        if resp.status_code == 400 and id_dps.startswith("DPS") and "E2400" in resp.text:
+            url = f"{self.ambiente.sefin_url}/dps/{id_dps[3:]}"
+            resp = self._request("GET", url, "consultar_dps")
         if resp.status_code == 404:
             return None
         dados = self._json(resp, "consultar_dps")

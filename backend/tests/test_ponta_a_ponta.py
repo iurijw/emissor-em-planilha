@@ -1026,6 +1026,19 @@ def test_rejeicao_queda_e_certificado_recusado(api, sim, pfx_bytes, nfse_exemplo
     assert [e["status"] for e in lote["emissoes"]] == ["erro", "nao_enviada", "nao_enviada"]
 
 
+def test_consulta_da_dps_so_com_os_42_digitos(api, sim, pfx_bytes, nfse_exemplo_bytes):
+    """Desde 28/11/2026 a Produção Restrita recusa o Id com "DPS" na consulta /dps (E2400): a nota cuja resposta se
+    perdeu continua sendo recuperada pela consulta, sem ser enviada de novo."""
+    _onboarding(api, pfx_bytes, nfse_exemplo_bytes)
+    sim.dps_sem_prefixo = True
+    sim.cair_apos_processar = 1
+    ids = _linhas(api, [{"nome": "A", "documento": TOMADOR_CNPJ, "valor": "10", "descricao": "a"}])
+    e = _emitir(api, ids)["emissoes"][0]
+    assert e["status"] == "autorizada", e
+    assert len(sim.notas) == 1
+    _conferir_nota(api, sim, e, documento=TOMADOR_CNPJ, valor="10.00")
+
+
 def test_sefin_troca_o_pacote_da_nt009(api, sim, pfx_bytes, nfse_exemplo_bytes):
     """A Produção Restrita recusou o indDest em infDPS em 26/11/2026 de manhã e passou a exigi-lo à tarde (E1235):
     a DPS é montada de novo no outro pacote e reenviada, com o mesmo Id, sem a pessoa ver a recusa."""

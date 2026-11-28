@@ -135,6 +135,8 @@ class SefinSimulada:
         self.servicos_nao_administrados: set[tuple[str, str]] = set()
         # pacote da NT 009 que a "Sefin" usa (None = aceita qualquer um): com outro, recusa com o E1235 real
         self.pacote_nt009: str | None = None
+        # consulta /dps só com os 42 dígitos (como a Produção Restrita desde 28/11/2026): o Id com "DPS" dá E2400
+        self.dps_sem_prefixo: bool = False
         # (município, cTribNac) → cTribMun: a prefeitura cadastrou o serviço só com o desdobramento municipal
         # (06.04.01.604 em Barretos, ADN real em 25/11/2026): ``.000`` responde 404 e outro desdobramento também.
         self.so_desdobramento: dict[tuple[str, str], str] = {}
@@ -171,11 +173,18 @@ class SefinSimulada:
     def _sefin(self, req: httpx.Request, path: str, cert: Certificado, tp_amb: str) -> httpx.Response:
         if req.method == "POST" and path == "/nfse":
             return self._emitir(req, cert, tp_amb)
-        if m := re.fullmatch(r"/dps/(DPS\w{42})", path):
-            chave = self.por_dps.get(m.group(1))
+        if m := re.fullmatch(r"/dps/(DPS)?(\w{42})", path):
+            if self.dps_sem_prefixo and m.group(1):
+                erro = {
+                    "codigo": "E2400",
+                    "descricao": "Identificador mal formado. O ID da DPS deve conter 42 números.",
+                }
+                return httpx.Response(400, json={"tipoAmbiente": int(tp_amb), "erro": erro})
+            id_dps = "DPS" + m.group(2)
+            chave = self.por_dps.get(id_dps)
             if chave is None or self.notas[chave].tp_amb != tp_amb:
                 return httpx.Response(404, json={"erro": [{"codigo": "SIM404", "descricao": "DPS não encontrada"}]})
-            return httpx.Response(200, json={"chaveAcesso": chave, "idDps": m.group(1)})
+            return httpx.Response(200, json={"chaveAcesso": chave, "idDps": id_dps})
         if req.method == "GET" and (m := re.fullmatch(r"/nfse/(\w{50})", path)):
             nota = self.notas.get(m.group(1))
             if nota is None or nota.tp_amb != tp_amb:
