@@ -217,6 +217,10 @@ Lote: `em_andamento | concluido | interrompido | cancelado`.
   e valor da NFS-e achada em `/dps/{id}` com os da DPS enviada; se diferem, `NumeracaoEmUso`: a emissão fica `rejeitada`
   (E0014 com número/data/tomador da nota existente e a dica de trocar a série ou a próxima DPS) e o lote é interrompido.
   Até a 0.6.1 a nota alheia era adotada como emitida (visto numa instalação antiga em 27/10/2026).
+- **Consulta `/dps` sem o literal "DPS" na Produção Restrita** (2026-11-28): desde 28/11/2026 ela responde 400 E2400
+  ("o ID da DPS deve conter 42 números") ao Id completo e aceita só os 42 dígitos; a produção aceita o Id completo.
+  `SefinClient.consultar_dps` repete sem o "DPS" quando recebe o E2400 (antes, a nota emitida com a resposta perdida ficava
+  `rejeitada`). Sefin simulada: `dps_sem_prefixo`.
 - `POST /api/emissoes/{id}/verificar`: resolve emissões com erro de comunicação consultando a Sefin.
 - Validação prévia (`POST /api/tabela/validar`): erros bloqueiam; avisos (sem endereço, CNPJ não ATIVO,
   mesma nota já autorizada no mês para o mesmo cliente e valor) só alertam.
@@ -1145,5 +1149,6 @@ Requisito da hospedagem paga, sem serviço pago (nada de SMS nem e-mail): tudo e
 | 2026-11-22 | Logo nova: três folhas em lote (#B3E0F3, #66C1E7, #0098D7) com a grade vazada atravessando as três e o canto dobrado preto (claro no escuro); `logo.svg`, `Logo` em `ui.tsx`, `sw.js`, `favicon.png` e `docs/img/logo.png` | Pedido do Iuri: a anterior parecia básica; conceito gerado no Higgsfield e redesenhado à mão |
 | 2026-11-26 | Terceiro leiaute (`v1_01_nt009_20261124`) só para a homologação desde 25/11; produção segue no pacote de 20/10 a partir de 01/12 | A Produção Restrita trocou o pacote em 25/11 (indDest obrigatório em infDPS) e a DPS antiga passou a ser recusada; não há pacote de produção publicado para saber qual vale em 01/12 |
 | 2026-11-26 | Homologação de volta ao pacote de 20/10 | A Produção Restrita recusou indDest em infDPS (E1235) numa instância de cliente: o pacote de 24/11 ainda não vale lá |
+| 2026-11-28 | Consulta `/dps` repetida só com os 42 dígitos quando a Sefin responde E2400 | A Produção Restrita passou a recusar o Id com "DPS" na consulta (checagem diária, só leitura); sem isso uma nota emitida com a resposta perdida ficaria como recusada |
 | 2026-11-27 | Homologação no pacote de 24/11 e, num E1235 sobre o indDest, a mesma DPS reenviada no outro pacote da NT 009 (homologação e produção) | Horas depois a Produção Restrita passou a exigir o indDest: a Sefin troca de pacote sem aviso, e acertar a versão a cada troca deixa os clientes parados |
 | 2026-10-22 | Cada PR (do próprio repositório) publica a imagem `:pr-N` e move a `:dev`, que cada release também move; a instância `teste` da hospedagem segue a `:dev` (canal dev do painel) | Pedido do Iuri: conferir mudanças de tela na instância de testes antes de publicar a release para os clientes |
